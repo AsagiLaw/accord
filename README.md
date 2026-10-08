@@ -1,36 +1,30 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 依頼ノート
 
-## Getting Started
+イラストレーターとマネージャーの2人で使う、依頼・メディア・チャットの管理アプリ。
+Discord・Notion・画像整理ソフトの3つを、このアプリ1つにまとめるのがバージョン1の目的。
 
-First, run the development server:
+- 設計書：https://claude.ai/code/artifact/9c8a734d-4b1a-4a61-bb37-19e9e8b274b7
+- 試作：`docs/prototype/依頼ノート.html`（メディアの仕組みはここから移植する）
+
+## 今の動かし方（ローカル版）
+
+今はサーバーを使わず、データはブラウザの中（IndexedDB）に保存している。まず画面と操作を作り、あとでサーバー版（Supabase）に移す。
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+http://localhost:3000 を開く。初回は「マネージャー」「イラストレーター」の2人と、ルーム「依頼ノート」、チャット「雑談」が自動で作られる。サイドバー下の「利用者」で、どちらとして操作するかを切り替えられる。利用者はタブごとに覚えるので、2つのタブを別々の人にすればチャットのやり取りを試せる。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- データの出し入れは `src/lib/local/` にまとめてある。サーバー版に移るときは、ここを差し替える
+- サーバー版のデータベース設計は `supabase/migrations/`、接続部品は `src/lib/supabase/` に用意してある（今は使っていない）
+- 設定の「名称表示」をオンにすると、カーソルを置いた場所の名前が出る（改善の指示を出すとき用）。区画の名前は各部品の `data-name` 属性で付けている
+- データを消して最初からやり直すときは、ブラウザの開発者ツール → Application → IndexedDB → `irai-note` を削除する
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 開発ステップ（設計書 9章）
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. 土台：ルーム、メンバー、サイドバー（ローカル版。ログインと招待リンクはサーバー版で） ✓
+2. メディア：試作の仕組みを移植（ローカル版は画像をブラウザに保存） ✓
+3. チャット：リアルタイム、メディア経由の画像送信、未読数（ローカル版。スマホへの通知はサーバー版で） ✓
+4. 依頼：依頼データベース、ビュー（現在の依頼・テーブル・タイムライン・カレンダー・収入・終了した依頼）、依頼進行チャットとやり取り再現チャット、Notion からの取り込み ✓
+5. ノート：ブロック式のノートページ（画像はメディアから、依頼ビューの埋め込み、依頼ページのメモ） ✓
