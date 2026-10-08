@@ -83,6 +83,9 @@ export function arrange(list: Media[], prefs: MediaPrefs): Media[] {
 }
 
 /** ライブラリーの表紙に使う画像（最大3枚） */
-export function coverOf(media: Media[], libId: string): Media[] {
-  return media.filter((m) => !m.trashed && m.libIds.includes(libId)).slice(0, 3);
+/** カードの表紙に出す画像3枚。代表の画像（repOf）があれば、それを先頭（左の大きい四角）にする */
+export function coverOf(media: Media[], lib: Library): Media[] {
+  const list = media.filter((m) => !m.trashed && m.libIds.includes(lib.id));
+  const rep = repOf(media, lib);
+  return [...list.filter((m) => m.id === rep), ...list.filter((m) => m.id !== rep)].slice(0, 3);
 }

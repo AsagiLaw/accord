@@ -98,7 +98,7 @@ export function MediaGrid({
                       setRepresentative(lib.id, m.id);
                     }}
                     onDoubleClick={(e) => e.stopPropagation()}
-                    className={`absolute top-1 right-10 grid h-8 w-8 place-items-center rounded-full bg-black/40 transition ${
+                    className={`absolute right-1 bottom-1 grid h-8 w-8 place-items-center rounded-full bg-black/40 transition ${
                       parentRep === m.id ? "text-accent opacity-100" : "text-white opacity-0 group-hover:opacity-100 focus:opacity-100"
                     }`}
                   >

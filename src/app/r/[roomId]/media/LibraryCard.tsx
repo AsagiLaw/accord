@@ -53,12 +53,15 @@ export function CoverCard({
       </span>
     </>
   );
-  const cls = `relative block w-full rounded-[12px] p-1.5 text-left transition hover:bg-tint ${active ? "bg-tint ring-2 ring-accent" : ""}`;
+  // 大きさをそろえるときは画像一覧と同じ見せ方：内側の余白を付けず、カーソルで少し浮き、押すと縮む
+  const cls = `relative block w-full rounded-[12px] text-left transition ${
+    size ? "duration-300 select-none hover:-translate-y-[3px] active:scale-95" : "p-1.5 hover:bg-tint"
+  } ${active ? "bg-tint ring-2 ring-accent" : ""}`;
   return (
     <div
       data-name={`カード「${name}」`}
       className="relative"
-      style={size ? { width: size * 1.5 + 2 + 12 } : undefined}
+      style={size ? { width: size * 1.5 + 2 } : undefined}
     >
       {href ? (
         <Link href={href} className={cls}>

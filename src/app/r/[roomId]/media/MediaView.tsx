@@ -5,6 +5,13 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { promptText } from "@/components/ui/overlay";
+import {
+  MenuDivider,
+  MenuItem,
+  MenuLabel,
+  Popover,
+  usePopover,
+} from "@/components/ui/Popover";
 import { renameMedia, setFav } from "@/lib/local/media";
 import { useBlobUrl } from "@/lib/media/blob-url";
 import {
@@ -19,7 +26,6 @@ import {
 import { useMediaPrefs } from "@/lib/media/prefs";
 import {
   deleteForeverFlow,
-  groupFlow,
   removeFromLibraryFlow,
   renameLibraryFlow,
   restoreFlow,
@@ -55,6 +61,29 @@ export function MediaView({ view }: { view: MediaViewKind }) {
   const base = `/r/${roomId}/media`;
   const [selectMode, setSelectMode] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const ctx = usePopover();
+  // 小ライブラリーの並びを閉じているか。端末ごとに覚える（どのライブラリーでも同じ）
+  const [kidsClosed, setKidsClosed] = useState(() => {
+    try {
+      return localStorage.getItem("irai-note:media-kids-closed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleKids = () => {
+    setKidsClosed(!kidsClosed);
+    try {
+      localStorage.setItem(
+        "irai-note:media-kids-closed",
+        kidsClosed ? "0" : "1",
+      );
+    } catch {
+      // 覚えられなくても、このページの間は効く
+    }
+  };
+  const [ctxKind, setCtxKind] = useState<"media" | "viewing" | "empty">(
+    "media",
+  );
 
   const lib =
     view.kind === "lib" ? libs.find((l) => l.id === view.id) : undefined;
@@ -118,6 +147,27 @@ export function MediaView({ view }: { view: MediaViewKind }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [selected, setSelected, view.kind, roomId, list]);
 
+  // 右クリック：大きく表示している画像・一覧の画像・ライブラリーの何もない所で、それぞれのメニューを出す
+  const openCtx = ctx.openAt;
+  useEffect(() => {
+    const onCtx = (e: MouseEvent) => {
+      const t = e.target as Element;
+      if (viewingMedia && t.closest('[data-name="画像の大きな表示"]')) {
+        setCtxKind("viewing");
+      } else if (t.closest('[data-name="画像一覧"] [data-media]')) {
+        const id = t.closest<HTMLElement>("[data-media]")!.dataset.media!;
+        // 選んでいない画像を右クリックしたら、その画像だけを選ぶ
+        if (!selected.includes(id)) setSelected([id]);
+        setCtxKind("media");
+      } else if (lib && t.closest('[data-name="メディア画面"]')) {
+        setCtxKind("empty");
+      } else return;
+      openCtx(e);
+    };
+    window.addEventListener("contextmenu", onCtx);
+    return () => window.removeEventListener("contextmenu", onCtx);
+  }, [viewingMedia, selected, setSelected, lib, openCtx]);
+
   if (view.kind === "lib" && !lib) {
     return (
       <p className="text-muted">
@@ -135,78 +185,133 @@ export function MediaView({ view }: { view: MediaViewKind }) {
     setSelectMode(false);
   };
 
-  const actions =
-    view.kind === "trash" ? (
-      <>
-        <button
-          className="btn-sub"
-          disabled={!n}
-          onClick={() => restoreFlow(selected).then(done)}
-        >
-          <Icon name="restore" />
-          復元
-        </button>
-        <button
-          className="btn-sub text-warn"
-          disabled={!n}
-          onClick={() => deleteForeverFlow(selected, media, me.id).then(done)}
-        >
-          完全に削除
-        </button>
-      </>
-    ) : (
-      <>
-        <button
-          className="btn w-8 px-0"
-          disabled={!n}
-          onClick={() => s.setOrganizing(selected)}
-          aria-label="整理"
-          title="整理（ライブラリーに入れる・出す）"
-        >
-          <Icon name="tag" />
-        </button>
-        {n > 0 && (
-          <>
-            <button
-              className="btn-sub w-8 px-0"
-              onClick={() => setFav(selected, true).then(done)}
-              aria-label="お気に入りに追加"
-              title="お気に入りに追加"
+  // 画像の操作は右クリックのメニューで出す（上のバーには並べ替えと表示だけ置く）
+  const ctxItems = (): React.ReactNode => {
+    const run = (fn: () => unknown) => () => {
+      ctx.close();
+      fn();
+    };
+    if (ctxKind === "viewing" && viewingMedia) {
+      return (
+        <>
+          <MenuItem
+            icon={<Icon name="albumAdd" size={16} />}
+            onClick={run(() => s.setOrganizing([viewingMedia.id]))}
+          >
+            整理
+          </MenuItem>
+          <MenuItem
+            icon={<Icon name="star" size={16} />}
+            onClick={run(() => setFav([viewingMedia.id], !viewingMedia.fav))}
+          >
+            {viewingMedia.fav ? "お気に入りから外す" : "お気に入りに追加"}
+          </MenuItem>
+          {originalUrl && (
+            <MenuItem
+              icon={<Icon name="download" size={16} />}
+              onClick={run(() => {
+                const a = document.createElement("a");
+                a.href = originalUrl;
+                a.download = viewingMedia.fileName;
+                a.click();
+              })}
             >
-              <Icon name="star" />
-            </button>
-            <button
-              className="btn-sub w-8 px-0"
-              onClick={() => groupFlow(roomId, selected, lib).then(done)}
-              aria-label="まとめる"
-              title="まとめる（選んだ画像で新しいライブラリーを作る）"
-            >
-              <Icon name="folder" />
-            </button>
-            {lib && (
-              <button
-                className="btn-sub"
-                onClick={() =>
-                  removeFromLibraryFlow(roomId, lib, selected).then(done)
-                }
-                title="このライブラリーから出す"
+              元の画像を保存
+            </MenuItem>
+          )}
+          {!viewingMedia.trashed && (
+            <>
+              <MenuDivider />
+              <MenuItem
+                danger
+                icon={<Icon name="del" size={16} />}
+                onClick={run(() => {
+                  const v = s.viewing!;
+                  const rest = v.list.filter((x) => x !== viewingMedia.id);
+                  const at = v.list.indexOf(viewingMedia.id);
+                  trashFlow(roomId, [viewingMedia.id]);
+                  s.setViewing(rest[at] ?? rest[at - 1] ?? null, rest);
+                })}
               >
-                <span className="hidden lg:inline">ライブラリーから出す</span>
-                <span className="lg:hidden">出す</span>
-              </button>
+                ゴミ箱へ
+              </MenuItem>
+            </>
+          )}
+        </>
+      );
+    }
+    if (ctxKind === "empty" && lib) {
+      return (
+        <MenuItem
+          icon={<Icon name="add" size={16} />}
+          onClick={run(() => s.setAddingTo(lib.id))}
+        >
+          このライブラリーに画像を追加
+        </MenuItem>
+      );
+    }
+    if (!n) return null;
+    const label = <MenuLabel>{n}枚の画像</MenuLabel>;
+    if (view.kind === "trash") {
+      return (
+        <>
+          {label}
+          <MenuItem
+            icon={<Icon name="restore" size={16} />}
+            onClick={run(() => restoreFlow(selected).then(done))}
+          >
+            復元
+          </MenuItem>
+          <MenuDivider />
+          <MenuItem
+            danger
+            icon={<Icon name="del" size={16} />}
+            onClick={run(() =>
+              deleteForeverFlow(selected, media, me.id).then(done),
             )}
-            <button
-              className="btn-sub w-8 px-0"
-              onClick={() => trashFlow(roomId, selected).then(done)}
-              aria-label="ゴミ箱へ"
-              title="ゴミ箱へ"
-            >
-              <Icon name="del" />
-            </button>
-          </>
+          >
+            完全に削除
+          </MenuItem>
+        </>
+      );
+    }
+    const allFav = selected.every((id) => s.byId.get(id)?.fav);
+    return (
+      <>
+        {label}
+        <MenuItem
+          icon={<Icon name="albumAdd" size={16} />}
+          onClick={run(() => s.setOrganizing(selected))}
+        >
+          整理
+        </MenuItem>
+        <MenuItem
+          icon={<Icon name="star" size={16} />}
+          onClick={run(() => setFav(selected, !allFav).then(done))}
+        >
+          {allFav ? "お気に入りから外す" : "お気に入りに追加"}
+        </MenuItem>
+        {lib && (
+          <MenuItem
+            icon={<Icon name="out" size={16} />}
+            onClick={run(() =>
+              removeFromLibraryFlow(roomId, lib, selected).then(done),
+            )}
+          >
+            このライブラリーから出す
+          </MenuItem>
         )}
+        <MenuDivider />
+        <MenuItem
+          danger
+          icon={<Icon name="del" size={16} />}
+          onClick={run(() => trashFlow(roomId, selected).then(done))}
+        >
+          ゴミ箱へ
+        </MenuItem>
       </>
     );
+  };
 
   const crumbs = lib ? chain(libs, lib.id) : [];
 
@@ -276,16 +381,6 @@ export function MediaView({ view }: { view: MediaViewKind }) {
                 )}
               </span>
             ))}
-            {lib && !viewingMedia && (
-              <button
-                className="btn-sub ml-1 h-8 min-h-0 w-8 shrink-0 px-0"
-                aria-label="このライブラリーに画像を追加"
-                title="画像を追加"
-                onClick={() => s.setAddingTo(lib.id)}
-              >
-                <Icon name="add" />
-              </button>
-            )}
             {viewingMedia && (
               <span className="flex min-w-0 items-center gap-1">
                 <Icon name="rt" size={14} className="shrink-0 text-muted" />
@@ -305,52 +400,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
               </span>
             )}
           </nav>
-          {viewingMedia ? (
-            // 大きく表示している間は、その画像の操作だけを出す
-            <div
-              data-name="画像の操作ボタン"
-              className="flex items-center gap-2"
-            >
-              <button
-                className={`${viewingMedia.fav ? "btn" : "btn-sub"} w-10 px-0`}
-                aria-label={
-                  viewingMedia.fav ? "お気に入りから外す" : "お気に入りに追加"
-                }
-                aria-pressed={viewingMedia.fav}
-                title="お気に入り"
-                onClick={() => setFav([viewingMedia.id], !viewingMedia.fav)}
-              >
-                <Icon name="star" />
-              </button>
-              {originalUrl && (
-                <a
-                  href={originalUrl}
-                  download={viewingMedia.fileName}
-                  className="btn-sub w-10 px-0"
-                  aria-label="元の画像を保存"
-                  title="元の画像を保存"
-                >
-                  <Icon name="download" />
-                </a>
-              )}
-              {!viewingMedia.trashed && (
-                <button
-                  className="btn-sub w-10 px-0"
-                  aria-label="ゴミ箱へ"
-                  title="ゴミ箱へ"
-                  onClick={() => {
-                    const v = s.viewing!;
-                    const rest = v.list.filter((x) => x !== viewingMedia.id);
-                    const at = v.list.indexOf(viewingMedia.id);
-                    trashFlow(roomId, [viewingMedia.id]);
-                    s.setViewing(rest[at] ?? rest[at - 1] ?? null, rest);
-                  }}
-                >
-                  <Icon name="del" />
-                </button>
-              )}
-            </div>
-          ) : (
+          {!viewingMedia && (
             <div
               data-name="操作ボタン"
               className="flex shrink-0 items-center justify-end gap-2"
@@ -360,8 +410,8 @@ export function MediaView({ view }: { view: MediaViewKind }) {
                   {n}枚選択中
                 </span>
               )}
-              {(view.kind !== "home" || n > 0) && actions}
               <SortMenu showLibMode={view.kind === "lib"} />
+              {/* タッチの端末だけ：複数の画像を選ぶための切り替え */}
               {!isPointerFine() && (
                 <button
                   className={selectMode ? "btn" : "btn-sub"}
@@ -374,6 +424,14 @@ export function MediaView({ view }: { view: MediaViewKind }) {
           )}
         </div>
       </TopBarActions>
+      <Popover
+        anchor={ctx.anchor}
+        onClose={ctx.close}
+        width={240}
+        label="画像のメニュー"
+      >
+        {ctxItems()}
+      </Popover>
 
       <div className="flex gap-5">
         <div className="min-w-0 flex-1">
@@ -383,21 +441,39 @@ export function MediaView({ view }: { view: MediaViewKind }) {
             <>
               {lib && childrenOf(libs, lib.id).length > 0 && (
                 <>
-                  <h3 className="mb-2 font-bold">小ライブラリー</h3>
-                  <div
-                    data-name="小ライブラリーの並び"
-                    className="mb-5 flex flex-wrap gap-2"
-                  >
-                    {childrenOf(libs, lib.id).map((k) => (
-                      <CoverCard
-                        size={cardSize}
-                        key={k.id}
-                        href={`${base}/lib/${k.id}`}
-                        name={k.name}
-                        covers={coverOf(media, k.id)}
-                      />
-                    ))}
-                  </div>
+                  {/* 見出しを押すと、小ライブラリーの並びを閉じる・開く */}
+                  <h3 className="mb-2 font-bold">
+                    <button
+                      type="button"
+                      aria-expanded={!kidsClosed}
+                      onClick={toggleKids}
+                      className="-ml-1 flex items-center gap-1 rounded-[8px] px-1 hover:bg-tint"
+                    >
+                      <Icon name={kidsClosed ? "rt" : "dn"} size={16} />
+                      小ライブラリー
+                      {kidsClosed && (
+                        <span className="text-sm font-normal text-muted">
+                          {childrenOf(libs, lib.id).length}
+                        </span>
+                      )}
+                    </button>
+                  </h3>
+                  {!kidsClosed && (
+                    <div
+                      data-name="小ライブラリーの並び"
+                      className="mb-5 flex flex-wrap gap-2.5"
+                    >
+                      {childrenOf(libs, lib.id).map((k) => (
+                        <CoverCard
+                          size={cardSize}
+                          key={k.id}
+                          href={`${base}/lib/${k.id}`}
+                          name={k.name}
+                          covers={coverOf(media, k)}
+                        />
+                      ))}
+                    </div>
+                  )}
                   <h3 className="mb-2 font-bold">画像</h3>
                 </>
               )}
@@ -463,7 +539,7 @@ function MediaHome({ selectMode }: { selectMode: boolean }) {
       )}
       <section>
         <h3 className="mb-2 font-bold">一覧</h3>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2.5">
           <CoverCard
             size={cardSize}
             href={`${base}/all`}
@@ -490,14 +566,14 @@ function MediaHome({ selectMode }: { selectMode: boolean }) {
       <section>
         <h3 className="mb-2 font-bold">ライブラリー</h3>
         {childrenOf(libs, null).length ? (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2.5">
             {childrenOf(libs, null).map((l) => (
               <CoverCard
                 size={cardSize}
                 key={l.id}
                 href={`${base}/lib/${l.id}`}
                 name={l.name}
-                covers={coverOf(media, l.id)}
+                covers={coverOf(media, l)}
               />
             ))}
           </div>

@@ -202,7 +202,7 @@ export function Lightbox() {
           <Icon name="add" size={28} />
         </button>
         {related.map((l) => {
-          const covers = coverOf(media, l.id);
+          const covers = coverOf(media, l);
           return (
             <button
               key={l.id}

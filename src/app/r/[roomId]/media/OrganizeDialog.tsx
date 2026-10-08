@@ -60,7 +60,7 @@ export function OrganizeDialog({ ids }: { ids: string[] }) {
     const expanded = open[depth] === lib.id;
     return (
       <div key={lib.id} className="w-36 shrink-0">
-        <CoverCard name={lib.name} covers={coverOf(media, lib.id)} active={on} onClick={() => toggle(lib)}>
+        <CoverCard name={lib.name} covers={coverOf(media, lib)} active={on} onClick={() => toggle(lib)}>
           <span
             aria-hidden
             className={`pointer-events-none absolute top-3 right-3 grid h-6 w-6 place-items-center rounded-full border-2 ${on ? "border-accent bg-accent text-accent-ink" : "border-white bg-black/30"}`}

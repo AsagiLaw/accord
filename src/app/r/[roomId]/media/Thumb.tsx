@@ -49,9 +49,10 @@ export function Thumb({
       <span className="pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-16px)] truncate rounded-[10px] bg-black/25 px-2.5 py-px text-xs font-bold text-white backdrop-blur-md [text-shadow:0_1px_3px_#000,0_0_8px_#000a]">
         {m.name}
       </span>
-      {selected && (
+      {/* 複数選んでいるときだけ、選んだ順の番号を出す（1枚だけのときは枠の色だけ） */}
+      {selected && order !== undefined && (
         <span className="absolute top-1.5 left-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-accent px-1 text-xs font-bold text-accent-ink">
-          {order ?? <Icon name="ok" size={14} />}
+          {order}
         </span>
       )}
       {onFav && (
