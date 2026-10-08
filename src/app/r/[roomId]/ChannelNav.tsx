@@ -559,7 +559,6 @@ function DbPages({ dbId, roomId, userId }: { dbId: string; roomId: string; userI
   else if (setting === undefined && database.kind === "request")
     active = pages.filter((p) => p.values[P.status] !== DONE).sort((a, b) => String(a.values[P.due] ?? "9999").localeCompare(String(b.values[P.due] ?? "9999")));
   else return null;
-  const isRequest = database.kind === "request";
   const href = `/r/${roomId}/db/${dbId}`;
   return (
     <>
@@ -576,7 +575,7 @@ function DbPages({ dbId, roomId, userId }: { dbId: string; roomId: string; userI
               setTarget(p);
               menu.openAt(e);
             }}
-            data-name={`${isRequest ? "依頼" : "ページ"}「${p.title || "無題"}」`}
+            data-name={`ページ「${p.title || "無題"}」`}
             className={`flex min-h-[32px] items-center gap-2 rounded-[10px] pr-2 pl-9 text-sm transition ${on ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"} ${n && !on ? "font-bold" : ""}`}
           >
             <span className="min-w-0 flex-1 truncate">
@@ -591,7 +590,7 @@ function DbPages({ dbId, roomId, userId }: { dbId: string; roomId: string; userI
         );
       })}
       {menu.anchor && target && (
-        <Popover anchor={menu.anchor} onClose={menu.close} width={280} label={`${isRequest ? "依頼" : "ページ"}のメニュー`}>
+        <Popover anchor={menu.anchor} onClose={menu.close} width={280} label={`ページのメニュー`}>
           <PageMenu
             database={database}
             page={target}

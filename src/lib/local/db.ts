@@ -11,7 +11,14 @@ export { newId };
 export type RoomRole = "host" | "member";
 
 export type Profile = { id: string; displayName: string; createdAt: number };
-export type Room = { id: string; name: string; createdBy: string; createdAt: number };
+export type Room = {
+  id: string;
+  name: string;
+  /** ルームバーに出すアイコン画像（小さくした画像の data URL）。無ければ名前の最初の1文字 */
+  icon?: string;
+  createdBy: string;
+  createdAt: number;
+};
 export type RoomMember = { roomId: string; userId: string; role: RoomRole; joinedAt: number };
 
 export type Media = {
@@ -959,4 +966,14 @@ db.version(24)
       };
       await tx.table("windows").add(home);
     }
+  });
+
+db.version(25)
+  .stores({})
+  .upgrade(async (tx) => {
+    // 「名前の後ろに付ける言葉」の既定を種類で変えるのをやめる。今まで既定の「様」だった依頼のデータベースには、設定として「様」を入れておく
+    await tx
+      .table("databases")
+      .filter((d: Database) => d.kind === "request" && d.nameSuffix === undefined)
+      .modify({ nameSuffix: "様" });
   });

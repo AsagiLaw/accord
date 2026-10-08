@@ -9,7 +9,7 @@ import { ThumbImage } from "@/components/ThumbImage";
 
 /**
  * メディアから画像を選ぶダイアログ。チャットやノートに画像を貼るときは必ずここを通る。
- * 新しい画像もここからアップロードでき、メディアの「整理されていない画像」に入る。
+ * 新しい画像もここからアップロードでき、メディアの「未整理」に入る。
  */
 export function MediaPicker({
   roomId,
@@ -96,7 +96,7 @@ export function MediaPicker({
           </label>
           <select value={filter} onChange={(e) => setFilter(e.target.value)} className="field w-auto" aria-label="表示する画像">
             <option value="recent">新しい順にすべて</option>
-            <option value="unsorted">整理されていない画像</option>
+            <option value="unsorted">未整理</option>
             <option value="fav">お気に入り</option>
             {(libs ?? []).length > 0 && (
               <optgroup label="ライブラリー">

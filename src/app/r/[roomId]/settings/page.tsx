@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { Icon } from "@/components/Icon";
-import { confirmAction, promptText } from "@/components/ui/overlay";
+import { confirmAction, promptText, toast } from "@/components/ui/overlay";
 import { deleteChannelTemplate, renameChannelTemplate, useChannelTemplates } from "@/lib/local/channelTemplates";
 import { useState } from "react";
-import { addMember, renameProfile, renameRoom, useAllProfiles, useMembers, useRoom } from "@/lib/local/rooms";
+import { addMember, deleteRoom, renameProfile, renameRoom, useAllProfiles, useMembers, useRoom } from "@/lib/local/rooms";
 import { useCurrentUser } from "@/lib/local/session";
 import { setNameHints, useNameHints } from "@/lib/name-hints";
 import { setTheme, useTheme } from "@/lib/theme";
@@ -52,6 +52,7 @@ export default function SettingsPage() {
   const [newName, setNewName] = useState("");
   const theme = useTheme();
   const nameHints = useNameHints();
+  const router = useRouter();
 
   if (!me || !room || !members || !profiles) return null;
   const isHost = members.some((m) => m.userId === me.id && m.role === "host");
@@ -163,6 +164,34 @@ export default function SettingsPage() {
             />
             <button className="btn">追加</button>
           </form>
+        </section>
+      )}
+
+      {isHost && (
+        <section data-name="ルームの削除" className="card space-y-3 border-warn/50">
+          <div>
+            <h2 className="mb-1 font-bold text-warn">ルームを削除</h2>
+            <p className="text-sm text-muted">チャンネル・ページ・メディア・メッセージなど、このルームの中身がすべて消えます。元に戻せません。</p>
+          </div>
+          <button
+            className="btn-sub border-warn text-warn hover:bg-warn hover:text-white"
+            onClick={async () => {
+              const typed = await promptText(`削除するには、ルーム名「${room.name}」を入力してください`, "", room.name);
+              if (typed === null) return;
+              if (typed.trim() !== room.name) {
+                toast("ルーム名が違うため、削除しませんでした");
+                return;
+              }
+              if (!(await confirmAction(`ルーム「${room.name}」を削除します`, "削除", "元に戻せません。"))) return;
+              // 消したルームの画面に残らないよう、先に移動してから消す
+              router.replace("/");
+              await deleteRoom(roomId);
+              toast(`ルーム「${room.name}」を削除しました`);
+            }}
+          >
+            <Icon name="del" />
+            ルームを削除
+          </button>
         </section>
       )}
     </div>

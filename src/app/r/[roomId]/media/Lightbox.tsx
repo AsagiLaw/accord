@@ -57,11 +57,11 @@ export function Lightbox() {
     if (next) setViewing(next, viewing!.list);
   };
 
-  // メイン画面のうち、上の操作バーより下を覆う
+  // メイン画面のうち、上の細いバー（場所と操作）より下を覆う
   useLayoutEffect(() => {
     const place = () => {
       const main = document.querySelector('main[data-name="メイン画面"]')?.getBoundingClientRect();
-      const bar = document.querySelector('[data-name="上部の操作バー"]')?.getBoundingClientRect();
+      const bar = document.querySelector('header[data-name="上部バー"]')?.getBoundingClientRect();
       if (!main) return setBox({ left: 0, top: 0, right: 0 });
       setBox({ left: main.left, top: bar ? Math.max(main.top, bar.bottom) : main.top, right: window.innerWidth - main.right });
     };

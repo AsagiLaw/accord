@@ -30,7 +30,7 @@ export function NewPageDialog({
   const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...newPageDefaults(database), ...template?.values, ...initial }));
   const [busy, setBusy] = useState(false);
   const titleProp = database.props.find((p) => p.type === "title");
-  const label = database.kind === "request" ? "依頼" : "ページ";
+  const label = "ページ";
 
   return (
     <div className="fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center">

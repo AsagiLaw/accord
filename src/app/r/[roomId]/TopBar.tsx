@@ -25,7 +25,8 @@ export function TopBar({ roomId, slotRef }: { roomId: string; slotRef: (el: HTML
   const [kind, id, sub, subId] = pathname.slice(`/r/${roomId}`.length).split("/").filter(Boolean);
   return (
     <header data-name="上部バー" className="flex h-[52px] shrink-0 items-center gap-2 border-b border-line pr-2 pl-[60px] text-sm md:h-8 md:px-[clamp(16px,4vw,40px)]">
-      <nav aria-label="今の画面" className="flex min-w-0 flex-1 items-center gap-0.5">
+      {/* メディアは場所の表示と操作をまとめて右の場所に入れるので、ここには何も出さない */}
+      <nav aria-label="今の画面" className={`min-w-0 flex-1 items-center gap-0.5 ${kind === "media" ? "hidden" : "flex"}`}>
         {kind === "window" ? (
           <WindowCrumb roomId={roomId} id={id} />
         ) : kind === "db" ? (
@@ -34,13 +35,11 @@ export function TopBar({ roomId, slotRef }: { roomId: string; slotRef: (el: HTML
           <NoteCrumb roomId={roomId} id={id} />
         ) : kind === "chat" ? (
           <ChatCrumb roomId={roomId} id={id} />
-        ) : kind === "media" ? (
-          <Crumb icon={<Icon name="img" size={16} />} label="メディア" />
         ) : kind === "settings" ? (
           <Crumb icon={<Icon name="gear" size={16} />} label="設定" />
         ) : null}
       </nav>
-      <div ref={slotRef} data-name="上部バーの操作" className="flex shrink-0 items-center gap-2" />
+      <div ref={slotRef} data-name="上部バーの操作" className={`flex items-center gap-2 ${kind === "media" ? "min-w-0 flex-1" : "shrink-0"}`} />
     </header>
   );
 }

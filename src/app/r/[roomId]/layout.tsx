@@ -34,7 +34,24 @@ export default function RoomLayout({ children }: { children: React.ReactNode }) 
   }
 
   return (
-    <div className="flex h-dvh">
+    <div className="flex h-dvh flex-col">
+      {/* 画面のいちばん上の細いバー：今いるルームの名前 */}
+      <div
+        data-name="ルーム名バー"
+        className="flex h-6 shrink-0 items-center justify-center gap-1.5 border-b border-line bg-rail px-4 text-xs font-bold text-muted"
+      >
+        {/* ルームバーと同じアイコン：画像が無ければ名前の最初の1文字 */}
+        {room.icon ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={room.icon} alt="" className="h-4 w-4 rounded-[4px] object-cover" />
+        ) : (
+          <span aria-hidden className="grid h-4 w-4 place-items-center rounded-[4px] border border-line bg-card text-[10px] leading-none text-ink">
+            {Array.from(room.name.trim())[0] ?? "?"}
+          </span>
+        )}
+        <span className="truncate">{room.name}</span>
+      </div>
+      <div className="flex min-h-0 flex-1">
       <Sidebar room={room} rooms={myRooms} me={me} />
       <main data-name="メイン画面" className="flex min-w-0 flex-1 flex-col">
         {/* Discord のような細いバー：今の画面のアイコンと名前 */}
@@ -45,6 +62,7 @@ export default function RoomLayout({ children }: { children: React.ReactNode }) 
           </div>
         </TopBarSlot.Provider>
       </main>
+      </div>
     </div>
   );
 }

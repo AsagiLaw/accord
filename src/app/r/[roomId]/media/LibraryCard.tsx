@@ -13,6 +13,7 @@ export function CoverCard({
   onClick,
   children,
   active,
+  size,
 }: {
   href?: string;
   name: string;
@@ -21,25 +22,44 @@ export function CoverCard({
   onClick?: () => void;
   children?: React.ReactNode;
   active?: boolean;
+  /** 左の大きい四角の一辺（px）。画像一覧の画像と同じ大きさにそろえるときに渡す。無ければ幅いっぱいに広がる */
+  size?: number;
 }) {
   const body = (
     <>
-      <div className="grid aspect-[3/2] grid-cols-[2fr_1fr] grid-rows-2 gap-0.5 overflow-hidden rounded-[10px] bg-line/40">
+      <div
+        className={`grid grid-rows-2 gap-0.5 overflow-hidden rounded-[10px] bg-line/40 ${size ? "" : "aspect-[3/2] grid-cols-[2fr_1fr]"}`}
+        style={
+          size
+            ? { height: size, gridTemplateColumns: `${size}px ${size / 2}px` }
+            : undefined
+        }
+      >
         {[0, 1, 2].map((i) => (
           <div key={i} className={i === 0 ? "row-span-2" : ""}>
-            {covers[i] ? <ThumbImage id={covers[i].id} alt="" /> : <span className="block h-full w-full bg-line/30" />}
+            {covers[i] ? (
+              <ThumbImage id={covers[i].id} alt="" />
+            ) : (
+              <span className="block h-full w-full bg-line/30" />
+            )}
           </div>
         ))}
       </div>
       <span className="mt-1 block truncate text-sm">
         {name}
-        {count !== undefined && <span className="ml-1.5 text-muted">{count}</span>}
+        {count !== undefined && (
+          <span className="ml-1.5 text-muted">{count}</span>
+        )}
       </span>
     </>
   );
   const cls = `relative block w-full rounded-[12px] p-1.5 text-left transition hover:bg-tint ${active ? "bg-tint ring-2 ring-accent" : ""}`;
   return (
-    <div data-name={`カード「${name}」`} className="relative">
+    <div
+      data-name={`カード「${name}」`}
+      className="relative"
+      style={size ? { width: size * 1.5 + 2 + 12 } : undefined}
+    >
       {href ? (
         <Link href={href} className={cls}>
           {body}

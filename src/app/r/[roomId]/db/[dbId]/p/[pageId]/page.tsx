@@ -105,7 +105,7 @@ function PageWindow({
   const { editing: editParam, finish } = useEditMode();
   // テンプレートと繋いでいるときは、ここでは直さない（右クリックの「編集」で、テンプレートを直すか、分けて直すかを選ぶ）
   const editing = editParam && !template;
-  const label = database.kind === "request" ? "依頼" : "ページ";
+  const label = "ページ";
   return (
     <NoteContext.Provider value={{ roomId: page.roomId, userId, members, owner: note && !template ? `note:${note.id}` : `page:${page.id}`, locked: !editing, page: { dbId: database.id, pageId: page.id }, windowMode: true }}>
       {/* 「データベース › ページ」は上のバーに出る。編集中だけ、上のバーの右に「完了」 */}

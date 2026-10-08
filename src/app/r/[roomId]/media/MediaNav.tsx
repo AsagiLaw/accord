@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Icon } from "@/components/Icon";
+import { Icon, type IconName } from "@/components/Icon";
 import type { Library } from "@/lib/local/db";
 import { useLibraries, useMedia } from "@/lib/local/media";
 import { chain, childrenOf, descendants, isUnsorted } from "@/lib/media/logic";
@@ -20,6 +20,24 @@ export function MediaNav({ roomId, userId }: { roomId: string; userId: string })
   const libs = useLibraries(roomId) ?? [];
   const base = `/r/${roomId}/media`;
   const [toggled, setToggled] = useState<Record<string, boolean>>({});
+  // ホームの下（未整理・すべて・お気に入り・ゴミ箱）を開いているか。端末ごとに覚える
+  const [homeOpen, setHomeOpen] = useState(() => {
+    try {
+      return localStorage.getItem("irai-note:media-home-open") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleHome = () => {
+    setHomeOpen(!homeOpen);
+    try {
+      localStorage.setItem("irai-note:media-home-open", homeOpen ? "0" : "1");
+    } catch {
+      // 覚えられなくても、このページの間は効く
+    }
+  };
+  // ファイルを選ぶ画面が開いている間は「メディアを追加」に色を付けたままにする
+  const [picking, setPicking] = useState(false);
 
   // ---- ライブラリーのドラッグ（試作と同じ：前・後ろに並べる／中に入れる／見出しで一番上へ） ----
   const drag = useRef<DragState | null>(null);
@@ -102,6 +120,8 @@ export function MediaNav({ roomId, userId }: { roomId: string; userId: string })
     drag.current = d;
   };
 
+  // 今その中のどれかを開いているなら、たたんでいても出す
+  const homeShown = homeOpen || [`${base}/all`, `${base}/favorites`, `${base}/trash`].includes(pathname);
   const currentLib = pathname.startsWith(`${base}/lib/`) ? pathname.slice(`${base}/lib/`.length) : null;
   const openByDefault = new Set(chain(libs, currentLib).map((l) => l.id).slice(0, -1));
   const isOpen = (id: string) => toggled[id] ?? openByDefault.has(id);
@@ -128,6 +148,14 @@ export function MediaNav({ roomId, userId }: { roomId: string; userId: string })
       </div>
     );
   };
+
+  // アイコンを名前の前に置く（ホームの下はライブラリーと同じく、開く印の分だけ右にずれる）
+  const withIcon = (icon: IconName, label: string) => (
+    <span className="flex items-center gap-2">
+      <Icon name={icon} size={16} />
+      {label}
+    </span>
+  );
 
   const libNode = (l: Library, depth: number): React.ReactNode => {
     const kids = childrenOf(libs, l.id);
@@ -167,11 +195,11 @@ export function MediaNav({ roomId, userId }: { roomId: string; userId: string })
         }
       }}
     >
-      <Link href={`/r/${roomId}`} className="flex min-h-[38px] items-center gap-2 rounded-[10px] px-3 hover:bg-tint">
-        <Icon name="back" />
-        戻る
-      </Link>
-      <label className="btn my-2 cursor-pointer">
+      <label
+        className={`btn-sub mb-2 cursor-pointer font-bold active:border-accent active:bg-accent active:text-accent-ink ${
+          picking ? "border-accent bg-accent text-accent-ink hover:bg-accent" : ""
+        }`}
+      >
         <Icon name="upload" />
         メディアを追加
         <input
@@ -179,7 +207,14 @@ export function MediaNav({ roomId, userId }: { roomId: string; userId: string })
           accept="image/*"
           multiple
           className="sr-only"
+          onClick={(e) => {
+            setPicking(true);
+            e.currentTarget.addEventListener("cancel", () => setPicking(false), { once: true });
+            // 「キャンセル」の知らせが来ないブラウザ向け：画面に戻ってきたら閉じたものとする
+            window.addEventListener("focus", () => setTimeout(() => setPicking(false), 300), { once: true });
+          }}
           onChange={(e) => {
+            setPicking(false);
             const files = [...(e.target.files ?? [])];
             e.target.value = "";
             uploadFlow(roomId, userId, files, () => router.push(`${base}/unsorted`));
@@ -188,12 +223,25 @@ export function MediaNav({ roomId, userId }: { roomId: string; userId: string })
       </label>
 
       <div data-name="メディアの一覧" className="space-y-0.5">
-        {row(base, "ホーム", 0, undefined, <Icon name="home" size={16} />)}
+        {row(
+          base,
+          withIcon("home", "ホーム"),
+          0,
+          undefined,
+          <button aria-label={homeShown ? "たたむ" : "開く"} aria-expanded={homeShown} onClick={toggleHome} className="grid h-7 w-7 place-items-center rounded-full hover:bg-tint">
+            <Icon name={homeShown ? "dn" : "rt"} size={16} />
+          </button>,
+        )}
+        {/* 未整理は、画像があるときはたたんでいても出す */}
         {unsorted > 0 &&
-          row(`${base}/unsorted`, "整理されていない画像", 0, <span className="mr-2 rounded-full bg-warn px-2 text-xs text-white">{unsorted}</span>)}
-        {row(`${base}/all`, "すべて", 0, undefined, <Icon name="img" size={16} />)}
-        {row(`${base}/favorites`, "お気に入り", 0, undefined, <Icon name="star" size={16} />)}
-        {row(`${base}/trash`, "ゴミ箱", 0, undefined, <Icon name="del" size={16} />)}
+          row(`${base}/unsorted`, withIcon("img", "未整理"), 1, <span className="mr-2 rounded-full bg-warn px-2 text-xs text-white">{unsorted}</span>)}
+        {homeShown && (
+          <>
+            {row(`${base}/all`, withIcon("img", "すべて"), 1)}
+            {row(`${base}/favorites`, withIcon("star", "お気に入り"), 1)}
+            {row(`${base}/trash`, withIcon("del", "ゴミ箱"), 1)}
+          </>
+        )}
       </div>
 
       <h6

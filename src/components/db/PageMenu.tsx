@@ -32,7 +32,7 @@ export function PageMenu({
   const router = useRouter();
   const pages = usePages(database.id) ?? [];
   const [screen, setScreen] = useState<"main" | "source">("main");
-  const label = database.kind === "request" ? "依頼" : "ページ";
+  const label = "ページ";
   const href = pageHref(database, page.id);
   const template = templateOf(database, page);
   const usesOf = (t: PageTemplate) => pages.filter((p) => p.sourceId === t.id).length;
@@ -100,7 +100,7 @@ export function PageMenu({
  */
 function PageSourceMenu({ database, page, close, usesOf }: { database: Database; page: DbPage; close: () => void; usesOf: (t: PageTemplate) => number }) {
   const templates = database.templates ?? [];
-  const label = database.kind === "request" ? "依頼" : "ページ";
+  const label = "ページ";
   const askName = () => promptText("新しいテンプレート", `${page.title || "無題"}のテンプレート`, "テンプレートの名前");
   const fromCurrent = async () => {
     close();

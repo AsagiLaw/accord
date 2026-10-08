@@ -22,7 +22,7 @@ export const TEMPLATE_KIND: Record<PageTemplate["kind"], { label: string; note: 
 export function TemplateMenu({ database, onPick, close }: { database: Database; onPick: (t: PageTemplate | null) => void; close: () => void }) {
   const router = useRouter();
   const list = database.templates ?? [];
-  const label = database.kind === "request" ? "依頼" : "ページ";
+  const label = "ページ";
   const edit = (id: string) => router.push(`/r/${database.roomId}/db/${database.id}/t/${id}`);
   // 右クリックしたテンプレートの操作：押した位置に、別のメニューを出す（サイドバーの右クリックと同じ）。アイコンは、そのメニューの中で選ぶ
   const ctx = usePopover();

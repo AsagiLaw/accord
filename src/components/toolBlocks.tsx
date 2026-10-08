@@ -80,13 +80,13 @@ const targetOf = (databases: Database[], dbId: string) => (dbId ? databases.find
 const templateOf = (database: Database | undefined, templateId: string) =>
   !database || templateId === "none" ? undefined : database.templates?.find((t) => t.id === (templateId || database.defaultTemplateId));
 
-/** 押すと、データベースにページを足す画面を出すボタン（ホームの「依頼を追加」） */
+/** 押すと、データベースにページを足す画面を出すボタン（ホームの「ページを追加」） */
 export function AddButtonView({ props, onChange }: { props: AddButtonProps; onChange: (patch: Partial<AddButtonProps>) => void }) {
   const ctx = useNoteContext();
   const databases = useDatabases(ctx.roomId) ?? [];
   const database = targetOf(databases, props.dbId);
   const [adding, setAdding] = useState(false);
-  const label = props.label || (database ? `${database.kind === "request" ? "依頼" : "ページ"}を追加` : "追加");
+  const label = props.label || (database ? `ページを追加` : "追加");
 
   return (
     <div className={`flex w-full items-center gap-1 ${props.align === "right" ? "justify-end" : ""}`} contentEditable={false} data-name="追加ボタン">
@@ -148,7 +148,7 @@ function AddButtonMenu({ props, databases, database, onChange }: { props: AddBut
   return (
     <div>
       <MenuTitle>追加ボタンの設定</MenuTitle>
-      <TextField label="ボタンの文字" defaultValue={props.label} onChange={(label) => onChange({ label })} placeholder={database ? `${database.kind === "request" ? "依頼" : "ページ"}を追加` : "追加"} />
+      <TextField label="ボタンの文字" defaultValue={props.label} onChange={(label) => onChange({ label })} placeholder={database ? `ページを追加` : "追加"} />
       <NavRow icon="db" label="ソース" value={database?.name ?? "選んでいません"} onClick={() => setScreen("source")} />
       <NavRow icon="note" label="テンプレート" value={templateText} onClick={() => setScreen("template")} disabled={!database} />
       <ToggleRow icon="r" label="右に寄せる" on={props.align === "right"} onChange={(on) => onChange({ align: on ? "right" : "" })} />

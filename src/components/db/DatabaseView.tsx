@@ -63,7 +63,7 @@ export function DatabaseView({
     setPopKind({ kind: "view" });
     pop.open({ currentTarget: el });
   };
-  const label = database.kind === "request" ? "依頼" : "ページ";
+  const label = "ページ";
   const switchTo = (id: string) => router.replace(`?v=${id}`);
   const showNew = dialog === "new" || openNew;
   // 「追加」で使う既定のテンプレート

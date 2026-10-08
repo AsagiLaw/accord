@@ -68,7 +68,8 @@ export function MediaGrid({
     <div
       data-name="画像一覧"
       className="grid gap-2.5"
-      style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_SIZES[prefs.level - 1]}px, 1fr))` }}
+      // 画像は選んだ大きさちょうどで並べる（ライブラリーのカードの左の四角と同じ大きさにするため、広げない）
+      style={{ gridTemplateColumns: `repeat(auto-fill, ${THUMB_SIZES[prefs.level - 1]}px)` }}
       onClick={(e) => {
         // 何もないところをクリックしたら選択を外す（マウス操作のとき）
         if (e.target === e.currentTarget && isPointerFine()) setSelected([]);

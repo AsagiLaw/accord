@@ -46,7 +46,7 @@ export function useTodos(roomId: string) {
 // ---- 依頼（ページ） ----
 
 /** ページの名前の後ろに付ける言葉（データベースの設定。無いときは、依頼は「様」） */
-export const nameSuffixOf = (d: Pick<Database, "kind" | "nameSuffix">) => d.nameSuffix ?? (d.kind === "request" ? "様" : "");
+export const nameSuffixOf = (d: Pick<Database, "nameSuffix">) => d.nameSuffix ?? "";
 
 /** 新しい依頼の初期値：受付日・開始日は今日、枚数1、進行0%、ステータスは最初の選択肢 */
 export function newPageDefaults(database: Database): Record<string, unknown> {

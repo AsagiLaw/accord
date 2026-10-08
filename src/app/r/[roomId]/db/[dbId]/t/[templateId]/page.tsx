@@ -82,7 +82,7 @@ const blank = (v: unknown) => v === undefined || v === null || v === "" || (Arra
 
 /** 初期値（このテンプレートで作ったときに、最初から入る値）を直すポップアップ */
 function ValuesDialog({ database, template, members, userId, onClose }: { database: Database; template: PageTemplate; members: MemberWithProfile[]; userId: string; onClose: () => void }) {
-  const label = database.kind === "request" ? "依頼" : "ページ";
+  const label = "ページ";
   return (
     <PopupDialog title={`初期値：テンプレート「${template.name}」`} onClose={onClose} width="max-w-2xl">
       <p className="mb-3 text-sm text-muted">このテンプレートで{label}を作ったときに、最初から入る値です。空のままの項目は、ふつうの追加と同じです。</p>
