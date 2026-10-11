@@ -154,25 +154,31 @@ export function WritersScreen({
  * 表示中の項目は「⋮⋮」をドラッグして並べ替え、目のボタンで隠す。隠している項目は目のボタンで出す。
  * all は出せる項目、shown は今出している項目（並べた順）。変えたら、出す項目の ID の並びを onSave に渡す
  */
-export function PropVisibilityScreen({
+export function PropVisibilityScreen<P extends { id: string; name: string }>({
   all,
   shown,
   onSave,
   onBack,
   onAdd,
+  icon = (p) => <PropIcon type={(p as unknown as Property).type} />,
+  noun = "プロパティ",
 }: {
-  all: Property[];
-  shown: Property[];
+  all: P[];
+  shown: P[];
   onSave: (ids: string[]) => void;
   onBack: () => void;
   /** 「項目を追加」の画面に進む（データベースのビューの設定） */
   onAdd?: () => void;
+  /** 項目の左のアイコン。データベースの項目でないもの（メディアのリストの列など）で使う */
+  icon?: (p: P) => React.ReactNode;
+  /** 画面の言葉（「〇〇の表示/非表示」「表示中の〇〇」）。メディアのリストでは「詳細」 */
+  noun?: string;
 }) {
   const [q, setQ] = useState("");
   const ids = shown.map((p) => p.id);
   const hidden = all.filter((p) => !ids.includes(p.id));
   const query = q.trim().toLowerCase();
-  const match = (p: Property) => !query || p.name.toLowerCase().includes(query);
+  const match = (p: P) => !query || p.name.toLowerCase().includes(query);
   const save = onSave;
 
   // ドラッグ中の項目と、落とす位置（何番目の前か）。指を離すときは最新の値を ref から読む
@@ -202,10 +208,10 @@ export function PropVisibilityScreen({
 
   return (
     <div>
-      <BackHead title="プロパティの表示/非表示" onBack={onBack} />
-      <SearchBox value={q} onChange={setQ} placeholder="プロパティを検索" />
+      <BackHead title={`${noun}の表示/非表示`} onBack={onBack} />
+      <SearchBox value={q} onChange={setQ} placeholder={`${noun}を検索`} />
 
-      <SectionHead label="表示中のプロパティ" action={shown.length ? { label: "すべて非表示", onClick: () => save([]) } : undefined} />
+      <SectionHead label={`表示中の${noun}`} action={shown.length ? { label: "すべて非表示", onClick: () => save([]) } : undefined} />
       <div ref={list}>
         {shown.filter(match).map((p, i, rows) => (
           <div key={p.id} data-prop-row="" className={`relative flex h-8 items-center gap-1.5 rounded-[8px] px-1 hover:bg-tint ${drag?.id === p.id ? "opacity-40" : ""}`}>
@@ -237,7 +243,7 @@ export function PropVisibilityScreen({
                 <Icon name="drag" size={14} />
               </span>
             )}
-            <PropIcon type={p.type} />
+            {icon(p)}
             <span className="min-w-0 flex-1 truncate">{p.name}</span>
             <button onClick={() => save(ids.filter((x) => x !== p.id))} aria-label={`「${p.name}」を隠す`} title="隠す" className="grid h-6 w-6 shrink-0 place-items-center rounded-full hover:bg-bg">
               <Icon name="eye" size={14} />
@@ -247,11 +253,11 @@ export function PropVisibilityScreen({
         {!shown.length && <p className="px-2 py-1 text-xs text-muted">ありません</p>}
       </div>
 
-      <SectionHead label="非表示のプロパティ" action={hidden.length ? { label: "すべて表示", onClick: () => save([...ids, ...hidden.map((p) => p.id)]) } : undefined} />
+      <SectionHead label={`非表示の${noun}`} action={hidden.length ? { label: "すべて表示", onClick: () => save([...ids, ...hidden.map((p) => p.id)]) } : undefined} />
       {hidden.filter(match).map((p) => (
         <div key={p.id} className="flex h-8 items-center gap-1.5 rounded-[8px] px-1 text-muted hover:bg-tint">
           <span className="w-4 shrink-0" />
-          <PropIcon type={p.type} />
+          {icon(p)}
           <span className="min-w-0 flex-1 truncate">{p.name}</span>
           <button onClick={() => save([...ids, p.id])} aria-label={`「${p.name}」を表示`} title="表示する" className="grid h-6 w-6 shrink-0 place-items-center rounded-full hover:bg-bg hover:text-ink">
             <Icon name="eyeoff" size={14} />

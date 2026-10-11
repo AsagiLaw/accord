@@ -14,6 +14,8 @@ function read(): MediaPrefs {
     const raw = localStorage.getItem(KEY);
     const parsed = raw ? (JSON.parse(raw) as Partial<MediaPrefs>) : {};
     cached = { ...DEFAULT_PREFS, ...parsed, dirs: { ...DEFAULT_PREFS.dirs, ...parsed.dirs } };
+    // 今は無い並べる基準が残っていたら、はじめの基準に戻す
+    if (!(cached.sort in DEFAULT_PREFS.dirs)) cached.sort = DEFAULT_PREFS.sort;
   } catch {
     cached = DEFAULT_PREFS;
   }

@@ -5,6 +5,8 @@ import { Icon } from "@/components/Icon";
 import type { Media } from "@/lib/local/db";
 import { ThumbImage } from "@/components/ThumbImage";
 import { startMediaDrag, useOriginalUrl } from "@/lib/media/export";
+import { shownName } from "@/lib/media/logic";
+import { useMediaPrefs } from "@/lib/media/prefs";
 import { toast } from "@/components/ui/overlay";
 
 export { ThumbImage };
@@ -16,7 +18,13 @@ let warnedMulti = false;
  * 元の画像は大きいので、カーソルを乗せたときに読み込む。ドラッグ中に見せる絵は、重ねている下の見た目（親の要素）にする。
  * 親には relative を付けておくこと。multiSelected：複数選んでいる中の1枚か（渡せるのは1枚だけなので、最初の1回だけ知らせる）
  */
-export function DragOriginal({ m, multiSelected = false }: { m: Media; multiSelected?: boolean }) {
+export function DragOriginal({
+  m,
+  multiSelected = false,
+}: {
+  m: Media;
+  multiSelected?: boolean;
+}) {
   const [hovered, setHovered] = useState(false);
   const src = useOriginalUrl(hovered ? m : undefined);
   return (
@@ -28,9 +36,15 @@ export function DragOriginal({ m, multiSelected = false }: { m: Media; multiSele
       data-drag-original
       onPointerEnter={() => setHovered(true)}
       onDragStart={(e) => {
-        if (startMediaDrag(e, m, e.currentTarget.parentElement) && multiSelected && !warnedMulti) {
+        if (
+          startMediaDrag(e, m, e.currentTarget.parentElement) &&
+          multiSelected &&
+          !warnedMulti
+        ) {
           warnedMulti = true;
-          toast("ドラッグで渡せるのは1枚だけです。複数枚は右クリックの「ダウンロード」を使ってください");
+          toast(
+            "ドラッグで渡せるのは1枚だけです。複数枚は右クリックの「ダウンロード」を使ってください",
+          );
         }
       }}
       className="absolute inset-0 h-full w-full opacity-0"
@@ -107,6 +121,7 @@ export function Thumb({
   renaming?: boolean;
   onRenamed?: (name: string | null) => void;
 }) {
+  const { showExt } = useMediaPrefs();
   return (
     <div
       role="button"
@@ -139,7 +154,7 @@ export function Thumb({
         />
       ) : (
         <span className="pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-16px)] truncate rounded-[10px] bg-black/25 px-2.5 py-px text-xs font-bold text-white backdrop-blur-md [text-shadow:0_1px_3px_#000,0_0_8px_#000a]">
-          {m.name}
+          {shownName(m, showExt)}
         </span>
       )}
       {/* 複数選んでいるときだけ、選んだ順の番号を出す（1枚だけのときは枠の色だけ） */}

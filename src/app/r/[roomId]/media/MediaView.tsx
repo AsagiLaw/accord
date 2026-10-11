@@ -19,6 +19,7 @@ import {
   chain,
   childrenOf,
   coverOf,
+  extOf,
   isUnsorted,
   libraryView,
   THUMB_SIZES,
@@ -405,6 +406,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
     <InlineName
       key={`${viewingMedia.id}${s.renaming === viewingMedia.id ? ":edit" : ""}`}
       name={viewingMedia.name}
+      suffix={prefs.showExt ? `.${extOf(viewingMedia)}` : undefined}
       startEditing={s.renaming === viewingMedia.id}
       onEditEnd={() => s.setRenaming(null)}
       onRename={(name) => renameMedia(viewingMedia.id, name)}
@@ -808,8 +810,11 @@ function InlineName({
   onRename,
   startEditing = false,
   onEditEnd,
+  suffix,
 }: {
   name: string;
+  /** 名前の後ろに付けて見せる文字（拡張子）。書き換えるのは名前だけ */
+  suffix?: string;
   onRename: (name: string) => unknown;
   /** 最初から入力欄で出す（右クリックの「名前を変更」から） */
   startEditing?: boolean;
@@ -850,6 +855,7 @@ function InlineName({
       className="truncate rounded-[6px] px-1 py-0.5 font-bold hover:bg-tint"
     >
       {name}
+      {suffix}
     </button>
   );
 }
@@ -946,11 +952,11 @@ function LibraryList({ parentId }: { parentId: string | null }) {
     });
 
   return (
-    <ul
-      data-name="ライブラリーのリスト"
-      className="rounded-[10px] border border-line bg-card p-1"
-    >
-      {rows(parentId, 0)}
-    </ul>
+    // 幅に入り切らないときは、名前を切らずに横へスクロールする
+    <div className="overflow-x-auto rounded-[10px] border border-line bg-card p-1">
+      <ul data-name="ライブラリーのリスト" className="w-max min-w-full">
+        {rows(parentId, 0)}
+      </ul>
+    </div>
   );
 }

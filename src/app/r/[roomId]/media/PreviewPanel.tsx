@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import type { Library, Media } from "@/lib/local/db";
 import { aspectRatio, formatSize } from "@/lib/media/image";
-import { chain, descendants } from "@/lib/media/logic";
+import { chain, descendants, shownName } from "@/lib/media/logic";
+import { useMediaPrefs } from "@/lib/media/prefs";
 import { useMediaState } from "./MediaContext";
 import { DragOriginal, ThumbImage } from "./Thumb";
 
@@ -25,6 +26,7 @@ export function libraryPaths(m: Media, libs: Library[]): string[] {
 /** プレビューの中身（選んだ画像の大きな表示と詳細） */
 function PreviewBody() {
   const { selected, byId, libs, members, setViewing } = useMediaState();
+  const { showExt } = useMediaPrefs();
   const id = selected.at(-1);
   const m = id ? byId.get(id) : undefined;
 
@@ -75,7 +77,7 @@ function PreviewBody() {
             <ThumbImage id={m.id} alt={m.name} className="object-contain" />
             <DragOriginal m={m} multiSelected={selected.length > 1} />
           </button>
-          <p className="mb-2 font-bold break-all">{m.name}</p>
+          <p className="mb-2 font-bold break-all">{shownName(m, showExt)}</p>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
             {rows.map(([k, v]) => (
               <div key={k} className="contents">

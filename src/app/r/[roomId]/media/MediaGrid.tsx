@@ -5,18 +5,21 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import type { Library, Media } from "@/lib/local/db";
 import { renameMedia, setFav } from "@/lib/local/media";
-import { formatSize } from "@/lib/media/image";
+import { aspectRatio, formatSize } from "@/lib/media/image";
 import {
   arrange,
   childrenOf,
-  coverOf,
   descendants,
   libraryView,
   repOf,
+  LIST_COLUMNS,
+  shownName,
+  type ListColumn,
 } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
 import { setRepresentative } from "@/lib/local/media";
 import { useMediaState } from "./MediaContext";
+import { libraryPaths } from "./PreviewPanel";
 import { rememberOpenedFrom } from "./Lightbox";
 import { DragOriginal, NameField, Thumb, ThumbImage } from "./Thumb";
 
@@ -48,6 +51,7 @@ export function MediaGrid({
     media,
     renaming,
     setRenaming,
+    members,
   } = useMediaState();
   const renamed = (id: string) => (name: string | null) => {
     setRenaming(null);
@@ -155,6 +159,60 @@ export function MediaGrid({
     // ライブラリーの中で「基本」の配置のときは、子ライブラリーの代表の画像の所に、その子ライブラリーの行を出す
     // （画像の無い子ライブラリーは先頭に）。行はダブルクリックで開く
     const asFolders = !!lib && prefs.libMode === "rep";
+    // 名前の右に出す列（「並べ替えと表示」の詳細の表示/非表示で、出す・隠す・並べ替え）
+    const cols = prefs.columns.filter((c) =>
+      LIST_COLUMNS.some((x) => x.id === c),
+    );
+    const gridCols = {
+      gridTemplateColumns: [
+        "1fr",
+        ...cols.map((c) => LIST_COLUMNS.find((x) => x.id === c)!.width),
+      ].join(" "),
+    };
+    // 数の列は右寄せ
+    const RIGHT: ListColumn[] = ["dpi", "pixels", "size"];
+    // 列ごとの中身。入り切らない分は「…」で切り、カーソルを合わせると全部見える
+    const cell = (c: ListColumn, text: string) => (
+      <span
+        key={c}
+        title={text || undefined}
+        className={`truncate text-muted ${RIGHT.includes(c) ? "text-right" : ""}`}
+      >
+        {text}
+      </span>
+    );
+    // 画像の詳細（プレビューの詳細と同じ書き方）
+    const detail = (c: ListColumn, m: Media): string => {
+      switch (c) {
+        case "fileName":
+          return m.fileName;
+        case "type":
+          return (m.mime.replace("image/", "") || "不明").toUpperCase();
+        case "dims":
+          return `${m.width} × ${m.height}`;
+        case "dpi":
+          return m.dpi ? `${m.dpi} dpi` : "不明";
+        case "pixels":
+          return `${((m.width * m.height) / 1e6).toFixed(2)} MP`;
+        case "ratio":
+          return aspectRatio(m.width, m.height);
+        case "size":
+          return formatSize(m.size);
+        case "date":
+          return new Date(m.createdAt).toLocaleString("ja-JP", {
+            dateStyle: "short",
+            timeStyle: "short",
+          });
+        case "uploader":
+          return (
+            members.find((x) => x.userId === m.uploadedBy)?.displayName ?? "—"
+          );
+        case "libs":
+          return libraryPaths(m, libs).join("、") || "未整理";
+      }
+    };
+    // 子ライブラリーの行：種類（形式か画像サイズの、先に出ている方）と枚数だけ
+    const kindCol = cols.find((c) => c === "type" || c === "dims");
     // 画像の行。depth は子ライブラリーを開いた中の深さ（右にずらす）、inList は拡大したときに左右で送る並び
     const imageRow = (
       m: Media,
@@ -172,12 +230,13 @@ export function MediaGrid({
           aria-label={m.name}
           data-media={m.id}
           data-name="画像"
+          style={gridCols}
           onClick={(e) => (depth ? pick(e, m.id) : click(e, m.id))}
           onDoubleClick={() => openIn(m.id, inList)}
           onKeyDown={(e) => {
             if (e.key === "Enter") openIn(m.id, inList);
           }}
-          className={`relative grid h-6 cursor-default grid-cols-[1fr_auto] items-center gap-3 rounded-[4px] px-2 select-none sm:grid-cols-[1fr_7.5rem_4.5rem_8.5rem] ${
+          className={`relative grid h-6 cursor-default items-center gap-3 rounded-[4px] px-2 select-none ${
             on ? "bg-accent/15 text-ink" : "hover:bg-tint"
           }`}
         >
@@ -200,7 +259,7 @@ export function MediaGrid({
                 className="h-5 flex-1 text-sm"
               />
             ) : (
-              <span className="truncate">{m.name}</span>
+              <span className="truncate">{shownName(m, prefs.showExt)}</span>
             )}
             {m.fav && (
               <Icon
@@ -215,16 +274,7 @@ export function MediaGrid({
               </span>
             )}
           </span>
-          <span className="hidden text-muted sm:block">
-            {m.width} × {m.height}
-          </span>
-          <span className="text-right text-muted">{formatSize(m.size)}</span>
-          <span className="hidden truncate text-muted sm:block">
-            {new Date(m.createdAt).toLocaleString("ja-JP", {
-              dateStyle: "short",
-              timeStyle: "short",
-            })}
-          </span>
+          {cols.map((c) => cell(c, detail(c, m)))}
         </div>
       );
     };
@@ -259,7 +309,6 @@ export function MediaGrid({
       );
     };
     const folderRow = (k: Library, depth = 0): React.ReactNode => {
-      const cover = coverOf(media, k)[0];
       const n = media.filter(
         (x) => !x.trashed && x.libIds.includes(k.id),
       ).length;
@@ -276,7 +325,8 @@ export function MediaGrid({
             data-name="子ライブラリーの行"
             onDoubleClick={go}
             onKeyDown={(e) => e.key === "Enter" && go()}
-            className="grid h-6 cursor-default grid-cols-[1fr_auto] items-center gap-3 rounded-[4px] px-2 outline-none select-none hover:bg-tint focus:bg-tint sm:grid-cols-[1fr_7.5rem_4.5rem_8.5rem]"
+            className="grid h-6 cursor-default items-center gap-3 rounded-[4px] px-2 outline-none select-none hover:bg-tint focus:bg-tint"
+            style={gridCols}
           >
             <span
               className="flex min-w-0 items-center gap-1"
@@ -300,23 +350,18 @@ export function MediaGrid({
                   </button>
                 )}
               </span>
-              <span className="grid h-4 w-4 shrink-0 place-items-center overflow-hidden rounded-[3px] bg-line/40 text-muted">
-                {cover ? (
-                  <ThumbImage id={cover.id} alt="" />
-                ) : (
-                  <Icon name="folder" size={12} />
-                )}
+              {/* フォルダは代表の画像を出さず、フォルダのアイコンだけ（画像の行の小さな四角と同じ位置） */}
+              <span className="grid h-4 w-4 shrink-0 place-items-center text-accent">
+                <Icon name="folder" size={16} />
               </span>
-              <Icon
-                name="folder"
-                size={14}
-                className="ml-1 shrink-0 text-accent"
-              />
-              <span className="truncate font-bold">{k.name}</span>
+              <span className="ml-1 truncate font-bold">{k.name}</span>
             </span>
-            <span className="hidden text-muted sm:block">子ライブラリー</span>
-            <span className="text-right text-muted">{n}枚</span>
-            <span className="hidden sm:block" />
+            {cols.map((c) =>
+              cell(
+                c,
+                c === kindCol ? "子ライブラリー" : c === "size" ? `${n}枚` : "",
+              ),
+            )}
           </div>
           {expanded && contents(k, depth + 1)}
         </div>
@@ -327,28 +372,34 @@ export function MediaGrid({
         data-name="画像一覧"
         role="listbox"
         aria-multiselectable
-        className="rounded-[10px] border border-line bg-card p-1 text-sm"
+        className="overflow-x-auto rounded-[10px] border border-line bg-card p-1 text-sm"
         onClick={(e) => {
           if (e.target === e.currentTarget && isPointerFine()) setSelected([]);
         }}
       >
-        <div
-          aria-hidden
-          className="grid grid-cols-[1fr_auto] gap-3 border-b border-line px-2 pb-1 text-xs text-muted sm:grid-cols-[1fr_7.5rem_4.5rem_8.5rem]"
-        >
-          <span className="pl-6">名前</span>
-          <span className="hidden sm:block">画像サイズ</span>
-          <span className="text-right">容量</span>
-          <span className="hidden sm:block">追加日時</span>
+        {/* 幅に入り切らないときは、名前を切らずに横へスクロールする */}
+        <div className="w-max min-w-full">
+          <div
+            aria-hidden
+            className="grid gap-3 border-b border-line px-2 pb-1 text-xs text-muted"
+            style={gridCols}
+          >
+            <span className="pl-6">名前</span>
+            {cols.map((c) => (
+              <span key={c} className={RIGHT.includes(c) ? "text-right" : ""}>
+                {LIST_COLUMNS.find((x) => x.id === c)?.name}
+              </span>
+            ))}
+          </div>
+          {asFolders &&
+            childReps.filter((c) => !c.rep).map((c) => folderRow(c.lib))}
+          {list.map((m) => {
+            const reps = childReps.filter((c) => c.rep === m.id);
+            if (asFolders && reps.length)
+              return reps.map((c) => folderRow(c.lib));
+            return imageRow(m, 0, ids, folderMark(m));
+          })}
         </div>
-        {asFolders &&
-          childReps.filter((c) => !c.rep).map((c) => folderRow(c.lib))}
-        {list.map((m) => {
-          const reps = childReps.filter((c) => c.rep === m.id);
-          if (asFolders && reps.length)
-            return reps.map((c) => folderRow(c.lib));
-          return imageRow(m, 0, ids, folderMark(m));
-        })}
       </div>
     );
   }

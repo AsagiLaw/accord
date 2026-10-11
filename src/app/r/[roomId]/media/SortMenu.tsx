@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Icon } from "@/components/Icon";
+import { Icon, type IconName } from "@/components/Icon";
+import { PropVisibilityScreen } from "@/components/blockSettings";
 import { MenuItem, Popover, usePopover } from "@/components/ui/Popover";
-import type { LibMode, SortKey } from "@/lib/media/logic";
+import { NavRow, ToggleRow } from "@/components/ui/SettingsMenu";
+import {
+  LIST_COLUMNS,
+  type ListColumn,
+  type LibMode,
+  type SortKey,
+} from "@/lib/media/logic";
 import { updatePrefs, useMediaPrefs } from "@/lib/media/prefs";
 
 const SORT_LABEL: Record<SortKey, string> = {
@@ -25,6 +32,19 @@ const DIR_LABEL: Record<SortKey, { desc: string; asc: string }> = {
   size: { desc: "大きい順", asc: "小さい順" },
 };
 
+const COLUMN_ICON: Record<ListColumn, IconName> = {
+  fileName: "text",
+  type: "tag",
+  dims: "img",
+  dpi: "hash",
+  pixels: "hash",
+  ratio: "expand",
+  size: "hash",
+  date: "calendar",
+  uploader: "person",
+  libs: "folder",
+};
+
 const LIB_MODES: { v: LibMode; label: string; note: string }[] = [
   { v: "rep", label: "基本", note: "子ライブラリーは代表の画像だけを出します" },
   { v: "all", label: "全て表示", note: "子ライブラリーの画像もすべて出します" },
@@ -40,6 +60,8 @@ export function SortMenu({ showLibMode }: { showLibMode: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const keyMenu = usePopover();
+  // 「詳細の表示/非表示」の画面に進んでいる（データベースのビューの設定と同じく、中の画面に切り替わる）
+  const [screen, setScreen] = useState<"top" | "columns">("top");
 
   useEffect(() => {
     if (!open) return;
@@ -64,7 +86,10 @@ export function SortMenu({ showLibMode }: { showLibMode: boolean }) {
         aria-label="並べ替えと表示"
         aria-expanded={open}
         title="並べ替えと表示"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setOpen((v) => !v);
+          setScreen("top");
+        }}
       >
         <Icon name="sort" />
       </button>
@@ -73,160 +98,210 @@ export function SortMenu({ showLibMode }: { showLibMode: boolean }) {
           role="dialog"
           data-name="並べ替えと表示のメニュー"
           aria-label="並べ替えと表示"
-          className="absolute top-12 right-0 z-30 w-72 space-y-3 rounded-[14px] border border-line bg-card p-4 shadow-xl"
+          className={`absolute top-12 right-0 z-30 w-72 rounded-[14px] border border-line bg-card shadow-xl ${screen === "top" ? "space-y-3 p-4" : "p-2 text-sm"}`}
         >
-          <section className="space-y-2">
-            <h4 className="text-sm font-bold">並べる基準</h4>
-            {/* 基準はドロップダウンで選び、右のボタンで昇順・降順を切り替える */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                aria-label={`並べる基準：${SORT_LABEL[prefs.sort]}`}
-                aria-haspopup="menu"
-                aria-expanded={!!keyMenu.anchor}
-                onClick={keyMenu.toggle}
-                className="flex h-9 min-w-0 flex-1 items-center justify-between gap-2 rounded-[10px] border border-line bg-bg px-3 text-sm hover:bg-tint"
-              >
-                <span className="truncate">{SORT_LABEL[prefs.sort]}</span>
+          {screen === "columns" ? (
+            <PropVisibilityScreen
+              all={LIST_COLUMNS}
+              shown={prefs.columns
+                .map((c) => LIST_COLUMNS.find((x) => x.id === c))
+                .filter((x) => x !== undefined)}
+              onSave={(ids) => updatePrefs({ columns: ids as ListColumn[] })}
+              onBack={() => setScreen("top")}
+              noun="詳細"
+              icon={(c) => (
                 <Icon
-                  name="dn"
-                  size={16}
-                  className={`shrink-0 text-muted transition-transform ${keyMenu.anchor ? "rotate-180" : ""}`}
+                  name={COLUMN_ICON[c.id]}
+                  size={14}
+                  className="shrink-0 text-muted"
                 />
-              </button>
-              <Popover
-                anchor={keyMenu.anchor}
-                onClose={keyMenu.close}
-                width={180}
-                label="並べる基準"
-                nested
-              >
-                {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
-                  <MenuItem
-                    key={k}
-                    active={prefs.sort === k}
-                    icon={
-                      prefs.sort === k ? <Icon name="ok" size={14} /> : <span />
-                    }
-                    onClick={() => {
-                      keyMenu.close();
-                      // 基準を変えても、矢印の向き（上向き・下向き）はそのまま
-                      const down =
-                        prefs.dirs[prefs.sort] === DOWN_ARROW[prefs.sort];
-                      const dir = down
-                        ? DOWN_ARROW[k]
-                        : DOWN_ARROW[k] === "asc"
-                          ? "desc"
-                          : "asc";
-                      updatePrefs({
-                        sort: k,
-                        dirs: { ...prefs.dirs, [k]: dir },
-                      });
-                    }}
-                  >
-                    {SORT_LABEL[k]}
-                  </MenuItem>
-                ))}
-              </Popover>
-              <button
-                type="button"
-                aria-label={`並び順：${DIR_LABEL[prefs.sort][prefs.dirs[prefs.sort]]}（押すと${DIR_LABEL[prefs.sort][prefs.dirs[prefs.sort] === "asc" ? "desc" : "asc"]}）`}
-                title={`${DIR_LABEL[prefs.sort][prefs.dirs[prefs.sort]]}（押すと切り替え）`}
-                onClick={() =>
-                  updatePrefs({
-                    dirs: {
-                      ...prefs.dirs,
-                      [prefs.sort]:
-                        prefs.dirs[prefs.sort] === "asc" ? "desc" : "asc",
-                    },
-                  })
-                }
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] border border-line text-ink hover:bg-tint"
-              >
-                <Icon
-                  name={
-                    DOWN_ARROW[prefs.sort] === prefs.dirs[prefs.sort]
-                      ? "sortDesc"
-                      : "sortAsc"
-                  }
-                  size={20}
-                />
-              </button>
-            </div>
-            <p className="text-xs text-muted">
-              {DIR_LABEL[prefs.sort][prefs.dirs[prefs.sort]]}
-            </p>
-          </section>
-          <section className="space-y-2">
-            <h4 className="text-sm font-bold">画像・ライブラリーの表示</h4>
-            {/* 文字ではなくアイコンで選ぶ（サムネイルを並べる／1行に1枚） */}
-            <div
-              className="grid grid-flow-col gap-1 rounded-full bg-bg p-1"
-              role="group"
-              aria-label="画像・ライブラリーの表示"
-            >
-              {(
-                [
-                  ["icon", "gallery", "アイコン表示"],
-                  ["list", "list", "リスト表示"],
-                ] as const
-              ).map(([v, icon, label]) => (
-                <button
-                  key={v}
-                  aria-pressed={prefs.imageView === v}
-                  aria-label={label}
-                  title={label}
-                  onClick={() => updatePrefs({ imageView: v })}
-                  className={`grid min-h-[30px] place-items-center rounded-full ${prefs.imageView === v ? "bg-accent text-accent-ink" : "text-muted hover:text-ink"}`}
-                >
-                  <Icon name={icon} size={18} />
-                </button>
-              ))}
-            </div>
-          </section>
-          <section className="space-y-1">
-            <h4 className="text-sm font-bold">画像のサイズ</h4>
-            <input
-              type="range"
-              min={1}
-              max={4}
-              step={1}
-              value={prefs.level}
-              onChange={(e) => updatePrefs({ level: Number(e.target.value) })}
-              aria-label="画像のサイズ"
-              className="w-full accent-[var(--accent)]"
+              )}
             />
-            <div className="flex justify-between text-xs text-muted">
-              {["極小", "小", "中", "大"].map((l, i) => (
-                <span
-                  key={l}
-                  className={prefs.level === i + 1 ? "font-bold text-ink" : ""}
+          ) : (
+            <>
+              <section className="space-y-2">
+                <h4 className="text-sm font-bold">並べる基準</h4>
+                {/* 基準はドロップダウンで選び、右のボタンで昇順・降順を切り替える */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    aria-label={`並べる基準：${SORT_LABEL[prefs.sort]}`}
+                    aria-haspopup="menu"
+                    aria-expanded={!!keyMenu.anchor}
+                    onClick={keyMenu.toggle}
+                    className="flex h-9 min-w-0 flex-1 items-center justify-between gap-2 rounded-[10px] border border-line bg-bg px-3 text-sm hover:bg-tint"
+                  >
+                    <span className="truncate">{SORT_LABEL[prefs.sort]}</span>
+                    <Icon
+                      name="dn"
+                      size={16}
+                      className={`shrink-0 text-muted transition-transform ${keyMenu.anchor ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  <Popover
+                    anchor={keyMenu.anchor}
+                    onClose={keyMenu.close}
+                    width={180}
+                    label="並べる基準"
+                    nested
+                  >
+                    {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
+                      <MenuItem
+                        key={k}
+                        active={prefs.sort === k}
+                        icon={
+                          prefs.sort === k ? (
+                            <Icon name="ok" size={14} />
+                          ) : (
+                            <span />
+                          )
+                        }
+                        onClick={() => {
+                          keyMenu.close();
+                          // 基準を変えても、矢印の向き（上向き・下向き）はそのまま
+                          const down =
+                            prefs.dirs[prefs.sort] === DOWN_ARROW[prefs.sort];
+                          const dir = down
+                            ? DOWN_ARROW[k]
+                            : DOWN_ARROW[k] === "asc"
+                              ? "desc"
+                              : "asc";
+                          updatePrefs({
+                            sort: k,
+                            dirs: { ...prefs.dirs, [k]: dir },
+                          });
+                        }}
+                      >
+                        {SORT_LABEL[k]}
+                      </MenuItem>
+                    ))}
+                  </Popover>
+                  <button
+                    type="button"
+                    aria-label={`並び順：${DIR_LABEL[prefs.sort][prefs.dirs[prefs.sort]]}（押すと${DIR_LABEL[prefs.sort][prefs.dirs[prefs.sort] === "asc" ? "desc" : "asc"]}）`}
+                    title={`${DIR_LABEL[prefs.sort][prefs.dirs[prefs.sort]]}（押すと切り替え）`}
+                    onClick={() =>
+                      updatePrefs({
+                        dirs: {
+                          ...prefs.dirs,
+                          [prefs.sort]:
+                            prefs.dirs[prefs.sort] === "asc" ? "desc" : "asc",
+                        },
+                      })
+                    }
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] border border-line text-ink hover:bg-tint"
+                  >
+                    <Icon
+                      name={
+                        DOWN_ARROW[prefs.sort] === prefs.dirs[prefs.sort]
+                          ? "sortDesc"
+                          : "sortAsc"
+                      }
+                      size={20}
+                    />
+                  </button>
+                </div>
+                <p className="text-xs text-muted">
+                  {DIR_LABEL[prefs.sort][prefs.dirs[prefs.sort]]}
+                </p>
+              </section>
+              <section className="space-y-2">
+                <h4 className="text-sm font-bold">画像・ライブラリーの表示</h4>
+                {/* 文字ではなくアイコンで選ぶ（サムネイルを並べる／1行に1枚） */}
+                <div
+                  className="grid grid-flow-col gap-1 rounded-full bg-bg p-1"
+                  role="group"
+                  aria-label="画像・ライブラリーの表示"
                 >
-                  {l}
-                </span>
-              ))}
-            </div>
-          </section>
-          {showLibMode && (
-            <section className="space-y-1">
-              <h4 className="text-sm font-bold">ライブラリーの表示</h4>
-              {LIB_MODES.map((o) => (
-                <button
-                  key={o.v}
-                  aria-pressed={prefs.libMode === o.v}
-                  onClick={() => updatePrefs({ libMode: o.v })}
-                  className={`grid w-full justify-items-start rounded-[10px] px-3 py-1.5 text-left ${
-                    prefs.libMode === o.v ? "bg-tint" : "hover:bg-tint"
-                  }`}
-                >
-                  <span className="flex items-center gap-1 text-sm font-bold">
-                    {prefs.libMode === o.v && <Icon name="ok" size={14} />}
-                    {o.label}
-                  </span>
-                  <span className="text-xs text-muted">{o.note}</span>
-                </button>
-              ))}
-            </section>
+                  {(
+                    [
+                      ["icon", "gallery", "アイコン表示"],
+                      ["list", "list", "リスト表示"],
+                    ] as const
+                  ).map(([v, icon, label]) => (
+                    <button
+                      key={v}
+                      aria-pressed={prefs.imageView === v}
+                      aria-label={label}
+                      title={label}
+                      onClick={() => updatePrefs({ imageView: v })}
+                      className={`grid min-h-[30px] place-items-center rounded-full ${prefs.imageView === v ? "bg-accent text-accent-ink" : "text-muted hover:text-ink"}`}
+                    >
+                      <Icon name={icon} size={18} />
+                    </button>
+                  ))}
+                </div>
+                {/* Windows のエクスプローラーと同じ：画像の名前の後ろに拡張子を付けて出す */}
+                <div className="-mx-2">
+                  <ToggleRow
+                    icon="text"
+                    label="ファイル名拡張子"
+                    note="画像の名前の後ろに .jpg や .png を付けて出します"
+                    on={prefs.showExt}
+                    onChange={(showExt) => updatePrefs({ showExt })}
+                  />
+                </div>
+                {/* リストで名前の右に出す列：データベースのプロパティの表示/非表示と同じ画面で選ぶ（「詳細の表示/非表示」） */}
+                {prefs.imageView === "list" && (
+                  <div className="-mx-2">
+                    <NavRow
+                      icon="eye"
+                      label="詳細の表示/非表示"
+                      value={`${prefs.columns.length}個を表示`}
+                      onClick={() => setScreen("columns")}
+                    />
+                  </div>
+                )}
+              </section>
+              <section className="space-y-1">
+                <h4 className="text-sm font-bold">画像のサイズ</h4>
+                <input
+                  type="range"
+                  min={1}
+                  max={4}
+                  step={1}
+                  value={prefs.level}
+                  onChange={(e) =>
+                    updatePrefs({ level: Number(e.target.value) })
+                  }
+                  aria-label="画像のサイズ"
+                  className="w-full accent-[var(--accent)]"
+                />
+                <div className="flex justify-between text-xs text-muted">
+                  {["極小", "小", "中", "大"].map((l, i) => (
+                    <span
+                      key={l}
+                      className={
+                        prefs.level === i + 1 ? "font-bold text-ink" : ""
+                      }
+                    >
+                      {l}
+                    </span>
+                  ))}
+                </div>
+              </section>
+              {showLibMode && (
+                <section className="space-y-1">
+                  <h4 className="text-sm font-bold">ライブラリーの表示</h4>
+                  {LIB_MODES.map((o) => (
+                    <button
+                      key={o.v}
+                      aria-pressed={prefs.libMode === o.v}
+                      onClick={() => updatePrefs({ libMode: o.v })}
+                      className={`grid w-full justify-items-start rounded-[10px] px-3 py-1.5 text-left ${
+                        prefs.libMode === o.v ? "bg-tint" : "hover:bg-tint"
+                      }`}
+                    >
+                      <span className="flex items-center gap-1 text-sm font-bold">
+                        {prefs.libMode === o.v && <Icon name="ok" size={14} />}
+                        {o.label}
+                      </span>
+                      <span className="text-xs text-muted">{o.note}</span>
+                    </button>
+                  ))}
+                </section>
+              )}
+            </>
           )}
         </div>
       )}

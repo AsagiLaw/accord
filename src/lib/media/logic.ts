@@ -7,6 +7,32 @@ export type SortDir = "asc" | "desc";
 /** ライブラリーの配置：基本（子ライブラリーは印の画像だけ）／全て表示／シングル（子ライブラリーの画像を出さない） */
 export type LibMode = "rep" | "all" | "single";
 
+/** リスト表示で名前の右に並べる列（プレビューの詳細と同じ項目） */
+export type ListColumn =
+  | "fileName"
+  | "type"
+  | "dims"
+  | "dpi"
+  | "pixels"
+  | "ratio"
+  | "size"
+  | "date"
+  | "uploader"
+  | "libs";
+/** 列の名前と幅。はじめは画像サイズ・容量・追加日時だけを出す */
+export const LIST_COLUMNS: { id: ListColumn; name: string; width: string }[] = [
+  { id: "fileName", name: "ファイル名", width: "12rem" },
+  { id: "type", name: "形式", width: "5.5rem" },
+  { id: "dims", name: "画像サイズ", width: "7.5rem" },
+  { id: "dpi", name: "解像度", width: "5rem" },
+  { id: "pixels", name: "画素数", width: "5rem" },
+  { id: "ratio", name: "縦横比", width: "4.5rem" },
+  { id: "size", name: "容量", width: "4.5rem" },
+  { id: "date", name: "追加日時", width: "8.5rem" },
+  { id: "uploader", name: "追加した人", width: "7rem" },
+  { id: "libs", name: "ライブラリー", width: "12rem" },
+];
+
 export type MediaPrefs = {
   sort: SortKey;
   dirs: Record<SortKey, SortDir>;
@@ -15,6 +41,10 @@ export type MediaPrefs = {
   libMode: LibMode;
   /** 画像とライブラリーの見せ方：アイコン（サムネイル・カードを並べる）／リスト（1行に1つ、名前やサイズを並べる） */
   imageView: "icon" | "list";
+  /** リスト表示で出す列（並べた順）。データベースのプロパティの表示/非表示と同じく、出す・隠す・並べ替えができる */
+  columns: ListColumn[];
+  /** 画像の名前の後ろに拡張子を付けて出す（Windows のエクスプローラーの「ファイル名拡張子」） */
+  showExt: boolean;
 };
 
 export const DEFAULT_PREFS: MediaPrefs = {
@@ -23,13 +53,20 @@ export const DEFAULT_PREFS: MediaPrefs = {
   level: 3,
   libMode: "rep",
   imageView: "icon",
+  columns: ["dims", "size", "date"],
+  showExt: false,
 };
 
 export const THUMB_SIZES = [96, 128, 164, 220];
 
 /** 自分と、その下の子ライブラリーすべて */
 export function descendants(libs: Library[], id: string): string[] {
-  return [id, ...libs.filter((l) => l.parentId === id).flatMap((l) => descendants(libs, l.id))];
+  return [
+    id,
+    ...libs
+      .filter((l) => l.parentId === id)
+      .flatMap((l) => descendants(libs, l.id)),
+  ];
 }
 
 /** 一番上の親から自分までの並び */
@@ -43,8 +80,13 @@ export function chain(libs: Library[], id: string | null): Library[] {
   return out;
 }
 
-export function childrenOf(libs: Library[], parentId: string | null): Library[] {
-  return libs.filter((l) => l.parentId === parentId).sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
+export function childrenOf(
+  libs: Library[],
+  parentId: string | null,
+): Library[] {
+  return libs
+    .filter((l) => l.parentId === parentId)
+    .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
 }
 
 /** 子ライブラリーに入れた画像は、その親たちにも入っている状態にそろえる */
@@ -59,12 +101,18 @@ export const isUnsorted = (m: Media) => !m.trashed && m.libIds.length === 0;
 /** 子ライブラリーの代表画像。指定が無い・外れているなら最初の画像 */
 export function repOf(media: Media[], lib: Library): string | undefined {
   const list = media.filter((m) => !m.trashed && m.libIds.includes(lib.id));
-  if (lib.repMediaId && list.some((m) => m.id === lib.repMediaId)) return lib.repMediaId;
+  if (lib.repMediaId && list.some((m) => m.id === lib.repMediaId))
+    return lib.repMediaId;
   return list[0]?.id;
 }
 
 /** ライブラリーを開いたときに並べる画像 */
-export function libraryView(media: Media[], libs: Library[], libId: string, mode: LibMode): Media[] {
+export function libraryView(
+  media: Media[],
+  libs: Library[],
+  libId: string,
+  mode: LibMode,
+): Media[] {
   const inLib = media.filter((m) => !m.trashed && m.libIds.includes(libId));
   if (mode === "all") return inLib;
   const below = descendants(libs, libId).filter((id) => id !== libId);
@@ -74,20 +122,36 @@ export function libraryView(media: Media[], libs: Library[], libId: string, mode
   return inLib.filter((m) => !inChild(m) || reps.includes(m.id));
 }
 
+/** 画像の名前に拡張子を付けて出す（「並べ替えと表示」のファイル名拡張子） */
+export function shownName(m: Media, showExt: boolean): string {
+  return showExt ? `${m.name}.${extOf(m)}` : m.name;
+}
+
+/** ファイル名の拡張子（小文字・点なし）。無ければ形式から */
+export function extOf(m: Media): string {
+  const dot = m.fileName.lastIndexOf(".");
+  if (dot > 0) return m.fileName.slice(dot + 1).toLowerCase();
+  return m.mime.replace("image/", "").toLowerCase();
+}
+
 export function arrange(list: Media[], prefs: MediaPrefs): Media[] {
   const dir = prefs.dirs[prefs.sort] === "asc" ? 1 : -1;
-  const cmp =
-    prefs.sort === "name"
-      ? (a: Media, b: Media) => a.name.localeCompare(b.name, "ja", { numeric: true })
-      : prefs.sort === "size"
-        ? (a: Media, b: Media) => a.size - b.size
-        : (a: Media, b: Media) => a.createdAt - b.createdAt;
-  return [...list].sort((a, b) => cmp(a, b) * dir);
+  const text = (a: string, b: string) =>
+    a.localeCompare(b, "ja", { numeric: true });
+  const cmp: Record<SortKey, (a: Media, b: Media) => number> = {
+    new: (a, b) => a.createdAt - b.createdAt,
+    name: (a, b) => text(a.name, b.name),
+    size: (a, b) => a.size - b.size,
+  };
+  return [...list].sort((a, b) => (cmp[prefs.sort] ?? cmp.new)(a, b) * dir);
 }
 
 /** カードの表紙に出す画像3枚。代表の画像（repOf）があれば、それを先頭（左の大きい四角）にする */
 export function coverOf(media: Media[], lib: Library): Media[] {
   const list = media.filter((m) => !m.trashed && m.libIds.includes(lib.id));
   const rep = repOf(media, lib);
-  return [...list.filter((m) => m.id === rep), ...list.filter((m) => m.id !== rep)].slice(0, 3);
+  return [
+    ...list.filter((m) => m.id === rep),
+    ...list.filter((m) => m.id !== rep),
+  ].slice(0, 3);
 }
