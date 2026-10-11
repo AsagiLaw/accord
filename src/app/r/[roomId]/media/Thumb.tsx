@@ -4,8 +4,39 @@ import { useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import type { Media } from "@/lib/local/db";
 import { ThumbImage } from "@/components/ThumbImage";
+import { startMediaDrag, useOriginalUrl } from "@/lib/media/export";
+import { toast } from "@/components/ui/overlay";
 
 export { ThumbImage };
+
+let warnedMulti = false;
+
+/**
+ * 画像の上に重ねる、透明な元の画像。これをドラッグすると、他のアプリ（Photoshop・デスクトップなど）に元の画像のファイルとして渡る。
+ * 元の画像は大きいので、カーソルを乗せたときに読み込む。ドラッグ中に見せる絵は、重ねている下の見た目（親の要素）にする。
+ * 親には relative を付けておくこと。multiSelected：複数選んでいる中の1枚か（渡せるのは1枚だけなので、最初の1回だけ知らせる）
+ */
+export function DragOriginal({ m, multiSelected = false }: { m: Media; multiSelected?: boolean }) {
+  const [hovered, setHovered] = useState(false);
+  const src = useOriginalUrl(hovered ? m : undefined);
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- ブラウザ内の画像なので next/image は使えない
+    <img
+      src={src}
+      alt=""
+      aria-hidden
+      data-drag-original
+      onPointerEnter={() => setHovered(true)}
+      onDragStart={(e) => {
+        if (startMediaDrag(e, m, e.currentTarget.parentElement) && multiSelected && !warnedMulti) {
+          warnedMulti = true;
+          toast("ドラッグで渡せるのは1枚だけです。複数枚は右クリックの「ダウンロード」を使ってください");
+        }
+      }}
+      className="absolute inset-0 h-full w-full opacity-0"
+    />
+  );
+}
 
 /**
  * 名前をその場で書き換える入力欄（画像の名前の所に出す）。Enter か外を押すと決まり、Esc でやめる。
@@ -98,6 +129,8 @@ export function Thumb({
       }`}
     >
       <ThumbImage id={m.id} alt={m.name} />
+      {/* 他のアプリ（デスクトップ・Photoshop など）へドラッグすると、元の画像のファイルとして渡す */}
+      {!renaming && <DragOriginal m={m} multiSelected={order !== undefined} />}
       {renaming ? (
         <NameField
           name={m.name}

@@ -5,6 +5,7 @@ import { Icon } from "@/components/Icon";
 import { toast } from "@/components/ui/overlay";
 import { useLibraries, useMedia, uploadFiles } from "@/lib/local/media";
 import { chain, isUnsorted } from "@/lib/media/logic";
+import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { ThumbImage } from "@/components/ThumbImage";
 
 /**
@@ -63,6 +64,8 @@ export function MediaPicker({
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
+          // メディアの画像をドラッグしてきたときは、ファイルの追加として扱わない
+          if (e.dataTransfer.types.includes(MEDIA_DRAG_TYPE)) return;
           upload([...e.dataTransfer.files]);
         }}
       >

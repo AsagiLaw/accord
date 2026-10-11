@@ -17,6 +17,7 @@ import {
   uploadFiles,
   type Undo,
 } from "@/lib/local/media";
+import { canPickSaveLocation, copyImage, downloadOriginals, saveFileAs, saveZip, type ZipItem } from "@/lib/media/export";
 import { chain, descendants } from "@/lib/media/logic";
 
 // 確認・お知らせ・元に戻すを含む、画面からの操作の流れ
@@ -29,6 +30,79 @@ export async function uploadFlow(roomId: string, userId: string, files: File[], 
   const { ids, failed } = await uploadFiles(roomId, userId, files);
   if (ids.length) toast(`${ids.length}枚を追加しました${failed ? `（${failed}枚は画像でないため追加できません）` : ""}`, { label: "整理する", run: openUnsorted });
   else toast("画像を追加できませんでした");
+}
+
+/** 元の画像をクリップボードにコピーする（Discord などに Ctrl+V で貼れる）。コピーできるのは1枚だけ */
+export async function copyImageFlow(list: Media[]) {
+  if (list.length !== 1) {
+    toast("コピーできるのは1枚だけです。複数枚は右クリックの「ダウンロード」を使ってください");
+    return;
+  }
+  try {
+    await copyImage(list[0]);
+    toast("画像をコピーしました");
+  } catch {
+    toast("画像をコピーできませんでした");
+  }
+}
+
+/**
+ * 元の画像をダウンロードする。1枚なら「名前を付けて保存」、複数なら1つの ZIP にまとめて「名前を付けて保存」。
+ * 保存先を選べないブラウザでは、ブラウザのダウンロードのフォルダに入れる。ZIP の名前は「日付_メディアファイル.zip」
+ */
+export async function downloadFlow(list: Media[]) {
+  if (!list.length) return;
+  try {
+    if (list.length === 1) {
+      if (!canPickSaveLocation()) return await downloadOriginals(list);
+      if (await saveFileAs(list[0])) toast("保存しました");
+      return;
+    }
+    const saved = await saveZip(
+      list.map((m) => ({ m })),
+      zipBaseName("メディアファイル"),
+      () => toast(`${list.length}枚を ZIP にまとめています…`),
+    );
+    if (saved) toast(`${list.length}枚を ZIP にまとめて保存しました`);
+  } catch (err) {
+    toast(`保存できませんでした（${(err as Error).message}）`);
+  }
+}
+
+/** ZIP の名前：「2026-10-12_納品」のように、今日の日付の後ろに名前を付ける */
+const zipBaseName = (name: string) => `${new Date().toLocaleDateString("sv-SE")}_${name}`;
+
+/**
+ * ライブラリーの画像を全て、1つの ZIP にまとめて書き出す（「名前を付けて保存」の画面）。ゴミ箱の画像は入れない。
+ * 子ライブラリーの画像は、ZIP の中の子ライブラリーの名前のフォルダに入れる（いくつかの子ライブラリーに入っている画像は、それぞれに入れる）
+ */
+export async function exportLibraryFlow(lib: Library, libs: Library[], media: Media[]) {
+  const sub = descendants(libs, lib.id).filter((id) => id !== lib.id);
+  const depth = chain(libs, lib.id).length;
+  const items: ZipItem[] = [];
+  for (const m of media) {
+    if (m.trashed || !m.libIds.includes(lib.id)) continue;
+    // 入っている子ライブラリーのうち、一番深いもの（親たちにも入っているので、それは除く）
+    const inSub = m.libIds.filter((id) => sub.includes(id));
+    const leaves = inSub.filter((id) => !inSub.some((o) => o !== id && descendants(libs, id).includes(o)));
+    if (!leaves.length) items.push({ m });
+    for (const id of leaves)
+      items.push({
+        m,
+        folder: chain(libs, id)
+          .slice(depth)
+          .map((l) => l.name),
+      });
+  }
+  const n = new Set(items.map((x) => x.m.id)).size;
+  if (!n) return toast(`「${lib.name}」に画像がありません`);
+  try {
+    // 画像を数えたらすぐ保存の画面を開く（押した直後でないと開けないため、間に待つ処理を入れない）
+    const saved = await saveZip(items, zipBaseName(lib.name), () => toast(`「${lib.name}」の画像${n}枚を ZIP にまとめています…`));
+    if (saved) toast(`「${lib.name}」の画像${n}枚を書き出しました`);
+  } catch (err) {
+    toast(`書き出せませんでした（${(err as Error).message}）`);
+  }
 }
 
 export async function trashFlow(roomId: string, ids: string[]) {
@@ -156,6 +230,7 @@ export const LIBRARY_MENU = [
   { label: "下へ移動", icon: "dn" },
   { label: "別の場所へ移動", icon: "folder", detail: "別のライブラリーの子ライブラリーにする・最上位に出す" },
   { label: "他のライブラリーと合体", icon: "copy", detail: "画像と子ライブラリーを移して、このライブラリーは消します" },
+  { label: "ライブラリーを書き出す", icon: "download", detail: "ZIP にまとめて保存します。子ライブラリーの画像はフォルダに分けます" },
   { label: "削除", icon: "del", detail: "画像は削除されません", danger: true },
 ] as const;
 
@@ -195,7 +270,9 @@ export async function libraryAction(i: number, roomId: string, lib: Library, lib
       if (j === null) return;
       return undoable(`「${lib.name}」を「${others[j].name}」と合体しました`, await mergeLibrary(roomId, lib.id, others[j].id));
     }
-    case 6: {
+    case 6:
+      return exportLibraryFlow(lib, libs, media);
+    case 7: {
       const n = descendants(libs, lib.id).length - 1;
       const ok = await confirmAction(`「${lib.name}」を削除します`, "削除", `${n ? `子ライブラリー${n}件も削除します。` : ""}画像は削除されません。`);
       if (!ok) return;

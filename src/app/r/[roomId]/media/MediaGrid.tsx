@@ -18,7 +18,7 @@ import { useMediaPrefs } from "@/lib/media/prefs";
 import { setRepresentative } from "@/lib/local/media";
 import { useMediaState } from "./MediaContext";
 import { rememberOpenedFrom } from "./Lightbox";
-import { NameField, Thumb, ThumbImage } from "./Thumb";
+import { DragOriginal, NameField, Thumb, ThumbImage } from "./Thumb";
 
 /** マウス操作の端末か（タッチ端末では、タップで開き「選択」モードで選ぶ） */
 export const isPointerFine = () =>
@@ -177,10 +177,13 @@ export function MediaGrid({
           onKeyDown={(e) => {
             if (e.key === "Enter") openIn(m.id, inList);
           }}
-          className={`grid h-6 cursor-default grid-cols-[1fr_auto] items-center gap-3 rounded-[4px] px-2 select-none sm:grid-cols-[1fr_7.5rem_4.5rem_8.5rem] ${
+          className={`relative grid h-6 cursor-default grid-cols-[1fr_auto] items-center gap-3 rounded-[4px] px-2 select-none sm:grid-cols-[1fr_7.5rem_4.5rem_8.5rem] ${
             on ? "bg-accent/15 text-ink" : "hover:bg-tint"
           }`}
         >
+          {renaming !== m.id && (
+            <DragOriginal m={m} multiSelected={on && selected.length > 1} />
+          )}
           <span
             className="flex min-w-0 items-center gap-2"
             style={{ paddingLeft: depth * 18 }}

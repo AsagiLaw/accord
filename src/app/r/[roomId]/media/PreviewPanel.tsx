@@ -6,7 +6,7 @@ import type { Library, Media } from "@/lib/local/db";
 import { aspectRatio, formatSize } from "@/lib/media/image";
 import { chain, descendants } from "@/lib/media/logic";
 import { useMediaState } from "./MediaContext";
-import { ThumbImage } from "./Thumb";
+import { DragOriginal, ThumbImage } from "./Thumb";
 
 /** 画像が入っているライブラリーを「親 › 子」の形で、一番深いものだけ並べる */
 export function libraryPaths(m: Media, libs: Library[]): string[] {
@@ -68,11 +68,12 @@ function PreviewBody() {
       ) : (
         <>
           <button
-            className="mb-3 block aspect-square w-full overflow-hidden rounded-[10px]"
+            className="relative mb-3 block aspect-square w-full overflow-hidden rounded-[10px]"
             aria-label="大きく表示"
             onClick={() => setViewing(m.id)}
           >
             <ThumbImage id={m.id} alt={m.name} className="object-contain" />
+            <DragOriginal m={m} multiSelected={selected.length > 1} />
           </button>
           <p className="mb-2 font-bold break-all">{m.name}</p>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">

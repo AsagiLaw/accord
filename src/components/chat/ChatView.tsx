@@ -9,6 +9,7 @@ import { choose, confirmAction, promptText, toast } from "@/components/ui/overla
 import { addSpeaker, changeSpeaker, deleteMessage, editMessage, markRead, sendMessage, useMessages } from "@/lib/local/chat";
 import type { Chat, Media, Message, Profile } from "@/lib/local/db";
 import { uploadFiles, useMedia } from "@/lib/local/media";
+import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 
 const WEEK = "日月火水木金土";
@@ -351,9 +352,10 @@ function Composer({
     <div
       data-name="入力欄"
       className="border-t border-line pt-2"
-      onDragOver={(e) => e.dataTransfer.types.includes("Files") && e.preventDefault()}
+      // メディアの画像をドラッグしてきたときは、ファイルの追加として扱わない（同じ画像が二重に増えないように）
+      onDragOver={(e) => e.dataTransfer.types.includes("Files") && !e.dataTransfer.types.includes(MEDIA_DRAG_TYPE) && e.preventDefault()}
       onDrop={(e) => {
-        if (!e.dataTransfer.files.length) return;
+        if (!e.dataTransfer.files.length || e.dataTransfer.types.includes(MEDIA_DRAG_TYPE)) return;
         e.preventDefault();
         uploadAndAttach([...e.dataTransfer.files]);
       }}

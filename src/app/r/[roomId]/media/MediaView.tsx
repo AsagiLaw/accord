@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/Popover";
 import type { Library } from "@/lib/local/db";
 import { renameLibrary, renameMedia, setFav } from "@/lib/local/media";
-import { useBlobUrl } from "@/lib/media/blob-url";
+import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import {
   arrange,
   chain,
@@ -25,7 +25,9 @@ import {
 } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
 import {
+  copyImageFlow,
   deleteForeverFlow,
+  downloadFlow,
   removeFromLibraryFlow,
   restoreFlow,
   trashFlow,
@@ -115,7 +117,6 @@ export function MediaView({ view }: { view: MediaViewKind }) {
   const lib =
     view.kind === "lib" ? libs.find((l) => l.id === view.id) : undefined;
   const viewingMedia = s.viewing ? s.byId.get(s.viewing.id) : undefined;
-  const originalUrl = useBlobUrl(viewingMedia?.id, "original");
   const list = useMemo(() => {
     const alive = media.filter((m) => !m.trashed);
     switch (view.kind) {
@@ -165,6 +166,12 @@ export function MediaView({ view }: { view: MediaViewKind }) {
         trashFlow(roomId, selected);
         setSelected([]);
       }
+      // Ctrl+C：選んだ画像をコピー（Discord などに Ctrl+V で貼れる）
+      if ((e.ctrlKey || e.metaKey) && e.key === "c" && selected.length) {
+        if (window.getSelection()?.toString()) return;
+        e.preventDefault();
+        copyImageFlow(selected.flatMap((id) => s.byId.get(id) ?? []));
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === "a" && view.kind !== "home") {
         e.preventDefault();
         setSelected(list.map((m) => m.id));
@@ -172,7 +179,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selected, setSelected, view.kind, roomId, list]);
+  }, [selected, setSelected, view.kind, roomId, list, s.byId]);
 
   // 右クリック：大きく表示している画像・一覧の画像・ライブラリーの何もない所で、それぞれのメニューを出す
   const openCtx = ctx.openAt;
@@ -241,19 +248,18 @@ export function MediaView({ view }: { view: MediaViewKind }) {
           >
             {viewingMedia.fav ? "お気に入りから外す" : "お気に入りに追加"}
           </MenuItem>
-          {originalUrl && (
-            <MenuItem
-              icon={<Icon name="download" size={16} />}
-              onClick={run(() => {
-                const a = document.createElement("a");
-                a.href = originalUrl;
-                a.download = viewingMedia.fileName;
-                a.click();
-              })}
-            >
-              元の画像を保存
-            </MenuItem>
-          )}
+          <MenuItem
+            icon={<Icon name="copy" size={16} />}
+            onClick={run(() => copyImageFlow([viewingMedia]))}
+          >
+            画像をコピー
+          </MenuItem>
+          <MenuItem
+            icon={<Icon name="download" size={16} />}
+            onClick={run(() => downloadFlow([viewingMedia]))}
+          >
+            ダウンロード
+          </MenuItem>
           {!viewingMedia.trashed && (
             <>
               <MenuDivider />
@@ -311,6 +317,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
       );
     }
     const allFav = selected.every((id) => s.byId.get(id)?.fav);
+    const selectedMedia = selected.flatMap((id) => s.byId.get(id) ?? []);
     return (
       <>
         {label}
@@ -333,6 +340,21 @@ export function MediaView({ view }: { view: MediaViewKind }) {
           onClick={run(() => setFav(selected, !allFav).then(done))}
         >
           {allFav ? "お気に入りから外す" : "お気に入りに追加"}
+        </MenuItem>
+        {n === 1 && (
+          <MenuItem
+            icon={<Icon name="copy" size={16} />}
+            onClick={run(() => copyImageFlow(selectedMedia))}
+          >
+            画像をコピー
+          </MenuItem>
+        )}
+        <MenuItem
+          icon={<Icon name="download" size={16} />}
+          // 複数のときは ZIP にまとめる
+          onClick={run(() => downloadFlow(selectedMedia))}
+        >
+          {n === 1 ? "ダウンロード" : `${n}枚を ZIP でダウンロード`}
         </MenuItem>
         {lib && (
           <MenuItem
@@ -403,6 +425,8 @@ export function MediaView({ view }: { view: MediaViewKind }) {
       className="relative"
       style={{ marginRight: reserve }}
       onDragOver={(e) => {
+        // アプリの中の画像をドラッグしているときは、ファイルの追加として扱わない
+        if (e.dataTransfer.types.includes(MEDIA_DRAG_TYPE)) return;
         if (e.dataTransfer.types.includes("Files")) {
           e.preventDefault();
           setDragging(true);
@@ -410,7 +434,11 @@ export function MediaView({ view }: { view: MediaViewKind }) {
       }}
       onDragLeave={(e) => e.currentTarget === e.target && setDragging(false)}
       onDrop={(e) => {
-        if (!e.dataTransfer.files.length) return;
+        if (
+          !e.dataTransfer.files.length ||
+          e.dataTransfer.types.includes(MEDIA_DRAG_TYPE)
+        )
+          return;
         e.preventDefault();
         setDragging(false);
         uploadFlow(roomId, me.id, [...e.dataTransfer.files], () =>

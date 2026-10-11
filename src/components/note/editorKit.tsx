@@ -26,6 +26,7 @@ import { NoteContext } from "@/components/embeds";
 import { Icon } from "@/components/Icon";
 import { toast } from "@/components/ui/overlay";
 import { uploadFiles } from "@/lib/local/media";
+import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { noteSchema, type NoteEditor as Editor } from "./blocks";
 
 // ノート・ウィンドウ・ページの本文・テンプレートで共通に使う、エディタの作り方とメニュー
@@ -418,6 +419,12 @@ export async function insertUploaded(editor: Editor, roomId: string, userId: str
 
 /** ドロップされた画像をメディア経由で貼る（ドロップ先の要素の onDropCapture に渡す） */
 export const dropImages = (editor: Editor, roomId: string, userId: string) => (e: React.DragEvent) => {
+  // メディアの画像をドラッグしてきたときは、ファイルの追加として扱わない（同じ画像が二重に増えないように）
+  if (e.dataTransfer.types.includes(MEDIA_DRAG_TYPE)) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
   const files = [...e.dataTransfer.files].filter((f) => f.type.startsWith("image/"));
   if (!files.length) return;
   e.preventDefault();

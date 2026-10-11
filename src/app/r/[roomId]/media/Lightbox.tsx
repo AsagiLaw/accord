@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
-import { useBlobUrl } from "@/lib/media/blob-url";
+import { startMediaDrag, useOriginalUrl } from "@/lib/media/export";
 import {
   arrange,
   chain,
@@ -14,6 +14,7 @@ import {
   repOf,
 } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
+import { copyImageFlow } from "./flows";
 import { useMediaState } from "./MediaContext";
 import { ThumbImage } from "./Thumb";
 
@@ -55,7 +56,8 @@ export function Lightbox() {
   const prevId = useRef<string | null>(null);
 
   const m = viewing ? byId.get(viewing.id) : undefined;
-  const original = useBlobUrl(m?.id, "original");
+  // 名前付きの URL で表示する（ドラッグして他のアプリに渡したとき、その名前のファイルになる）
+  const original = useOriginalUrl(m);
   const inLibPage = pathname.includes("/media/lib/");
 
   // 入っているライブラリー（一番深いものと、その親たち）
@@ -135,6 +137,11 @@ export function Lightbox() {
       if (e.key === "ArrowLeft") go(-1);
       if (e.key === "ArrowRight") go(1);
       if (e.key === "Escape") setViewing(null);
+      // Ctrl+C：表示している画像をコピー（Discord などに Ctrl+V で貼れる）
+      if ((e.ctrlKey || e.metaKey) && e.key === "c" && !window.getSelection()?.toString()) {
+        e.preventDefault();
+        copyImageFlow([m]);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -251,7 +258,11 @@ export function Lightbox() {
             key={m.id}
             src={original}
             alt={m.name}
-            draggable={false}
+            // 他のアプリ（デスクトップ・Photoshop など）へドラッグすると、元の画像のファイルとして渡す
+            onDragStart={(e) => {
+              swipe.current = null;
+              startMediaDrag(e, m);
+            }}
             onLoad={animateIn}
             className="block max-h-full max-w-full rounded-[14px] object-contain shadow-[0_20px_60px_#0007]"
           />
