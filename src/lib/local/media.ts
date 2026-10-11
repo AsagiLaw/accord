@@ -137,7 +137,7 @@ export async function setRepresentative(libId: string, mediaId: string) {
   await db.libraries.update(libId, { repMediaId: mediaId });
 }
 
-/** ライブラリーと小ライブラリーを削除。画像は消さない */
+/** ライブラリーと子ライブラリーを削除。画像は消さない */
 export async function deleteLibrary(roomId: string, id: string): Promise<Undo> {
   const undo = await snapshot(roomId);
   const ids = descendants(await roomLibs(roomId), id);
@@ -155,7 +155,7 @@ export async function deleteLibrary(roomId: string, id: string): Promise<Undo> {
 
 /**
  * 「整理」：選んだ画像を、選んだライブラリーに入れる。
- * もともと入っていて選択を外したライブラリーからは、その小ライブラリーごと外す。
+ * もともと入っていて選択を外したライブラリーからは、その子ライブラリーごと外す。
  */
 export async function organize(roomId: string, mediaIds: string[], selected: string[], before: string[]): Promise<Undo> {
   const undo = await snapshot(roomId);
@@ -191,7 +191,7 @@ export async function setLibraryMembers(roomId: string, libId: string, selected:
   return undo;
 }
 
-/** ライブラリーから画像を出す（小ライブラリーからも外れる） */
+/** ライブラリーから画像を出す（子ライブラリーからも外れる） */
 export async function removeFromLibrary(roomId: string, libId: string, mediaIds: string[]): Promise<Undo> {
   const undo = await snapshot(roomId);
   const below = descendants(await roomLibs(roomId), libId);
@@ -218,7 +218,7 @@ export async function groupIntoLibrary(roomId: string, mediaIds: string[], name:
 }
 
 /**
- * ライブラリーの場所を変える（別の親の小ライブラリーにする・最上位に出す）。
+ * ライブラリーの場所を変える（別の親の子ライブラリーにする・最上位に出す）。
  * removeFromOldParent のとき、中の画像を元の親たちからも外す。
  */
 export async function moveLibrary(
@@ -286,7 +286,7 @@ export async function reorderLibrary(roomId: string, id: string, direction: -1 |
   });
 }
 
-/** ライブラリーを別のライブラリーにまとめる（中の画像と小ライブラリーを移して、元は削除） */
+/** ライブラリーを別のライブラリーにまとめる（中の画像と子ライブラリーを移して、元は削除） */
 export async function mergeLibrary(roomId: string, id: string, intoId: string): Promise<Undo> {
   const undo = await snapshot(roomId);
   const libs = await roomLibs(roomId);

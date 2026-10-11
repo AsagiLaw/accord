@@ -1,10 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/Icon";
-import { promptText } from "@/components/ui/overlay";
 import {
   MenuDivider,
   MenuItem,
@@ -12,7 +11,8 @@ import {
   Popover,
   usePopover,
 } from "@/components/ui/Popover";
-import { renameMedia, setFav } from "@/lib/local/media";
+import type { Library } from "@/lib/local/db";
+import { renameLibrary, renameMedia, setFav } from "@/lib/local/media";
 import { useBlobUrl } from "@/lib/media/blob-url";
 import {
   arrange,
@@ -27,21 +27,26 @@ import { useMediaPrefs } from "@/lib/media/prefs";
 import {
   deleteForeverFlow,
   removeFromLibraryFlow,
-  renameLibraryFlow,
   restoreFlow,
   trashFlow,
   uploadFlow,
 } from "./flows";
 import { CoverCard } from "./LibraryCard";
+import { ThumbImage } from "./Thumb";
 import { useMediaState } from "./MediaContext";
-import { MediaGrid, isPointerFine } from "./MediaGrid";
-import { PreviewPanel } from "./PreviewPanel";
+import { MediaGrid, isPointerFine, useTileSize } from "./MediaGrid";
+import { PreviewPanel, usePreviewWidth } from "./PreviewPanel";
 import { SortMenu } from "./SortMenu";
+import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
 import { TopBarActions } from "@/components/TopBarSlot";
 
 export type MediaViewKind =
   | { kind: "home" | "unsorted" | "all" | "fav" | "trash" }
   | { kind: "lib"; id: string };
+
+// ページを切り替えても続けて使う、プレビュー欄の開け閉めと空ける幅
+let peekMemo: boolean | null = null;
+let reserveMemo = 0;
 
 const TITLES = {
   home: "メディア",
@@ -56,13 +61,35 @@ export function MediaView({ view }: { view: MediaViewKind }) {
   const { media, libs, selected, setSelected, roomId, me } = s;
   const prefs = useMediaPrefs();
   // カードの左の四角は、画像一覧の画像と同じ大きさ
-  const cardSize = THUMB_SIZES[prefs.level - 1];
+  // 画像とカードの左の四角の大きさ：選んだ大きさを、画面の幅に合わせて少し広げたもの
+  const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
+  const cardSize = useTileSize(contentEl, THUMB_SIZES[prefs.level - 1]);
   const router = useRouter();
+  const pathname = usePathname();
   const base = `/r/${roomId}/media`;
   const [selectMode, setSelectMode] = useState(false);
   const [dragging, setDragging] = useState(false);
+  // プレビュー欄を開いているか（最初は、広い画面なら開いておく）と、その幅。一覧はその分だけ右を空ける
+  // ページを切り替えても開け閉めを保つ（最初は、広い画面なら開いておく）
+  const [peek, setPeekState] = useState(() => {
+    if (peekMemo === null)
+      peekMemo = typeof window !== "undefined" && window.innerWidth >= 1280;
+    return peekMemo;
+  });
+  const setPeek = (v: boolean) => {
+    peekMemo = v;
+    setPeekState(v);
+  };
+
+  const [previewWidth, setPreviewWidth] = usePreviewWidth();
+  // 一覧の右に空ける幅。前のページの値から始める（ページを切り替えたときに一瞬広がらないように）
+  const [reserve, setReserveState] = useState(reserveMemo);
+  const setReserve = useCallback((px: number) => {
+    reserveMemo = px;
+    setReserveState(px);
+  }, []);
   const ctx = usePopover();
-  // 小ライブラリーの並びを閉じているか。端末ごとに覚える（どのライブラリーでも同じ）
+  // 子ライブラリーの並びを閉じているか。端末ごとに覚える（どのライブラリーでも同じ）
   const [kidsClosed, setKidsClosed] = useState(() => {
     try {
       return localStorage.getItem("irai-note:media-kids-closed") === "1";
@@ -185,6 +212,8 @@ export function MediaView({ view }: { view: MediaViewKind }) {
     setSelectMode(false);
   };
 
+  // 画像の名前を変える（右クリックの「名前を変更」）：名前が書いてある所が、その場で入力欄になる
+  const renameImage = (id: string) => s.setRenaming(id);
   // 画像の操作は右クリックのメニューで出す（上のバーには並べ替えと表示だけ置く）
   const ctxItems = (): React.ReactNode => {
     const run = (fn: () => unknown) => () => {
@@ -199,6 +228,12 @@ export function MediaView({ view }: { view: MediaViewKind }) {
             onClick={run(() => s.setOrganizing([viewingMedia.id]))}
           >
             整理
+          </MenuItem>
+          <MenuItem
+            icon={<Icon name="edit" size={16} />}
+            onClick={run(() => renameImage(viewingMedia.id))}
+          >
+            名前を変更
           </MenuItem>
           <MenuItem
             icon={<Icon name="star" size={16} />}
@@ -285,6 +320,14 @@ export function MediaView({ view }: { view: MediaViewKind }) {
         >
           整理
         </MenuItem>
+        {n === 1 && (
+          <MenuItem
+            icon={<Icon name="edit" size={16} />}
+            onClick={run(() => renameImage(selected[0]))}
+          >
+            名前を変更
+          </MenuItem>
+        )}
         <MenuItem
           icon={<Icon name="star" size={16} />}
           onClick={run(() => setFav(selected, !allFav).then(done))}
@@ -314,11 +357,51 @@ export function MediaView({ view }: { view: MediaViewKind }) {
   };
 
   const crumbs = lib ? chain(libs, lib.id) : [];
+  // 上の場所のリンクを押したら、拡大表示を閉じる（同じページでも閉じて一覧に戻る）
+  const closeViewing = () => s.setViewing(null);
+
+  // 上のバーの場所：今開いているものより前（リンク）と、今開いているもの
+  const crumbItems: Crumb[] = [];
+  if (view.kind !== "home" || viewingMedia)
+    crumbItems.push({ key: "media", label: "メディア", href: base });
+  if (view.kind !== "home" && view.kind !== "lib" && viewingMedia)
+    crumbItems.push({ key: "view", label: TITLES[view.kind], href: pathname });
+  crumbs.forEach((c, i) => {
+    if (i < crumbs.length - 1 || viewingMedia)
+      crumbItems.push({
+        key: c.id,
+        label: c.name,
+        href: `${base}/lib/${c.id}`,
+      });
+  });
+  const curLib = !viewingMedia ? crumbs.at(-1) : undefined;
+  const currentLabel =
+    viewingMedia?.name ??
+    curLib?.name ??
+    (view.kind === "lib" ? "" : TITLES[view.kind]);
+  const currentCrumb = viewingMedia ? (
+    <InlineName
+      key={`${viewingMedia.id}${s.renaming === viewingMedia.id ? ":edit" : ""}`}
+      name={viewingMedia.name}
+      startEditing={s.renaming === viewingMedia.id}
+      onEditEnd={() => s.setRenaming(null)}
+      onRename={(name) => renameMedia(viewingMedia.id, name)}
+    />
+  ) : curLib ? (
+    <InlineName
+      key={curLib.id}
+      name={curLib.name}
+      onRename={(name) => renameLibrary(curLib.id, name)}
+    />
+  ) : (
+    <b className="truncate px-1">{currentLabel}</b>
+  );
 
   return (
     <div
       data-name="メディア画面"
       className="relative"
+      style={{ marginRight: reserve }}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files")) {
           e.preventDefault();
@@ -347,58 +430,13 @@ export function MediaView({ view }: { view: MediaViewKind }) {
             className="flex min-w-0 flex-1 items-center gap-1"
           >
             <Icon name="img" size={16} className="shrink-0" />
-            {view.kind === "home" ? (
-              <b>メディア</b>
-            ) : (
-              <Link href={base} className="shrink-0 text-muted hover:text-ink">
-                メディア
-              </Link>
-            )}
-            {view.kind !== "home" && view.kind !== "lib" && (
-              <>
-                <Icon name="rt" size={14} className="shrink-0 text-muted" />
-                <b className="truncate">{TITLES[view.kind]}</b>
-              </>
-            )}
-            {crumbs.map((c, i) => (
-              <span key={c.id} className="flex min-w-0 items-center gap-1">
-                <Icon name="rt" size={14} className="shrink-0 text-muted" />
-                {i < crumbs.length - 1 ? (
-                  <Link
-                    href={`${base}/lib/${c.id}`}
-                    className="truncate text-muted hover:text-ink"
-                  >
-                    {c.name}
-                  </Link>
-                ) : (
-                  <button
-                    className="truncate font-bold hover:underline"
-                    title="クリックして名前を変更"
-                    onClick={() => renameLibraryFlow(c)}
-                  >
-                    {c.name}
-                  </button>
-                )}
-              </span>
-            ))}
-            {viewingMedia && (
-              <span className="flex min-w-0 items-center gap-1">
-                <Icon name="rt" size={14} className="shrink-0 text-muted" />
-                <button
-                  className="truncate font-bold hover:underline"
-                  title="クリックして名前を変更"
-                  onClick={async () => {
-                    const name = await promptText(
-                      "画像の名前",
-                      viewingMedia.name,
-                    );
-                    if (name) await renameMedia(viewingMedia.id, name);
-                  }}
-                >
-                  {viewingMedia.name}
-                </button>
-              </span>
-            )}
+            {/* 名前を変えられるのは今開いているものだけ。画像を拡大している間は、上の場所はすべて移動するためのリンク（押すと拡大を閉じる） */}
+            <Breadcrumbs
+              items={crumbItems}
+              current={currentCrumb}
+              currentLabel={currentLabel}
+              onNavigate={closeViewing}
+            />
           </nav>
           {!viewingMedia && (
             <div
@@ -434,50 +472,62 @@ export function MediaView({ view }: { view: MediaViewKind }) {
       </Popover>
 
       <div className="flex gap-5">
-        <div className="min-w-0 flex-1">
+        <div ref={setContentEl} className="min-w-0 flex-1">
           {view.kind === "home" ? (
-            <MediaHome selectMode={selectMode} />
+            <MediaHome selectMode={selectMode} size={cardSize} />
           ) : (
             <>
-              {lib && childrenOf(libs, lib.id).length > 0 && (
-                <>
-                  {/* 見出しを押すと、小ライブラリーの並びを閉じる・開く */}
-                  <h3 className="mb-2 font-bold">
-                    <button
-                      type="button"
-                      aria-expanded={!kidsClosed}
-                      onClick={toggleKids}
-                      className="-ml-1 flex items-center gap-1 rounded-[8px] px-1 hover:bg-tint"
-                    >
-                      <Icon name={kidsClosed ? "rt" : "dn"} size={16} />
-                      小ライブラリー
-                      {kidsClosed && (
-                        <span className="text-sm font-normal text-muted">
-                          {childrenOf(libs, lib.id).length}
-                        </span>
-                      )}
-                    </button>
-                  </h3>
-                  {!kidsClosed && (
-                    <div
-                      data-name="小ライブラリーの並び"
-                      className="mb-5 flex flex-wrap gap-2.5"
-                    >
-                      {childrenOf(libs, lib.id).map((k) => (
-                        <CoverCard
-                          size={cardSize}
-                          key={k.id}
-                          href={`${base}/lib/${k.id}`}
-                          name={k.name}
-                          covers={coverOf(media, k)}
-                        />
-                      ))}
+              {/* リスト表示で「基本」の配置のときは、子ライブラリーは画像の一覧の中に行として出すので、ここには出さない */}
+              {lib &&
+                childrenOf(libs, lib.id).length > 0 &&
+                !(prefs.imageView === "list" && prefs.libMode === "rep") && (
+                  <>
+                    {/* 見出しを押すと、子ライブラリーの並びを閉じる・開く */}
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <h3 className="font-bold">
+                        <button
+                          type="button"
+                          aria-expanded={!kidsClosed}
+                          onClick={toggleKids}
+                          className="-ml-1 flex items-center gap-1 rounded-[8px] px-1 hover:bg-tint"
+                        >
+                          <Icon name={kidsClosed ? "rt" : "dn"} size={16} />
+                          子ライブラリー
+                          {kidsClosed && (
+                            <span className="text-sm font-normal text-muted">
+                              {childrenOf(libs, lib.id).length}
+                            </span>
+                          )}
+                        </button>
+                      </h3>
                     </div>
-                  )}
-                  <h3 className="mb-2 font-bold">画像</h3>
-                </>
-              )}
+                    {!kidsClosed &&
+                      (prefs.imageView === "list" ? (
+                        <div className="mb-5">
+                          <LibraryList parentId={lib.id} />
+                        </div>
+                      ) : (
+                        <div
+                          data-name="子ライブラリーの並び"
+                          className="mb-5 flex flex-wrap gap-2.5"
+                        >
+                          {childrenOf(libs, lib.id).map((k) => (
+                            <CoverCard
+                              size={cardSize}
+                              key={k.id}
+                              href={`${base}/lib/${k.id}`}
+                              openOnDoubleClick
+                              name={k.name}
+                              covers={coverOf(media, k)}
+                            />
+                          ))}
+                        </div>
+                      ))}
+                    <h3 className="mb-2 font-bold">画像</h3>
+                  </>
+                )}
               <MediaGrid
+                size={cardSize}
                 list={list}
                 selectMode={selectMode}
                 lib={lib}
@@ -492,7 +542,13 @@ export function MediaView({ view }: { view: MediaViewKind }) {
             </>
           )}
         </div>
-        <PreviewPanel />
+        <PreviewPanel
+          open={peek}
+          onToggle={() => setPeek(!peek)}
+          width={previewWidth}
+          onWidth={setPreviewWidth}
+          onReserve={setReserve}
+        />
       </div>
 
       {dragging && (
@@ -504,11 +560,17 @@ export function MediaView({ view }: { view: MediaViewKind }) {
   );
 }
 
-function MediaHome({ selectMode }: { selectMode: boolean }) {
+function MediaHome({
+  selectMode,
+  size,
+}: {
+  selectMode: boolean;
+  size: number;
+}) {
   const { media, libs, roomId } = useMediaState();
   const prefs = useMediaPrefs();
   // カードの左の四角は、画像一覧の画像と同じ大きさ
-  const cardSize = THUMB_SIZES[prefs.level - 1];
+  const cardSize = size;
   const base = `/r/${roomId}/media`;
   const alive = media.filter((m) => !m.trashed);
   const unsorted = arrange(media.filter(isUnsorted), prefs);
@@ -534,49 +596,74 @@ function MediaHome({ selectMode }: { selectMode: boolean }) {
           <h3 className="mb-2 font-bold">
             未整理 <span className="text-muted">{unsorted.length}</span>
           </h3>
-          <MediaGrid list={unsorted} selectMode={selectMode} />
+          <MediaGrid list={unsorted} selectMode={selectMode} size={size} />
         </section>
       )}
       <section>
         <h3 className="mb-2 font-bold">一覧</h3>
-        <div className="flex flex-wrap gap-2.5">
-          <CoverCard
-            size={cardSize}
-            href={`${base}/all`}
-            name="すべて"
-            covers={recent(alive)}
-            count={alive.length}
-          />
-          <CoverCard
-            size={cardSize}
-            href={`${base}/favorites`}
-            name="お気に入り"
-            covers={recent(fav)}
-            count={fav.length}
-          />
-          <CoverCard
-            size={cardSize}
-            href={`${base}/trash`}
-            name="ゴミ箱"
-            covers={recent(trash)}
-            count={trash.length}
-          />
-        </div>
+        {prefs.imageView === "list" ? (
+          // リスト表示：ライブラリーのリストと同じ形（1行に1つ。こちらはライブラリーではないので1回のクリックで開く）
+          <ul
+            data-name="一覧のリスト"
+            className="rounded-[10px] border border-line bg-card p-1 text-sm"
+          >
+            {(
+              [
+                ["all", "すべて", "img", alive.length],
+                ["favorites", "お気に入り", "star", fav.length],
+                ["trash", "ゴミ箱", "del", trash.length],
+              ] as const
+            ).map(([path, name, icon, n]) => (
+              <li key={path}>
+                <Link
+                  href={`${base}/${path}`}
+                  className="flex h-6 items-center gap-2 rounded-[4px] pr-3 pl-[26px] hover:bg-tint"
+                >
+                  <Icon name={icon} size={16} className="shrink-0 text-muted" />
+                  <span className="min-w-0 flex-1 truncate">{name}</span>
+                  <span className="w-12 shrink-0 text-right text-muted">
+                    {n}枚
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="flex flex-wrap gap-2.5">
+            <CoverCard
+              size={cardSize}
+              href={`${base}/all`}
+              name="すべて"
+              covers={recent(alive)}
+              count={alive.length}
+            />
+            <CoverCard
+              size={cardSize}
+              href={`${base}/favorites`}
+              name="お気に入り"
+              covers={recent(fav)}
+              count={fav.length}
+            />
+            <CoverCard
+              size={cardSize}
+              href={`${base}/trash`}
+              name="ゴミ箱"
+              covers={recent(trash)}
+              count={trash.length}
+            />
+          </div>
+        )}
       </section>
       <section>
-        <h3 className="mb-2 font-bold">ライブラリー</h3>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="font-bold">ライブラリー</h3>
+        </div>
         {childrenOf(libs, null).length ? (
-          <div className="flex flex-wrap gap-2.5">
-            {childrenOf(libs, null).map((l) => (
-              <CoverCard
-                size={cardSize}
-                key={l.id}
-                href={`${base}/lib/${l.id}`}
-                name={l.name}
-                covers={coverOf(media, l)}
-              />
-            ))}
-          </div>
+          prefs.imageView === "list" ? (
+            <LibraryList parentId={null} />
+          ) : (
+            <LibraryRows size={cardSize} />
+          )
         ) : (
           <p className="text-sm text-muted">
             ライブラリーはまだありません。サイドバーの「ライブラリー」の＋から作れます。
@@ -584,5 +671,258 @@ function MediaHome({ selectMode }: { selectMode: boolean }) {
         )}
       </section>
     </div>
+  );
+}
+
+// ホームのライブラリーで開いている道筋（段ごとに開いたライブラリーの ID）。端末ごとに覚える
+const HOME_OPEN_KEY = "irai-note:media-home-open-path";
+
+/**
+ * ホームのライブラリー：段ごとに横1列に並べる（はみ出したら横スクロール）。
+ * 子ライブラリーがあるカードは右下のボタンで開け、開くとその下の段に子ライブラリーが並ぶ。
+ * 1つの段で開けるのは1つ（開いた道筋が、上から下への階層になる）
+ */
+function LibraryRows({ size }: { size: number }) {
+  const { media, libs, roomId } = useMediaState();
+  const [saved, setSaved] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(HOME_OPEN_KEY) ?? "[]");
+    } catch {
+      return [];
+    }
+  });
+  // 消えたライブラリーや、親子が変わったところから先は捨てる
+  const path: string[] = [];
+  for (const id of saved) {
+    const l = libs.find((x) => x.id === id);
+    if (
+      !l ||
+      l.parentId !== (path.at(-1) ?? null) ||
+      !childrenOf(libs, id).length
+    )
+      break;
+    path.push(id);
+  }
+  const toggle = (depth: number, id: string) => {
+    const next =
+      path[depth] === id ? path.slice(0, depth) : [...path.slice(0, depth), id];
+    setSaved(next);
+    try {
+      localStorage.setItem(HOME_OPEN_KEY, JSON.stringify(next));
+    } catch {
+      // 覚えられなくても、このページの間は効く
+    }
+  };
+  const card = (l: Library, depth: number) => {
+    const kids = childrenOf(libs, l.id).length;
+    const open = path[depth] === l.id;
+    return (
+      <div key={l.id} className="shrink-0">
+        <CoverCard
+          size={size}
+          href={`/r/${roomId}/media/lib/${l.id}`}
+          openOnDoubleClick
+          name={l.name}
+          covers={coverOf(media, l)}
+        >
+          {/* 「整理」の画面と同じ：右下のボタンで子ライブラリーを開く（閉じているときは右向き、開くと下向き。下の段に並ぶ） */}
+          {kids > 0 && (
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-label={`「${l.name}」の子ライブラリーを${open ? "閉じる" : "開く"}`}
+              title={`子ライブラリー ${kids}`}
+              onClick={() => toggle(depth, l.id)}
+              className={`absolute right-0 -bottom-1 grid h-7 w-7 place-items-center rounded-full hover:bg-tint ${open ? "text-accent" : ""}`}
+            >
+              <Icon name={open ? "dn" : "rt"} />
+            </button>
+          )}
+        </CoverCard>
+      </div>
+    );
+  };
+  // 「整理」の画面と同じ並べ方：一番上の段に最上位のライブラリー、開いたライブラリーごとに下の段へ子ライブラリー。
+  // 各段は、入りきらなければ折り返して並べる
+  const rows: { parent: Library | null; list: Library[] }[] = [
+    { parent: null, list: childrenOf(libs, null) },
+  ];
+  for (const id of path)
+    rows.push({
+      parent: libs.find((l) => l.id === id)!,
+      list: childrenOf(libs, id),
+    });
+
+  return (
+    <div data-name="ライブラリーの並び" className="space-y-3">
+      {rows.map(({ parent, list }, depth) => (
+        <div
+          key={parent?.id ?? "root"}
+          data-name={parent ? `「${parent.name}」の子ライブラリー` : undefined}
+        >
+          {parent && (
+            <p className="mb-1 text-sm text-muted">
+              「{parent.name}」の子ライブラリー
+            </p>
+          )}
+          <div className="flex flex-wrap items-start gap-2.5">
+            {list.map((l) => card(l, depth))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 上のバーの名前。ダブルクリックでその場で入力欄になる（Enter か外を押すと保存、Esc でやめる。空にしたら元のまま） */
+function InlineName({
+  name,
+  onRename,
+  startEditing = false,
+  onEditEnd,
+}: {
+  name: string;
+  onRename: (name: string) => unknown;
+  /** 最初から入力欄で出す（右クリックの「名前を変更」から） */
+  startEditing?: boolean;
+  onEditEnd?: () => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(startEditing ? name : null);
+  const save = () => {
+    const v = draft?.trim() ?? "";
+    setDraft(null);
+    onEditEnd?.();
+    if (v && v !== name) void onRename(v);
+  };
+  return draft !== null ? (
+    <input
+      autoFocus
+      value={draft}
+      aria-label="名前"
+      size={Math.max(6, [...draft].length * 2 + 2)}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={save}
+      onKeyDown={(e) => {
+        // 日本語の変換を決めるための Enter では保存しない
+        if (e.nativeEvent.isComposing) return;
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          setDraft(null);
+          onEditEnd?.();
+        }
+      }}
+      className="h-6 min-w-0 rounded-[6px] border border-accent bg-card px-1 text-sm font-bold outline-none"
+    />
+  ) : (
+    <button
+      onDoubleClick={() => setDraft(name)}
+      title="ダブルクリックで名前を変える"
+      className="truncate rounded-[6px] px-1 py-0.5 font-bold hover:bg-tint"
+    >
+      {name}
+    </button>
+  );
+}
+
+// リスト表示で開いているライブラリー。端末ごとに覚える
+const LIST_OPEN_KEY = "irai-note:media-list-open";
+
+/**
+ * ライブラリーのリスト表示：1行に1つ（代表の画像・名前・画像の枚数）。
+ * 子ライブラリーは左の ▸ で開き、一段右にずらして下に並べる（サイドバーと同じ形）
+ */
+function LibraryList({ parentId }: { parentId: string | null }) {
+  const { media, libs, roomId } = useMediaState();
+  const router = useRouter();
+  const [openIds, setOpenIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LIST_OPEN_KEY) ?? "[]");
+    } catch {
+      return [];
+    }
+  });
+  const toggle = (id: string) => {
+    const next = openIds.includes(id)
+      ? openIds.filter((x) => x !== id)
+      : [...openIds, id];
+    setOpenIds(next);
+    try {
+      localStorage.setItem(LIST_OPEN_KEY, JSON.stringify(next));
+    } catch {
+      // 覚えられなくても、このページの間は効く
+    }
+  };
+  const count = (l: Library) =>
+    media.filter((m) => !m.trashed && m.libIds.includes(l.id)).length;
+
+  const rows = (pid: string | null, depth: number): React.ReactNode =>
+    childrenOf(libs, pid).map((l) => {
+      const kids = childrenOf(libs, l.id).length;
+      const open = openIds.includes(l.id);
+      const cover = coverOf(media, l)[0];
+      return (
+        <li key={l.id}>
+          <div
+            className="flex h-6 items-center gap-0.5 rounded-[4px] pr-3 text-sm hover:bg-tint"
+            style={{ paddingLeft: 4 + depth * 18 }}
+          >
+            <span className="grid w-5 shrink-0 place-items-center">
+              {kids > 0 && (
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  aria-label={`「${l.name}」の子ライブラリーを${open ? "閉じる" : "開く"}`}
+                  onClick={() => toggle(l.id)}
+                  className={`grid h-5 w-5 place-items-center rounded-[4px] hover:bg-card ${open ? "text-accent" : "text-muted"}`}
+                >
+                  <Icon name={open ? "dn" : "rt"} size={14} />
+                </button>
+              )}
+            </span>
+            <div
+              role="link"
+              tabIndex={0}
+              title="ダブルクリックで開く"
+              onDoubleClick={() =>
+                router.push(`/r/${roomId}/media/lib/${l.id}`)
+              }
+              onKeyDown={(e) =>
+                e.key === "Enter" &&
+                router.push(`/r/${roomId}/media/lib/${l.id}`)
+              }
+              className="flex h-full min-w-0 flex-1 cursor-default items-center gap-2 outline-none select-none"
+            >
+              <span className="grid h-4 w-4 shrink-0 place-items-center overflow-hidden rounded-[3px] bg-line/40 text-muted">
+                {cover ? (
+                  <ThumbImage id={cover.id} alt="" />
+                ) : (
+                  <Icon name="folder" size={14} />
+                )}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{l.name}</span>
+              {kids > 0 && (
+                <span className="shrink-0 text-xs text-muted">
+                  子ライブラリー {kids}
+                </span>
+              )}
+              <span className="w-12 shrink-0 text-right text-sm text-muted">
+                {count(l)}枚
+              </span>
+            </div>
+          </div>
+          {open && kids > 0 && <ul>{rows(l.id, depth + 1)}</ul>}
+        </li>
+      );
+    });
+
+  return (
+    <ul
+      data-name="ライブラリーのリスト"
+      className="rounded-[10px] border border-line bg-card p-1"
+    >
+      {rows(parentId, 0)}
+    </ul>
   );
 }

@@ -36,7 +36,7 @@ export type Media = {
   createdAt: number;
   fav: boolean;
   trashed: boolean;
-  /** 入っているライブラリー。小ライブラリーに入れたら、その親たちも必ず含む */
+  /** 入っているライブラリー。子ライブラリーに入れたら、その親たちも必ず含む */
   libIds: string[];
 };
 
@@ -48,7 +48,7 @@ export type Library = {
   roomId: string;
   name: string;
   parentId: string | null;
-  /** 親ライブラリーで、この小ライブラリーの代表として見せる画像（試作の「印」） */
+  /** 親ライブラリーで、この子ライブラリーの代表として見せる画像（試作の「印」） */
   repMediaId: string | null;
   /** 同じ親の中での並び順 */
   order: number;

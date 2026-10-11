@@ -2,46 +2,52 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
+import { MenuItem, Popover, usePopover } from "@/components/ui/Popover";
 import type { LibMode, SortKey } from "@/lib/media/logic";
 import { updatePrefs, useMediaPrefs } from "@/lib/media/prefs";
 
+const SORT_LABEL: Record<SortKey, string> = {
+  new: "日時",
+  name: "名前",
+  size: "容量",
+};
+
+// 下向きの矢印にする並び順（上から下へ自然に読める方）：日時は新しい順、名前は A→Z 順、容量は大きい順
+const DOWN_ARROW: Record<SortKey, "asc" | "desc"> = {
+  new: "desc",
+  name: "asc",
+  size: "desc",
+};
+
 const DIR_LABEL: Record<SortKey, { desc: string; asc: string }> = {
   new: { desc: "新しい順", asc: "古い順" },
-  name: { desc: "ん→あ順", asc: "あ→ん順" },
+  name: { desc: "Z→A順", asc: "A→Z順" },
   size: { desc: "大きい順", asc: "小さい順" },
 };
 
 const LIB_MODES: { v: LibMode; label: string; note: string }[] = [
-  { v: "rep", label: "基本", note: "小ライブラリーは代表の画像だけを出します" },
-  { v: "all", label: "全て表示", note: "小ライブラリーの画像もすべて出します" },
-  { v: "single", label: "シングル", note: "小ライブラリーに入っていない画像だけを出します" },
+  { v: "rep", label: "基本", note: "子ライブラリーは代表の画像だけを出します" },
+  { v: "all", label: "全て表示", note: "子ライブラリーの画像もすべて出します" },
+  {
+    v: "single",
+    label: "シングル",
+    note: "子ライブラリーに入っていない画像だけを出します",
+  },
 ];
-
-function Seg<T extends string>({ items, value, onChange }: { items: [T, string][]; value: T; onChange: (v: T) => void }) {
-  return (
-    <div className="grid grid-flow-col gap-1 rounded-full bg-bg p-1" role="group">
-      {items.map(([v, label]) => (
-        <button
-          key={v}
-          aria-pressed={value === v}
-          onClick={() => onChange(v)}
-          className={`min-h-[30px] rounded-full px-3 text-sm ${value === v ? "bg-accent font-bold text-accent-ink" : "text-muted"}`}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 export function SortMenu({ showLibMode }: { showLibMode: boolean }) {
   const prefs = useMediaPrefs();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const keyMenu = usePopover();
 
   useEffect(() => {
     if (!open) return;
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    // 基準のメニュー（画面の別の場所に出る）を押したときは閉じない
+    const close = (e: MouseEvent) =>
+      !ref.current?.contains(e.target as Node) &&
+      !(e.target as Element).closest?.("[data-nested-popover]") &&
+      setOpen(false);
     const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", esc);
@@ -63,26 +69,120 @@ export function SortMenu({ showLibMode }: { showLibMode: boolean }) {
         <Icon name="sort" />
       </button>
       {open && (
-        <div role="dialog" data-name="並べ替えと表示のメニュー" aria-label="並べ替えと表示" className="absolute top-12 right-0 z-30 w-72 space-y-3 rounded-[14px] border border-line bg-card p-4 shadow-xl">
+        <div
+          role="dialog"
+          data-name="並べ替えと表示のメニュー"
+          aria-label="並べ替えと表示"
+          className="absolute top-12 right-0 z-30 w-72 space-y-3 rounded-[14px] border border-line bg-card p-4 shadow-xl"
+        >
           <section className="space-y-2">
             <h4 className="text-sm font-bold">並べる基準</h4>
-            <Seg
-              items={[
-                ["new", "日時"],
-                ["name", "名前"],
-                ["size", "容量"],
-              ]}
-              value={prefs.sort}
-              onChange={(sort) => updatePrefs({ sort })}
-            />
-            <Seg
-              items={[
-                ["desc", DIR_LABEL[prefs.sort].desc],
-                ["asc", DIR_LABEL[prefs.sort].asc],
-              ]}
-              value={prefs.dirs[prefs.sort]}
-              onChange={(d) => updatePrefs({ dirs: { ...prefs.dirs, [prefs.sort]: d } })}
-            />
+            {/* 基準はドロップダウンで選び、右のボタンで昇順・降順を切り替える */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                aria-label={`並べる基準：${SORT_LABEL[prefs.sort]}`}
+                aria-haspopup="menu"
+                aria-expanded={!!keyMenu.anchor}
+                onClick={keyMenu.toggle}
+                className="flex h-9 min-w-0 flex-1 items-center justify-between gap-2 rounded-[10px] border border-line bg-bg px-3 text-sm hover:bg-tint"
+              >
+                <span className="truncate">{SORT_LABEL[prefs.sort]}</span>
+                <Icon
+                  name="dn"
+                  size={16}
+                  className={`shrink-0 text-muted transition-transform ${keyMenu.anchor ? "rotate-180" : ""}`}
+                />
+              </button>
+              <Popover
+                anchor={keyMenu.anchor}
+                onClose={keyMenu.close}
+                width={180}
+                label="並べる基準"
+                nested
+              >
+                {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
+                  <MenuItem
+                    key={k}
+                    active={prefs.sort === k}
+                    icon={
+                      prefs.sort === k ? <Icon name="ok" size={14} /> : <span />
+                    }
+                    onClick={() => {
+                      keyMenu.close();
+                      // 基準を変えても、矢印の向き（上向き・下向き）はそのまま
+                      const down =
+                        prefs.dirs[prefs.sort] === DOWN_ARROW[prefs.sort];
+                      const dir = down
+                        ? DOWN_ARROW[k]
+                        : DOWN_ARROW[k] === "asc"
+                          ? "desc"
+                          : "asc";
+                      updatePrefs({
+                        sort: k,
+                        dirs: { ...prefs.dirs, [k]: dir },
+                      });
+                    }}
+                  >
+                    {SORT_LABEL[k]}
+                  </MenuItem>
+                ))}
+              </Popover>
+              <button
+                type="button"
+                aria-label={`並び順：${DIR_LABEL[prefs.sort][prefs.dirs[prefs.sort]]}（押すと${DIR_LABEL[prefs.sort][prefs.dirs[prefs.sort] === "asc" ? "desc" : "asc"]}）`}
+                title={`${DIR_LABEL[prefs.sort][prefs.dirs[prefs.sort]]}（押すと切り替え）`}
+                onClick={() =>
+                  updatePrefs({
+                    dirs: {
+                      ...prefs.dirs,
+                      [prefs.sort]:
+                        prefs.dirs[prefs.sort] === "asc" ? "desc" : "asc",
+                    },
+                  })
+                }
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] border border-line text-ink hover:bg-tint"
+              >
+                <Icon
+                  name={
+                    DOWN_ARROW[prefs.sort] === prefs.dirs[prefs.sort]
+                      ? "sortDesc"
+                      : "sortAsc"
+                  }
+                  size={20}
+                />
+              </button>
+            </div>
+            <p className="text-xs text-muted">
+              {DIR_LABEL[prefs.sort][prefs.dirs[prefs.sort]]}
+            </p>
+          </section>
+          <section className="space-y-2">
+            <h4 className="text-sm font-bold">画像・ライブラリーの表示</h4>
+            {/* 文字ではなくアイコンで選ぶ（サムネイルを並べる／1行に1枚） */}
+            <div
+              className="grid grid-flow-col gap-1 rounded-full bg-bg p-1"
+              role="group"
+              aria-label="画像・ライブラリーの表示"
+            >
+              {(
+                [
+                  ["icon", "gallery", "アイコン表示"],
+                  ["list", "list", "リスト表示"],
+                ] as const
+              ).map(([v, icon, label]) => (
+                <button
+                  key={v}
+                  aria-pressed={prefs.imageView === v}
+                  aria-label={label}
+                  title={label}
+                  onClick={() => updatePrefs({ imageView: v })}
+                  className={`grid min-h-[30px] place-items-center rounded-full ${prefs.imageView === v ? "bg-accent text-accent-ink" : "text-muted hover:text-ink"}`}
+                >
+                  <Icon name={icon} size={18} />
+                </button>
+              ))}
+            </div>
           </section>
           <section className="space-y-1">
             <h4 className="text-sm font-bold">画像のサイズ</h4>
@@ -98,7 +198,10 @@ export function SortMenu({ showLibMode }: { showLibMode: boolean }) {
             />
             <div className="flex justify-between text-xs text-muted">
               {["極小", "小", "中", "大"].map((l, i) => (
-                <span key={l} className={prefs.level === i + 1 ? "font-bold text-ink" : ""}>
+                <span
+                  key={l}
+                  className={prefs.level === i + 1 ? "font-bold text-ink" : ""}
+                >
                   {l}
                 </span>
               ))}

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { Media } from "@/lib/local/db";
 import { ThumbImage } from "./Thumb";
 
@@ -14,6 +15,7 @@ export function CoverCard({
   children,
   active,
   size,
+  openOnDoubleClick,
 }: {
   href?: string;
   name: string;
@@ -24,7 +26,10 @@ export function CoverCard({
   active?: boolean;
   /** 左の大きい四角の一辺（px）。画像一覧の画像と同じ大きさにそろえるときに渡す。無ければ幅いっぱいに広がる */
   size?: number;
+  /** ダブルクリックで開く（ライブラリー）。1回のクリックでは選んだ印だけ付ける（Windows のフォルダと同じ） */
+  openOnDoubleClick?: boolean;
 }) {
+  const router = useRouter();
   const body = (
     <>
       <div
@@ -45,7 +50,7 @@ export function CoverCard({
           </div>
         ))}
       </div>
-      <span className="mt-1 block truncate text-sm">
+      <span className={`mt-1 block truncate text-sm ${children ? "pr-7" : ""}`}>
         {name}
         {count !== undefined && (
           <span className="ml-1.5 text-muted">{count}</span>
@@ -55,15 +60,30 @@ export function CoverCard({
   );
   // 大きさをそろえるときは画像一覧と同じ見せ方：内側の余白を付けず、カーソルで少し浮き、押すと縮む
   const cls = `relative block w-full rounded-[12px] text-left transition ${
-    size ? "duration-300 select-none hover:-translate-y-[3px] active:scale-95" : "p-1.5 hover:bg-tint"
-  } ${active ? "bg-tint ring-2 ring-accent" : ""}`;
+    size
+      ? "duration-300 select-none hover:-translate-y-[3px] active:scale-95"
+      : "p-1.5 hover:bg-tint"
+    // 選んでいる印の枠：余白のあるカードは内側に描く（横スクロールの並びの中でも枠が切れないように）
+  } ${active ? (size ? "bg-tint ring-2 ring-accent" : "bg-tint ring-2 ring-accent ring-inset") : ""}`;
   return (
     <div
       data-name={`カード「${name}」`}
       className="relative"
       style={size ? { width: size * 1.5 + 2 } : undefined}
     >
-      {href ? (
+      {href && openOnDoubleClick ? (
+        <div
+          role="link"
+          tabIndex={0}
+          aria-label={name}
+          title="ダブルクリックで開く"
+          onDoubleClick={() => router.push(href)}
+          onKeyDown={(e) => e.key === "Enter" && router.push(href)}
+          className={`${cls} cursor-default outline-none focus-visible:ring-2 focus-visible:ring-accent focus:bg-tint`}
+        >
+          {body}
+        </div>
+      ) : href ? (
         <Link href={href} className={cls}>
           {body}
         </Link>

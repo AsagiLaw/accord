@@ -4,7 +4,7 @@ import type { Library, Media } from "@/lib/local/db";
 
 export type SortKey = "new" | "name" | "size";
 export type SortDir = "asc" | "desc";
-/** ライブラリーの配置：基本（小ライブラリーは印の画像だけ）／全て表示／シングル（小ライブラリーの画像を出さない） */
+/** ライブラリーの配置：基本（子ライブラリーは印の画像だけ）／全て表示／シングル（子ライブラリーの画像を出さない） */
 export type LibMode = "rep" | "all" | "single";
 
 export type MediaPrefs = {
@@ -13,6 +13,8 @@ export type MediaPrefs = {
   /** 画像のサイズ 1〜4（極小・小・中・大） */
   level: number;
   libMode: LibMode;
+  /** 画像とライブラリーの見せ方：アイコン（サムネイル・カードを並べる）／リスト（1行に1つ、名前やサイズを並べる） */
+  imageView: "icon" | "list";
 };
 
 export const DEFAULT_PREFS: MediaPrefs = {
@@ -20,11 +22,12 @@ export const DEFAULT_PREFS: MediaPrefs = {
   dirs: { new: "desc", name: "asc", size: "desc" },
   level: 3,
   libMode: "rep",
+  imageView: "icon",
 };
 
 export const THUMB_SIZES = [96, 128, 164, 220];
 
-/** 自分と、その下の小ライブラリーすべて */
+/** 自分と、その下の子ライブラリーすべて */
 export function descendants(libs: Library[], id: string): string[] {
   return [id, ...libs.filter((l) => l.parentId === id).flatMap((l) => descendants(libs, l.id))];
 }
@@ -44,7 +47,7 @@ export function childrenOf(libs: Library[], parentId: string | null): Library[] 
   return libs.filter((l) => l.parentId === parentId).sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
 }
 
-/** 小ライブラリーに入れた画像は、その親たちにも入っている状態にそろえる */
+/** 子ライブラリーに入れた画像は、その親たちにも入っている状態にそろえる */
 export function withAncestors(libs: Library[], libIds: string[]): string[] {
   const out = new Set<string>();
   for (const id of libIds) chain(libs, id).forEach((l) => out.add(l.id));
@@ -53,7 +56,7 @@ export function withAncestors(libs: Library[], libIds: string[]): string[] {
 
 export const isUnsorted = (m: Media) => !m.trashed && m.libIds.length === 0;
 
-/** 小ライブラリーの代表画像。指定が無い・外れているなら最初の画像 */
+/** 子ライブラリーの代表画像。指定が無い・外れているなら最初の画像 */
 export function repOf(media: Media[], lib: Library): string | undefined {
   const list = media.filter((m) => !m.trashed && m.libIds.includes(lib.id));
   if (lib.repMediaId && list.some((m) => m.id === lib.repMediaId)) return lib.repMediaId;
@@ -82,7 +85,6 @@ export function arrange(list: Media[], prefs: MediaPrefs): Media[] {
   return [...list].sort((a, b) => cmp(a, b) * dir);
 }
 
-/** ライブラリーの表紙に使う画像（最大3枚） */
 /** カードの表紙に出す画像3枚。代表の画像（repOf）があれば、それを先頭（左の大きい四角）にする */
 export function coverOf(media: Media[], lib: Library): Media[] {
   const list = media.filter((m) => !m.trashed && m.libIds.includes(lib.id));

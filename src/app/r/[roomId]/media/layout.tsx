@@ -13,13 +13,19 @@ function Overlays() {
   return (
     <>
       {viewing && <Lightbox />}
-      {organizing && <OrganizeDialog key={organizing.join()} ids={organizing} />}
+      {organizing && (
+        <OrganizeDialog key={organizing.join()} ids={organizing} />
+      )}
       {addingTo && <AddToLibraryDialog key={addingTo} libId={addingTo} />}
     </>
   );
 }
 
-export default function MediaLayout({ children }: { children: React.ReactNode }) {
+export default function MediaLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const { roomId } = useParams<{ roomId: string }>();
   const me = useCurrentUser();
   const members = useMembers(roomId);

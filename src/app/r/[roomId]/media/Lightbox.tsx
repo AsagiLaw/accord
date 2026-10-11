@@ -4,7 +4,15 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { useBlobUrl } from "@/lib/media/blob-url";
-import { arrange, chain, coverOf, descendants, libraryView } from "@/lib/media/logic";
+import {
+  arrange,
+  chain,
+  childrenOf,
+  coverOf,
+  descendants,
+  libraryView,
+  repOf,
+} from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
 import { useMediaState } from "./MediaContext";
 import { ThumbImage } from "./Thumb";
@@ -22,12 +30,24 @@ export function rememberOpenedFrom(el: Element | null) {
  * カードを押すとフィルムストリップがそのライブラリーの並びに、ダブルクリックでそのライブラリーを開く。
  */
 export function Lightbox() {
-  const { viewing, setViewing, byId, media, libs, roomId, setOrganizing } = useMediaState();
+  const { viewing, setViewing, byId, media, libs, roomId, setOrganizing } =
+    useMediaState();
   const prefs = useMediaPrefs();
   const pathname = usePathname();
   const router = useRouter();
   const [ctxLib, setCtxLib] = useState<string | null>(null);
-  const [box, setBox] = useState<{ left: number; top: number; right: number } | null>(null);
+  const [box, setBox] = useState<{
+    left: number;
+    top: number;
+    right: number;
+  } | null>(null);
+  // 拡大表示している間に、サイドバーなどで別のページへ移ったら、拡大表示を閉じる
+  const openedAt = useRef(pathname);
+  useEffect(() => {
+    if (openedAt.current === pathname) return;
+    openedAt.current = pathname;
+    if (viewing) setViewing(null);
+  }, [pathname, viewing, setViewing]);
   const strip = useRef<HTMLDivElement>(null);
   const img = useRef<HTMLImageElement>(null);
   const swipe = useRef<number | null>(null);
@@ -40,30 +60,62 @@ export function Lightbox() {
 
   // 入っているライブラリー（一番深いものと、その親たち）
   const inLibs = m ? libs.filter((l) => m.libIds.includes(l.id)) : [];
-  const leaves = inLibs.filter((l) => !inLibs.some((o) => o !== l && descendants(libs, l.id).includes(o.id)));
-  const related = [...new Map(leaves.flatMap((l) => chain(libs, l.id)).map((l) => [l.id, l])).values()];
-  // 最初の並び：ライブラリーを開いているならその並び、そうでなければ画像が入っているライブラリー
+  const leaves = inLibs.filter(
+    (l) =>
+      !inLibs.some((o) => o !== l && descendants(libs, l.id).includes(o.id)),
+  );
+  const related = [
+    ...new Map(
+      leaves.flatMap((l) => chain(libs, l.id)).map((l) => [l.id, l]),
+    ).values(),
+  ];
   const currentPageLib = inLibPage ? pathname.split("/media/lib/")[1] : null;
-  const cur = ctxLib ?? currentPageLib ?? leaves[0]?.id ?? null;
+  // 下の並び：カードで選んだライブラリー → 開いているライブラリー → 開いた一覧（すべて・お気に入りなど）の順。
+  // 画像が入っているライブラリーの並びにするのは、カードを押したときだけ
+  const cur = ctxLib ?? currentPageLib ?? null;
 
   const list = !viewing
     ? []
-    : cur && !(cur === currentPageLib && !ctxLib) && libs.some((l) => l.id === cur)
-      ? arrange(libraryView(media, libs, cur, "all"), prefs).map((x) => x.id)
+    : cur &&
+        !(cur === currentPageLib && !ctxLib) &&
+        libs.some((l) => l.id === cur)
+      ? // ライブラリーの並びは、一覧と同じ「ライブラリーの配置」（基本なら子ライブラリーは代表の画像だけ）
+        arrange(libraryView(media, libs, cur, prefs.libMode), prefs).map(
+          (x) => x.id,
+        )
       : viewing.list.filter((id) => byId.has(id));
-  const i = m ? list.indexOf(m.id) : -1;
+  // 並びの中で今の画像に当たるもの。今の画像が並びに無い（子ライブラリーの代表でない画像）ときは、
+  // その画像が入っている子ライブラリーの代表を、今の位置として扱う
+  const stripId =
+    m && !list.includes(m.id) && cur
+      ? (childrenOf(libs, cur)
+          .filter((k) =>
+            m.libIds.some((x) => descendants(libs, k.id).includes(x)),
+          )
+          .map((k) => repOf(media, k))
+          .find((id) => id && list.includes(id)) ?? m.id)
+      : m?.id;
+  const i = stripId ? list.indexOf(stripId) : -1;
   const go = (step: number) => {
     const next = list[i + step];
     if (next) setViewing(next, viewing!.list);
   };
 
-  // メイン画面のうち、上の細いバー（場所と操作）より下を覆う
+  // メイン画面のうち、上の細いバー（場所と操作）より下を覆う（右のプレビュー欄も、この後ろのぼかしに透けて見える）
   useLayoutEffect(() => {
     const place = () => {
-      const main = document.querySelector('main[data-name="メイン画面"]')?.getBoundingClientRect();
-      const bar = document.querySelector('header[data-name="上部バー"]')?.getBoundingClientRect();
+      const main = document
+        .querySelector('main[data-name="メイン画面"]')
+        ?.getBoundingClientRect();
+      const bar = document
+        .querySelector('header[data-name="上部バー"]')
+        ?.getBoundingClientRect();
       if (!main) return setBox({ left: 0, top: 0, right: 0 });
-      setBox({ left: main.left, top: bar ? Math.max(main.top, bar.bottom) : main.top, right: window.innerWidth - main.right });
+      setBox({
+        left: main.left,
+        top: bar ? Math.max(main.top, bar.bottom) : main.top,
+        right: window.innerWidth - main.right,
+      });
     };
     place();
     window.addEventListener("resize", place);
@@ -73,7 +125,13 @@ export function Lightbox() {
   useEffect(() => {
     if (!m) return;
     const onKey = (e: KeyboardEvent) => {
-      if (document.querySelector('[role="dialog"][aria-modal="true"]:not([data-lightbox])') || /INPUT|TEXTAREA|SELECT/.test((e.target as HTMLElement).tagName)) return;
+      if (
+        document.querySelector(
+          '[role="dialog"][aria-modal="true"]:not([data-lightbox])',
+        ) ||
+        /INPUT|TEXTAREA|SELECT/.test((e.target as HTMLElement).tagName)
+      )
+        return;
       if (e.key === "ArrowLeft") go(-1);
       if (e.key === "ArrowRight") go(1);
       if (e.key === "Escape") setViewing(null);
@@ -82,9 +140,24 @@ export function Lightbox() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  // 今の画像がフィルムストリップの真ん中に来るように
-  useEffect(() => {
-    strip.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ inline: "center", block: "nearest", behavior: prevId.current ? "smooth" : "auto" });
+  // 今の画像がフィルムストリップの真ん中に来るように。
+  // 並びが変わったとき（子ライブラリー⇔親など）は、画面に出す前に一気に合わせる（横に流れてから戻る動きを出さない）。
+  // 同じ並びの中で画像を切り替えたときだけ、なめらかに動かす
+  const prevCur = useRef<string | null | undefined>(undefined);
+  useLayoutEffect(() => {
+    const s = strip.current;
+    const it = s?.querySelector<HTMLElement>('[aria-current="true"]');
+    const listChanged = prevCur.current !== cur;
+    prevCur.current = cur;
+    if (!s || !it) return;
+    const left =
+      s.scrollLeft +
+      (it.getBoundingClientRect().left - s.getBoundingClientRect().left) -
+      (s.clientWidth - it.offsetWidth) / 2;
+    s.scrollTo({
+      left,
+      behavior: listChanged || !prevId.current ? "auto" : "smooth",
+    });
   }, [m?.id, cur]);
 
   // 開いたとき：サムネイルの位置から拡大して出てくる。切り替えたとき：ふわっと出る
@@ -95,11 +168,22 @@ export function Lightbox() {
     if (!prevId.current && opened.from && r.width) {
       const f = opened.from;
       el.animate(
-        [{ transform: `translate(${f.left + f.width / 2 - r.left - r.width / 2}px, ${f.top + f.height / 2 - r.top - r.height / 2}px) scale(${f.width / r.width})` }, { transform: "none" }],
+        [
+          {
+            transform: `translate(${f.left + f.width / 2 - r.left - r.width / 2}px, ${f.top + f.height / 2 - r.top - r.height / 2}px) scale(${f.width / r.width})`,
+          },
+          { transform: "none" },
+        ],
         { duration: 480, easing: "cubic-bezier(.3,1.25,.5,1)" },
       );
     } else if (prevId.current && prevId.current !== m?.id) {
-      el.animate([{ opacity: 0, transform: "scale(.97)" }, { opacity: 1, transform: "none" }], { duration: 280, easing: "cubic-bezier(.2,.8,.2,1)" });
+      el.animate(
+        [
+          { opacity: 0, transform: "scale(.97)" },
+          { opacity: 1, transform: "none" },
+        ],
+        { duration: 280, easing: "cubic-bezier(.2,.8,.2,1)" },
+      );
     }
     opened.from = null;
     prevId.current = m?.id ?? null;
@@ -130,7 +214,14 @@ export function Lightbox() {
       data-name="画像の大きな表示"
       onClick={(e) => e.target === e.currentTarget && close()}
       className="fixed bottom-0 z-[22] flex animate-[fade_.3s] flex-col items-center gap-3.5 overflow-hidden px-5 pt-14"
-      style={{ left: box.left, right: box.right, top: box.top, background: "color-mix(in srgb, var(--bg) 55%, transparent)", backdropFilter: "blur(11px)", WebkitBackdropFilter: "blur(11px)" }}
+      style={{
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        background: "color-mix(in srgb, var(--bg) 55%, transparent)",
+        backdropFilter: "blur(11px)",
+        WebkitBackdropFilter: "blur(11px)",
+      }}
     >
       <button
         aria-label="閉じる"
@@ -172,15 +263,20 @@ export function Lightbox() {
         {navBtn("r", i < 0 || i >= list.length - 1, () => go(1))}
       </div>
 
-      <div ref={strip} data-name="フィルムストリップ" className="flex h-[72px] w-full shrink-0 items-center gap-2 overflow-hidden" onClick={(e) => e.target === e.currentTarget && close()}>
+      <div
+        ref={strip}
+        data-name="フィルムストリップ"
+        className="flex h-[72px] w-full shrink-0 items-center gap-2 overflow-hidden"
+        onClick={(e) => e.target === e.currentTarget && close()}
+      >
         <span className="w-[calc(50%-40px)] shrink-0" />
         {list.map((id) => (
           <button
             key={id}
-            aria-current={id === m.id}
+            aria-current={id === stripId}
             aria-label={byId.get(id)?.name}
             onClick={() => setViewing(id, viewing.list)}
-            className={`h-16 w-16 shrink-0 overflow-hidden rounded-[12px] border border-line bg-card transition hover:-translate-y-0.5 ${id === m.id ? "outline-[3px] -outline-offset-1 outline-accent" : ""}`}
+            className={`h-16 w-16 shrink-0 overflow-hidden rounded-[12px] border border-line bg-card transition hover:-translate-y-0.5 ${id === stripId ? "outline-[3px] -outline-offset-1 outline-accent" : ""}`}
           >
             <ThumbImage id={id} alt="" />
           </button>
@@ -190,8 +286,12 @@ export function Lightbox() {
 
       <div
         data-name="入っているライブラリー"
-        className="-mx-5 flex w-[calc(100%+40px)] shrink-0 gap-2 overflow-x-auto border-t border-line px-5 pt-3 pb-[calc(12px+env(safe-area-inset-bottom,0px))]"
-        style={{ background: "color-mix(in srgb, var(--bg) 85%, transparent)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" }}
+        className="-mx-5 flex max-h-[34dvh] w-[calc(100%+40px)] shrink-0 flex-wrap gap-2 overflow-y-auto border-t border-line px-5 pt-3 pb-[calc(12px+env(safe-area-inset-bottom,0px))]"
+        style={{
+          background: "color-mix(in srgb, var(--bg) 85%, transparent)",
+          backdropFilter: "blur(14px)",
+          WebkitBackdropFilter: "blur(14px)",
+        }}
       >
         <button
           aria-label="ライブラリーに整理"
@@ -222,7 +322,10 @@ export function Lightbox() {
             >
               <span className="absolute inset-0 grid grid-cols-3 grid-rows-2 gap-px">
                 {[0, 1, 2].map((k) => (
-                  <span key={k} className={`block min-h-0 min-w-0 bg-line ${k === 0 ? "col-span-2 row-span-2" : ""}`}>
+                  <span
+                    key={k}
+                    className={`block min-h-0 min-w-0 bg-line ${k === 0 ? "col-span-2 row-span-2" : ""}`}
+                  >
                     {covers[k] && <ThumbImage id={covers[k].id} alt="" />}
                   </span>
                 ))}
@@ -233,7 +336,9 @@ export function Lightbox() {
             </button>
           );
         })}
-        {!related.length && <span className="self-center text-sm text-muted">未整理</span>}
+        {!related.length && (
+          <span className="self-center text-sm text-muted">未整理</span>
+        )}
       </div>
     </div>
   );

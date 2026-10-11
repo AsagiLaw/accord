@@ -24,6 +24,9 @@ export type MediaState = {
   /** 「画像を追加」ダイアログを開いているライブラリー */
   addingTo: string | null;
   setAddingTo: (libId: string | null) => void;
+  /** 名前をその場で書き換えている画像（右クリックの「名前を変更」） */
+  renaming: string | null;
+  setRenaming: (id: string | null) => void;
 };
 
 const Ctx = createContext<MediaState | null>(null);
@@ -48,9 +51,13 @@ export function MediaProvider({
   const media = useMedia(roomId);
   const libs = useLibraries(roomId);
   const [selected, setSelected] = useState<string[]>([]);
-  const [viewing, setViewingState] = useState<{ id: string; list: string[] } | null>(null);
+  const [viewing, setViewingState] = useState<{
+    id: string;
+    list: string[];
+  } | null>(null);
   const [organizing, setOrganizing] = useState<string[] | null>(null);
   const [addingTo, setAddingTo] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
 
   const value = useMemo<MediaState | null>(() => {
     if (!media || !libs) return null;
@@ -63,14 +70,30 @@ export function MediaProvider({
       byId: new Map(media.map((m) => [m.id, m])),
       selected: selected.filter((id) => media.some((m) => m.id === id)),
       setSelected,
-      viewing: viewing && media.some((m) => m.id === viewing.id) ? viewing : null,
-      setViewing: (id, list) => setViewingState(id ? { id, list: list ?? [id] } : null),
+      viewing:
+        viewing && media.some((m) => m.id === viewing.id) ? viewing : null,
+      setViewing: (id, list) =>
+        setViewingState(id ? { id, list: list ?? [id] } : null),
       organizing,
       setOrganizing,
-      addingTo: addingTo && libs.some((l) => l.id === addingTo) ? addingTo : null,
+      addingTo:
+        addingTo && libs.some((l) => l.id === addingTo) ? addingTo : null,
       setAddingTo,
+      renaming,
+      setRenaming,
     };
-  }, [roomId, me, members, media, libs, selected, viewing, organizing, addingTo]);
+  }, [
+    roomId,
+    me,
+    members,
+    media,
+    libs,
+    selected,
+    viewing,
+    organizing,
+    addingTo,
+    renaming,
+  ]);
 
   if (!value) return <p className="p-8 text-muted">読み込み中…</p>;
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

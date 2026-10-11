@@ -57,7 +57,8 @@ export default function RoomLayout({ children }: { children: React.ReactNode }) 
         {/* Discord のような細いバー：今の画面のアイコンと名前 */}
         <TopBar roomId={roomId} slotRef={setSlot} />
         <TopBarSlot.Provider value={slot}>
-          <div data-name="メイン画面の中身" className="min-h-0 flex-1 overflow-auto px-[clamp(16px,4vw,40px)] pt-4 pb-7">
+          {/* スクロールバーの場所はいつも空けておく（出たり消えたりで幅が変わり、画像の大きさが揺れ続けないように） */}
+          <div data-name="メイン画面の中身" className="min-h-0 flex-1 overflow-auto px-[clamp(16px,4vw,40px)] pt-4 pb-7 [scrollbar-gutter:stable]">
             {children}
           </div>
         </TopBarSlot.Provider>

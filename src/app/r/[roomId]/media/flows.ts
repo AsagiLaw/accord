@@ -66,7 +66,7 @@ export async function groupFlow(roomId: string, ids: string[], current: Library 
   if (!name) return;
   let parentId: string | null = null;
   if (current) {
-    const i = await choose("作る場所", [{ label: `「${current.name}」の小ライブラリー` }, { label: "最上位のライブラリー" }]);
+    const i = await choose("作る場所", [{ label: `「${current.name}」の子ライブラリー` }, { label: "最上位のライブラリー" }]);
     if (i === null) return;
     parentId = i === 0 ? current.id : null;
   }
@@ -75,7 +75,7 @@ export async function groupFlow(roomId: string, ids: string[], current: Library 
 }
 
 export async function newLibraryFlow(roomId: string, parentId: string | null, parentName?: string) {
-  const name = await promptText(parentName ? `「${parentName}」に小ライブラリーを追加` : "ライブラリーを追加", "", "ライブラリー名");
+  const name = await promptText(parentName ? `「${parentName}」に子ライブラリーを追加` : "ライブラリーを追加", "", "ライブラリー名");
   if (!name) return null;
   return createLibrary(roomId, name, parentId);
 }
@@ -95,18 +95,22 @@ async function moveWithAsk(
   done: string,
   place?: { targetId: string; after: boolean },
 ) {
-  const parent = lib.parentId ? libs.find((l) => l.id === lib.parentId) : undefined;
   const sub = descendants(libs, lib.id);
   const n = media.filter((m) => !m.trashed && m.libIds.some((x) => sub.includes(x))).length;
+  // 移った先でも親（その親）として残るライブラリーからは、画像は外れない。
+  // 外れる可能性があるのは、今の親たちのうち、移り先の親たちに入っていないものだけ
+  const newChain = newParentId ? chain(libs, newParentId).map((l) => l.id) : [];
+  const leaving = lib.parentId ? chain(libs, lib.parentId).filter((l) => !newChain.includes(l.id)) : [];
+  const names = leaving.map((l) => `「${l.name}」`).join("");
   let removeFromOld = false;
-  if (parent && newParentId !== parent.id && n) {
+  if (leaving.length && n) {
     const i = await choose(
-      `「${lib.name}」を「${parent.name}」から外します`,
+      `「${lib.name}」を${names}から外します`,
       [
-        { label: "画像も外す", detail: `画像${n}枚も「${parent.name}」から外れます`, danger: true },
-        { label: "画像は残す", detail: `画像は「${parent.name}」にも残ります` },
+        { label: "画像も外す", detail: `画像${n}枚も${names}から外れます`, danger: true },
+        { label: "画像は残す", detail: `画像は${names}にも残ります` },
       ],
-      `小ライブラリーに入っている画像（${n}枚）を、「${parent.name}」からも外しますか？`,
+      `子ライブラリーに入っている画像（${n}枚）を、${names}からも外しますか？`,
     );
     if (i === null) return;
     removeFromOld = i === 0;
@@ -117,7 +121,7 @@ async function moveWithAsk(
 /**
  * サイドバーでライブラリーをドラッグして落としたとき（試作と同じ動き）。
  * before / after：その前・後ろに並べる（親が変わるなら移る）
- * inside：小ライブラリーにするか、合体するかを選ぶ
+ * inside：子ライブラリーにするか、合体するかを選ぶ
  * root：一番上の階層に出す
  */
 export async function dropLibraryFlow(
@@ -136,24 +140,27 @@ export async function dropLibraryFlow(
     return moveWithAsk(roomId, lib, libs, media, target.parentId, `「${lib.name}」を移動しました`, { targetId: target.id, after: drop.zone === "after" });
   }
   const i = await choose(`「${lib.name}」を「${target.name}」へ`, [
-    { label: "小ライブラリーにする", detail: `「${lib.name}」の画像は「${target.name}」にも入ります` },
-    { label: "合体する", detail: `「${lib.name}」の画像と小ライブラリーを「${target.name}」にまとめ、「${lib.name}」は削除します` },
+    { label: "子ライブラリーにする", detail: `「${lib.name}」の画像は「${target.name}」にも入ります` },
+    { label: "合体する", detail: `「${lib.name}」の画像と子ライブラリーを「${target.name}」にまとめ、「${lib.name}」は削除します` },
   ]);
-  if (i === 0) return moveWithAsk(roomId, lib, libs, media, target.id, `「${lib.name}」を「${target.name}」の小ライブラリーにしました`);
+  if (i === 0) return moveWithAsk(roomId, lib, libs, media, target.id, `「${lib.name}」を「${target.name}」の子ライブラリーにしました`);
   if (i === 1) undoable(`「${lib.name}」を「${target.name}」と合体しました`, await mergeLibrary(roomId, lib.id, target.id));
 }
 
 /** サイドバーのライブラリーの「…」メニュー */
-export async function libraryMenuFlow(roomId: string, lib: Library, libs: Library[], media: Media[], onDeleted: () => void) {
-  const i = await choose(lib.name, [
-    { label: "名前を変更" },
-    { label: "小ライブラリーを追加" },
-    { label: "上へ移動" },
-    { label: "下へ移動" },
-    { label: "別の場所へ移動", detail: "別のライブラリーの小ライブラリーにする・最上位に出す" },
-    { label: "他のライブラリーと合体", detail: "画像と小ライブラリーを移して、このライブラリーは消します" },
-    { label: "削除", detail: "画像は削除されません", danger: true },
-  ]);
+/** ライブラリーのメニューの項目（サイドバーの右クリック）。並び順は libraryAction の番号と同じ */
+export const LIBRARY_MENU = [
+  { label: "名前を変更", icon: "edit" },
+  { label: "子ライブラリーを追加", icon: "add" },
+  { label: "上へ移動", icon: "up" },
+  { label: "下へ移動", icon: "dn" },
+  { label: "別の場所へ移動", icon: "folder", detail: "別のライブラリーの子ライブラリーにする・最上位に出す" },
+  { label: "他のライブラリーと合体", icon: "copy", detail: "画像と子ライブラリーを移して、このライブラリーは消します" },
+  { label: "削除", icon: "del", detail: "画像は削除されません", danger: true },
+] as const;
+
+/** ライブラリーのメニューで選んだもの（i は LIBRARY_MENU の番号）を行う */
+export async function libraryAction(i: number, roomId: string, lib: Library, libs: Library[], media: Media[], onDeleted: () => void) {
   const path = (l: Library) =>
     chain(libs, l.id)
       .map((x) => x.name)
@@ -190,7 +197,7 @@ export async function libraryMenuFlow(roomId: string, lib: Library, libs: Librar
     }
     case 6: {
       const n = descendants(libs, lib.id).length - 1;
-      const ok = await confirmAction(`「${lib.name}」を削除します`, "削除", `${n ? `小ライブラリー${n}件も削除します。` : ""}画像は削除されません。`);
+      const ok = await confirmAction(`「${lib.name}」を削除します`, "削除", `${n ? `子ライブラリー${n}件も削除します。` : ""}画像は削除されません。`);
       if (!ok) return;
       const undo = await deleteLibrary(roomId, lib.id);
       onDeleted();

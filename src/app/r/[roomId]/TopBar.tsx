@@ -53,7 +53,8 @@ function Crumb({ icon, label, href }: { icon: React.ReactNode; label: string; hr
     </>
   );
   return href ? (
-    <Link href={href} className="flex min-w-0 shrink items-center gap-1.5 rounded-[6px] px-1 py-0.5 text-muted hover:bg-tint hover:text-ink">
+    // 前の階層（リンク）は、幅が足りないときに先に縮める（今開いているものの名前を残す）
+    <Link href={href} className="flex min-w-[2.8em] shrink-[1000] items-center gap-1.5 rounded-[6px] px-1 py-0.5 text-muted hover:bg-tint hover:text-ink">
       {body}
     </Link>
   ) : (

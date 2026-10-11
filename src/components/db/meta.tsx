@@ -127,6 +127,10 @@ export function EmojiPicker({
   removeLabel?: string;
 }) {
   const [custom, setCustom] = useState("");
+  const pickCustom = () => {
+    const first = Array.from(new Intl.Segmenter("ja", { granularity: "grapheme" }).segment(custom.trim()))[0]?.segment;
+    if (first) onPick(first);
+  };
   const [tab, setTab] = useState<"emoji" | "icon">("emoji");
   const [color, setColor] = useState("");
   const tabbed = icons || !!onMedia;
@@ -135,22 +139,22 @@ export function EmojiPicker({
     <div className="space-y-2 p-1">
       {tabbed && (
         <div className="flex items-center gap-0.5 border-b border-line pb-1.5" role="tablist" aria-label="アイコンの種類">
-          <button role="tab" aria-selected={tab === "emoji"} className={tabClass(tab === "emoji")} onClick={() => setTab("emoji")}>
+          <button type="button" role="tab" aria-selected={tab === "emoji"} className={tabClass(tab === "emoji")} onClick={() => setTab("emoji")}>
             絵文字
           </button>
           {icons && (
-            <button role="tab" aria-selected={tab === "icon"} className={tabClass(tab === "icon")} onClick={() => setTab("icon")}>
+            <button type="button" role="tab" aria-selected={tab === "icon"} className={tabClass(tab === "icon")} onClick={() => setTab("icon")}>
               アイコン
             </button>
           )}
           {onMedia && (
-            <button className={tabClass(false)} onClick={onMedia} title="メディアから画像を選ぶ">
+            <button type="button" className={tabClass(false)} onClick={onMedia} title="メディアから画像を選ぶ">
               画像
             </button>
           )}
           <span className="flex-1" />
           {onRemove && (
-            <button onClick={onRemove} className="rounded-[6px] px-2 py-1 text-xs text-muted hover:bg-tint hover:text-ink">
+            <button type="button" onClick={onRemove} className="rounded-[6px] px-2 py-1 text-xs text-muted hover:bg-tint hover:text-ink">
               {removeLabel}
             </button>
           )}
@@ -161,7 +165,7 @@ export function EmojiPicker({
           {/* 色を選んでから、形を押す */}
           <div className="flex flex-wrap gap-1.5 px-0.5" role="radiogroup" aria-label="アイコンの色">
             {ICON_COLORS.map((c) => (
-              <button
+              <button type="button"
                 key={c.id || "default"}
                 role="radio"
                 aria-checked={color === c.id}
@@ -175,7 +179,7 @@ export function EmojiPicker({
           </div>
           <div className="grid grid-cols-8 gap-0.5" style={{ color: iconColor(color) }}>
             {SIMPLE_ICONS.map((n) => (
-              <button key={n} aria-label={n} onClick={() => onPick(simpleIcon(n, color))} className="grid h-8 w-8 place-items-center rounded-[6px] hover:bg-tint">
+              <button type="button" key={n} aria-label={n} onClick={() => onPick(simpleIcon(n, color))} className="grid h-8 w-8 place-items-center rounded-[6px] hover:bg-tint">
                 <Icon name={n} size={20} />
               </button>
             ))}
@@ -188,28 +192,35 @@ export function EmojiPicker({
               <div className="mb-0.5 text-xs text-muted">{group}</div>
               <div className="grid grid-cols-10 gap-0.5">
                 {list.map((e) => (
-                  <button key={e} aria-label={e} onClick={() => onPick(e)} className="grid h-7 w-7 place-items-center rounded-[6px] text-lg hover:bg-tint">
+                  <button type="button" key={e} aria-label={e} onClick={() => onPick(e)} className="grid h-7 w-7 place-items-center rounded-[6px] text-lg hover:bg-tint">
                     {e}
                   </button>
                 ))}
               </div>
             </div>
           ))}
-          <form
-            className="flex gap-1.5"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const first = Array.from(new Intl.Segmenter("ja", { granularity: "grapheme" }).segment(custom.trim()))[0]?.segment;
-              if (first) onPick(first);
-            }}
-          >
-            <input value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="ほかの絵文字を貼り付け" className="field py-1" aria-label="ほかの絵文字" />
-            <button className="btn-sub shrink-0 px-3">使う</button>
-          </form>
+          {/* フォームの中（イメージユーザーの画面など）でも使うので、form にはせず Enter と「使う」で決める */}
+          <div className="flex gap-1.5">
+            <input
+              value={custom}
+              onChange={(e) => setCustom(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+                e.preventDefault();
+                pickCustom();
+              }}
+              placeholder="ほかの絵文字を貼り付け"
+              className="field py-1"
+              aria-label="ほかの絵文字"
+            />
+            <button type="button" className="btn-sub shrink-0 px-3" onClick={pickCustom}>
+              使う
+            </button>
+          </div>
         </>
       )}
       {!tabbed && onRemove && (
-        <button onClick={onRemove} className="w-full rounded-[8px] py-1 text-sm text-muted hover:bg-tint">
+        <button type="button" onClick={onRemove} className="w-full rounded-[8px] py-1 text-sm text-muted hover:bg-tint">
           アイコンを外す
         </button>
       )}
