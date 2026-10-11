@@ -379,38 +379,42 @@ export function MediaGrid({
             renaming={renaming === m.id}
             onRenamed={renamed(m.id)}
             extra={
-              <>
-                {lib?.parentId && (
-                  <button
-                    title="親ライブラリーで、この子ライブラリーの代表として表示する画像にする"
-                    aria-label="代表の画像にする"
-                    aria-pressed={parentRep === m.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setRepresentative(lib.id, m.id);
-                    }}
-                    onDoubleClick={(e) => e.stopPropagation()}
-                    className={`absolute right-1 bottom-1 grid h-8 w-8 place-items-center rounded-full bg-black/40 transition ${
-                      parentRep === m.id
-                        ? "text-accent opacity-100"
-                        : "text-white opacity-0 group-hover:opacity-100 focus:opacity-100"
-                    }`}
-                  >
-                    <Icon name="mark" size={16} />
-                  </button>
-                )}
-                {usedBy.length > 0 && (
-                  // 子ライブラリーの代表の印はアイコンだけ（名前はカーソルを置くと出る）。
-                  // 右下に代表のボタンもあるときは、その左に並べる
-                  <span
-                    title={markTitle(usedBy)}
-                    aria-label={markTitle(usedBy)}
-                    className={`absolute bottom-1.5 grid h-6 w-6 place-items-center rounded-full bg-accent text-accent-ink ${lib?.parentId ? "right-10" : "right-1.5"}`}
-                  >
-                    <Icon name="folder" size={14} />
-                  </span>
-                )}
-              </>
+              // フォルダの印と代表のボタンは左上に並べる（いつも出る印を角に。複数選んでいるときは、選んだ順の番号の右）
+              (lib?.parentId || usedBy.length > 0) && (
+                <span
+                  className={`absolute top-1 flex items-center gap-1 ${selected.length > 1 && selected.includes(m.id) ? "left-9" : "left-1"}`}
+                >
+                  {usedBy.length > 0 && (
+                    // 子ライブラリーの印はアイコンだけ（名前はカーソルを置くと出る）
+                    <span
+                      title={markTitle(usedBy)}
+                      aria-label={markTitle(usedBy)}
+                      className="grid h-6 w-6 place-items-center rounded-full bg-accent text-accent-ink"
+                    >
+                      <Icon name="folder" size={14} />
+                    </span>
+                  )}
+                  {lib?.parentId && (
+                    <button
+                      title="親ライブラリーで、この子ライブラリーの代表として表示する画像にする"
+                      aria-label="代表の画像にする"
+                      aria-pressed={parentRep === m.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRepresentative(lib.id, m.id);
+                      }}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                      className={`grid h-8 w-8 place-items-center rounded-full bg-black/40 transition ${
+                        parentRep === m.id
+                          ? "text-accent opacity-100"
+                          : "text-white opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      }`}
+                    >
+                      <Icon name="mark" size={16} />
+                    </button>
+                  )}
+                </span>
+              )
             }
           />
         );
