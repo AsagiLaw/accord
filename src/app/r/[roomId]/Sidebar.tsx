@@ -10,6 +10,7 @@ import { setCurrentUser } from "@/lib/local/session";
 import { ChannelNav } from "./ChannelNav";
 import { RoomRail } from "./RoomRail";
 import { MediaNav } from "./media/MediaNav";
+import { MediaSettingsDialog } from "./media/MediaSettings";
 
 type Room = { id: string; name: string };
 
@@ -26,6 +27,9 @@ export function Sidebar({
   const pathname = usePathname();
   const router = useRouter();
   const roomMenu = usePopover();
+  // メディアのボタンを右クリックしたときのメニューと、そこから開くメディアの設定
+  const mediaMenu = usePopover();
+  const [mediaSettings, setMediaSettings] = useState(false);
   // スマホで開いたときのページを覚えておき、ページを移動したら閉じた扱いにする
   const [openAt, setOpenAt] = useState<string | null>(null);
   const open = openAt === pathname;
@@ -115,6 +119,7 @@ export function Sidebar({
                   inMedia ? (lastChannelPath.current ?? base) : `${base}/media`,
                 )
               }
+              onContextMenu={mediaMenu.openAt}
               className={`ml-auto grid h-10 w-10 shrink-0 place-items-center rounded-[10px] border transition ${
                 inMedia
                   ? "border-accent bg-accent text-accent-ink"
@@ -123,6 +128,25 @@ export function Sidebar({
             >
               <Icon name="folder" size={26} />
             </button>
+            <Popover
+              anchor={mediaMenu.anchor}
+              onClose={mediaMenu.close}
+              width={220}
+              label="メディアのメニュー"
+            >
+              <MenuItem
+                icon={<Icon name="gear" size={16} />}
+                onClick={() => {
+                  mediaMenu.close();
+                  setMediaSettings(true);
+                }}
+              >
+                メディアの設定
+              </MenuItem>
+            </Popover>
+            {mediaSettings && (
+              <MediaSettingsDialog onClose={() => setMediaSettings(false)} />
+            )}
           </div>
 
           {inMedia ? (

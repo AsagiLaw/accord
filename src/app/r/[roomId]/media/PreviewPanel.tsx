@@ -2,9 +2,9 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
-import type { Library, Media } from "@/lib/local/db";
-import { aspectRatio, formatSize } from "@/lib/media/image";
-import { chain, descendants, shownName } from "@/lib/media/logic";
+import { db, type Library, type Media } from "@/lib/local/db";
+import { aspectRatio, formatSize, readImageMeta, type ImageMeta } from "@/lib/media/image";
+import { chain, descendants, PREVIEW_FIELDS, shownName, type PreviewField } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
 import { useMediaState } from "./MediaContext";
 import { DragOriginal, ThumbImage } from "./Thumb";
@@ -23,60 +23,127 @@ export function libraryPaths(m: Media, libs: Library[]): string[] {
   );
 }
 
+// 元の画像から読んだ解像度とカラープロファイル（画像の中身は変わらないので、一度読んだら使い回す）
+const metaCache = new Map<string, ImageMeta>();
+
+/** 元の画像の解像度とカラープロファイル。読み終わるまでは undefined */
+function useImageMeta(id: string | undefined): ImageMeta | undefined {
+  const [loaded, setLoaded] = useState<{ id: string; meta: ImageMeta } | null>(null);
+  useEffect(() => {
+    if (!id || metaCache.has(id)) return;
+    let alive = true;
+    db.mediaBlobs
+      .get(id)
+      .then((row) => (row ? readImageMeta(row.original) : null))
+      .then((meta) => {
+        if (!meta) return;
+        metaCache.set(id, meta);
+        if (alive) setLoaded({ id, meta });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+  if (!id) return undefined;
+  return metaCache.get(id) ?? (loaded?.id === id ? loaded.meta : undefined);
+}
+
 /** プレビューの中身（選んだ画像の大きな表示と詳細） */
 function PreviewBody() {
   const { selected, byId, libs, members, setViewing } = useMediaState();
-  const { showExt } = useMediaPrefs();
+  const { showExt, previewRatio, previewFields } = useMediaPrefs();
   const id = selected.at(-1);
   const m = id ? byId.get(id) : undefined;
+  const meta = useImageMeta(m?.id);
+  // 解像度は、追加したときに読めなかった画像（Photoshop の JPEG など）も、元の画像から読み直す
+  const dpi = meta?.dpi || m?.dpi;
 
+  // 詳細の項目ごとの中身。出す項目と順番はメディアの設定で決める
+  const value = (f: PreviewField, m: Media): React.ReactNode => {
+    switch (f) {
+      case "fileName":
+        return m.fileName;
+      case "type":
+        return (m.mime.replace("image/", "") || "不明").toUpperCase();
+      case "dims":
+        return `${m.width} × ${m.height} px`;
+      case "dpi":
+        return dpi ? `${dpi} dpi` : meta ? <span className="text-muted">記録なし</span> : "…";
+      case "mm":
+        // 実際の大きさ：ピクセル数 ÷ dpi × 25.4（解像度が分からなければ出せない）
+        return dpi ? (
+          `${((m.width / dpi) * 25.4).toFixed(1)} × ${((m.height / dpi) * 25.4).toFixed(1)} mm`
+        ) : meta ? (
+          <span className="text-muted">解像度の記録がないため不明</span>
+        ) : (
+          "…"
+        );
+      case "profile":
+        return !meta ? "…" : meta.profile ?? <span className="text-muted">埋め込みなし</span>;
+      case "pixels":
+        return `${((m.width * m.height) / 1e6).toFixed(2)} メガピクセル`;
+      case "ratio":
+        return aspectRatio(m.width, m.height);
+      case "size":
+        return formatSize(m.size);
+      case "date":
+        return new Date(m.createdAt).toLocaleString("ja-JP");
+      case "uploader":
+        return members.find((x) => x.userId === m.uploadedBy)?.displayName ?? "—";
+      case "libs":
+        return libraryPaths(m, libs).length ? (
+          libraryPaths(m, libs).map((p) => <div key={p}>{p}</div>)
+        ) : (
+          <span className="text-muted">未整理</span>
+        );
+    }
+  };
   const rows: [string, React.ReactNode][] = m
-    ? [
-        ["ファイル名", m.fileName],
-        ["形式", (m.mime.replace("image/", "") || "不明").toUpperCase()],
-        ["画像サイズ", `${m.width} × ${m.height} px`],
-        ["解像度", m.dpi ? `${m.dpi} dpi` : "不明"],
-        ["画素数", `${((m.width * m.height) / 1e6).toFixed(2)} メガピクセル`],
-        ["縦横比", aspectRatio(m.width, m.height)],
-        ["ファイル容量", formatSize(m.size)],
-        ["追加日時", new Date(m.createdAt).toLocaleString("ja-JP")],
-        [
-          "追加した人",
-          members.find((x) => x.userId === m.uploadedBy)?.displayName ?? "—",
-        ],
-        [
-          "ライブラリー",
-          libraryPaths(m, libs).length ? (
-            libraryPaths(m, libs).map((p) => <div key={p}>{p}</div>)
-          ) : (
-            <span className="text-muted">未整理</span>
-          ),
-        ],
-      ]
+    ? previewFields.flatMap((f) => {
+        const name = PREVIEW_FIELDS.find((x) => x.id === f)?.name;
+        return name ? [[name, value(f, m)] as [string, React.ReactNode]] : [];
+      })
     : [];
 
+  // 枠の縦横比：メディアの設定で「1:1」なら正方形。「オリジナル」なら元の画像と同じ（分からなければ正方形）
+  const square = previewRatio === "square";
+  const ratio = !square && m && m.width && m.height ? m.width / m.height : 1;
+
+  // 欄の上半分に画像、下半分に詳細（詳細が多いときは下半分の中でスクロール）
   return (
-    <div className="p-4">
-      <h4 className="mb-2 text-sm font-bold">
-        プレビュー
-        {selected.length > 1 && (
-          <span className="ml-1 font-normal text-muted">
-            （他{selected.length - 1}枚も選択中）
-          </span>
+    <div className="flex h-full flex-col">
+      <div data-name="プレビューの画像" className="flex min-h-0 flex-1 basis-0 flex-col p-4 pb-2">
+        <h4 className="mb-2 shrink-0 text-sm font-bold">
+          プレビュー
+          {selected.length > 1 && (
+            <span className="ml-1 font-normal text-muted">
+              （他{selected.length - 1}枚も選択中）
+            </span>
+          )}
+        </h4>
+        {!m ? (
+          <p className="text-sm text-muted">画像を選ぶと、ここに詳細が出ます。</p>
+        ) : (
+          // 空いている所に、枠の縦横比のまま、入るだけ大きく出す（幅と高さの両方に収める）
+          <div className="grid min-h-0 flex-1 place-items-center [container-type:size]">
+            <button
+              className="relative block overflow-hidden rounded-[10px]"
+              style={{
+                aspectRatio: `${ratio}`,
+                width: `min(100cqw, ${ratio} * 100cqh)`,
+              }}
+              aria-label="大きく表示"
+              onClick={() => setViewing(m.id)}
+            >
+              <ThumbImage id={m.id} alt={m.name} className={square ? "object-contain" : ""} />
+              <DragOriginal m={m} multiSelected={selected.length > 1} />
+            </button>
+          </div>
         )}
-      </h4>
-      {!m ? (
-        <p className="text-sm text-muted">画像を選ぶと、ここに詳細が出ます。</p>
-      ) : (
-        <>
-          <button
-            className="relative mb-3 block aspect-square w-full overflow-hidden rounded-[10px]"
-            aria-label="大きく表示"
-            onClick={() => setViewing(m.id)}
-          >
-            <ThumbImage id={m.id} alt={m.name} className="object-contain" />
-            <DragOriginal m={m} multiSelected={selected.length > 1} />
-          </button>
+      </div>
+      {m && (
+        <div data-name="プレビューの詳細" className="min-h-0 flex-1 basis-0 overflow-y-auto border-t border-line p-4 pt-3">
           <p className="mb-2 font-bold break-all">{shownName(m, showExt)}</p>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
             {rows.map(([k, v]) => (
@@ -86,7 +153,7 @@ function PreviewBody() {
               </div>
             ))}
           </dl>
-        </>
+        </div>
       )}
     </div>
   );
@@ -235,7 +302,7 @@ export function PreviewPanel({
         width: open ? width : undefined,
       }}
     >
-      {open && <div className="h-full overflow-y-auto">{<PreviewBody />}</div>}
+      {open && <div className="h-full">{<PreviewBody />}</div>}
       {handle}
     </aside>
   );

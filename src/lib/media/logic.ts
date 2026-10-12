@@ -33,6 +33,36 @@ export const LIST_COLUMNS: { id: ListColumn; name: string; width: string }[] = [
   { id: "libs", name: "ライブラリー", width: "12rem" },
 ];
 
+/** プレビュー欄の詳細に出す項目 */
+export type PreviewField =
+  | "fileName"
+  | "type"
+  | "dims"
+  | "dpi"
+  | "mm"
+  | "profile"
+  | "pixels"
+  | "ratio"
+  | "size"
+  | "date"
+  | "uploader"
+  | "libs";
+/** プレビュー欄の詳細の項目と名前。はじめはすべて、この順に出す */
+export const PREVIEW_FIELDS: { id: PreviewField; name: string }[] = [
+  { id: "fileName", name: "ファイル名" },
+  { id: "type", name: "形式" },
+  { id: "dims", name: "画像サイズ" },
+  { id: "dpi", name: "解像度" },
+  { id: "mm", name: "サイズ（mm）" },
+  { id: "profile", name: "カラープロファイル" },
+  { id: "pixels", name: "画素数" },
+  { id: "ratio", name: "縦横比" },
+  { id: "size", name: "ファイル容量" },
+  { id: "date", name: "追加日時" },
+  { id: "uploader", name: "追加した人" },
+  { id: "libs", name: "ライブラリー" },
+];
+
 export type MediaPrefs = {
   sort: SortKey;
   dirs: Record<SortKey, SortDir>;
@@ -45,6 +75,10 @@ export type MediaPrefs = {
   columns: ListColumn[];
   /** 画像の名前の後ろに拡張子を付けて出す（Windows のエクスプローラーの「ファイル名拡張子」） */
   showExt: boolean;
+  /** プレビュー欄の画像の枠：元の画像と同じ縦横比／正方形（1:1。画像は枠に収める） */
+  previewRatio: "original" | "square";
+  /** プレビュー欄の詳細に出す項目（並べた順） */
+  previewFields: PreviewField[];
 };
 
 export const DEFAULT_PREFS: MediaPrefs = {
@@ -55,6 +89,8 @@ export const DEFAULT_PREFS: MediaPrefs = {
   imageView: "icon",
   columns: ["dims", "size", "date"],
   showExt: false,
+  previewRatio: "original",
+  previewFields: PREVIEW_FIELDS.map((f) => f.id),
 };
 
 export const THUMB_SIZES = [96, 128, 164, 220];
