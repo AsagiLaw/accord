@@ -149,8 +149,10 @@ export function Lightbox() {
 
   // 今の画像がフィルムストリップの真ん中に来るように。
   // 並びが変わったとき（子ライブラリー⇔親など）は、画面に出す前に一気に合わせる（横に流れてから戻る動きを出さない）。
-  // 同じ並びの中で画像を切り替えたときだけ、なめらかに動かす
+  // 同じ並びの中で画像を切り替えたときだけ、なめらかに動かす。
+  // 開いた最初は、位置を測るまで（box が決まるまで）何も出していないので、出したときにもう一度合わせる
   const prevCur = useRef<string | null | undefined>(undefined);
+  const placed = !!box;
   useLayoutEffect(() => {
     const s = strip.current;
     const it = s?.querySelector<HTMLElement>('[aria-current="true"]');
@@ -165,7 +167,7 @@ export function Lightbox() {
       left,
       behavior: listChanged || !prevId.current ? "auto" : "smooth",
     });
-  }, [m?.id, cur]);
+  }, [m?.id, cur, placed]);
 
   // 開いたとき：サムネイルの位置から拡大して出てくる。切り替えたとき：ふわっと出る
   const animateIn = () => {
@@ -277,7 +279,8 @@ export function Lightbox() {
       <div
         ref={strip}
         data-name="フィルムストリップ"
-        className="flex h-[72px] w-full shrink-0 items-center gap-2 overflow-hidden"
+        // 拡大画像の影（下に広がる）より手前に出す。影がサムネイルにかかって暗くならないように
+        className="relative z-10 flex h-[72px] w-full shrink-0 items-center gap-2 overflow-hidden"
         onClick={(e) => e.target === e.currentTarget && close()}
       >
         <span className="w-[calc(50%-40px)] shrink-0" />
