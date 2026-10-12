@@ -5,6 +5,7 @@ import type { Library, Media } from "@/lib/local/db";
 import {
   createLibrary,
   deleteForever,
+  duplicateMedia,
   deleteLibrary,
   groupIntoLibrary,
   mergeLibrary,
@@ -14,10 +15,14 @@ import {
   renameLibrary,
   reorderLibrary,
   restoreFromTrash,
+  revertEdit,
+  saveEdit,
+  saveEditAsCopy,
   uploadFiles,
   type Undo,
 } from "@/lib/local/media";
 import { canPickSaveLocation, copyImage, downloadOriginals, saveFileAs, saveZip, type ZipItem } from "@/lib/media/export";
+import type { ImageEdit } from "@/lib/media/edit";
 import { chain, descendants } from "@/lib/media/logic";
 
 // 確認・お知らせ・元に戻すを含む、画面からの操作の流れ
@@ -103,6 +108,57 @@ export async function exportLibraryFlow(lib: Library, libs: Library[], media: Me
   } catch (err) {
     toast(`書き出せませんでした（${(err as Error).message}）`);
   }
+}
+
+/** 編集を保存する。保存できたら true */
+export async function saveEditFlow(id: string, edit: ImageEdit) {
+  try {
+    undoable("編集を保存しました", await saveEdit(id, edit));
+    return true;
+  } catch (err) {
+    toast(`保存できませんでした（${(err as Error).message}）`);
+    return false;
+  }
+}
+
+/** 画像をそのまま複製する（右クリックの「複製」） */
+export async function duplicateFlow(ids: string[], userId: string) {
+  if (!ids.length) return;
+  try {
+    const { ids: made, undo } = await duplicateMedia(ids, userId);
+    undoable(made.length === 1 ? "複製しました" : `${made.length}枚を複製しました`, undo);
+  } catch (err) {
+    toast(`複製できませんでした（${(err as Error).message}）`);
+  }
+}
+
+/** 編集を、新しい画像（複製）として保存する。元の画像はそのまま。保存できたら true */
+export async function saveCopyFlow(id: string, edit: ImageEdit, userId: string) {
+  try {
+    const { undo } = await saveEditAsCopy(id, edit, userId);
+    undoable("複製として保存しました", undo);
+    return true;
+  } catch (err) {
+    toast(`保存できませんでした（${(err as Error).message}）`);
+    return false;
+  }
+}
+
+/** 編集した画像を、元の画像に戻す（確かめずに。お知らせから元に戻せる） */
+export async function revertEditNow(m: Media) {
+  undoable("オリジナルに戻しました", await revertEdit(m.id));
+}
+
+/** 編集した画像を、元の画像に戻す（確かめてから） */
+export async function revertEditFlow(m: Media) {
+  const ok = await confirmAction(
+    "オリジナルに戻します",
+    "オリジナルに戻す",
+    `「${m.name}」に加えた編集をすべて取り除きます。`,
+  );
+  if (!ok) return false;
+  await revertEditNow(m);
+  return true;
 }
 
 export async function trashFlow(roomId: string, ids: string[]) {

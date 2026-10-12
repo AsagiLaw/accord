@@ -49,10 +49,14 @@ export function MediaGrid({
     setViewing,
     libs,
     media,
-    renaming,
+    renaming: renamingAny,
     setRenaming,
     members,
+    viewing,
   } = useMediaState();
+  // 拡大表示中の「名前を変更」は、上のバーの名前で書き換える。
+  // 後ろの一覧でも入力欄を出すと、見えない入力欄に文字が入ってしまうので出さない
+  const renaming = viewing ? null : renamingAny;
   const renamed = (id: string) => (name: string | null) => {
     setRenaming(null);
     if (name) void renameMedia(id, name);

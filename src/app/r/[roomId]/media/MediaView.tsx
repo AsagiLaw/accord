@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import {
   MenuDivider,
@@ -11,7 +11,7 @@ import {
   Popover,
   usePopover,
 } from "@/components/ui/Popover";
-import type { Library } from "@/lib/local/db";
+import type { Library, Media } from "@/lib/local/db";
 import { renameLibrary, renameMedia, setFav } from "@/lib/local/media";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import {
@@ -28,9 +28,11 @@ import { useMediaPrefs } from "@/lib/media/prefs";
 import {
   copyImageFlow,
   deleteForeverFlow,
+  duplicateFlow,
   downloadFlow,
   removeFromLibraryFlow,
   restoreFlow,
+  revertEditFlow,
   trashFlow,
   uploadFlow,
 } from "./flows";
@@ -228,6 +230,25 @@ export function MediaView({ view }: { view: MediaViewKind }) {
       ctx.close();
       fn();
     };
+    // 編集（iPhone の写真と同じ編集画面）。編集してある画像は、オリジナルに戻せる
+    const editItems = (m: Media) => (
+      <>
+        <MenuItem
+          icon={<Icon name="tune" size={16} />}
+          onClick={run(() => s.setEditing(m.id))}
+        >
+          編集
+        </MenuItem>
+        {m.edited && (
+          <MenuItem
+            icon={<Icon name="restore" size={16} />}
+            onClick={run(() => revertEditFlow(m))}
+          >
+            オリジナルに戻す
+          </MenuItem>
+        )}
+      </>
+    );
     if (ctxKind === "viewing" && viewingMedia) {
       return (
         <>
@@ -243,12 +264,21 @@ export function MediaView({ view }: { view: MediaViewKind }) {
           >
             名前を変更
           </MenuItem>
+          {!viewingMedia.trashed && editItems(viewingMedia)}
           <MenuItem
             icon={<Icon name="star" size={16} />}
             onClick={run(() => setFav([viewingMedia.id], !viewingMedia.fav))}
           >
             {viewingMedia.fav ? "お気に入りから外す" : "お気に入りに追加"}
           </MenuItem>
+          {!viewingMedia.trashed && (
+            <MenuItem
+              icon={<Icon name="duplicate" size={16} />}
+              onClick={run(() => duplicateFlow([viewingMedia.id], me.id))}
+            >
+              複製
+            </MenuItem>
+          )}
           <MenuItem
             icon={<Icon name="copy" size={16} />}
             onClick={run(() => copyImageFlow([viewingMedia]))}
@@ -336,11 +366,18 @@ export function MediaView({ view }: { view: MediaViewKind }) {
             名前を変更
           </MenuItem>
         )}
+        {n === 1 && selectedMedia[0] && editItems(selectedMedia[0])}
         <MenuItem
           icon={<Icon name="star" size={16} />}
           onClick={run(() => setFav(selected, !allFav).then(done))}
         >
           {allFav ? "お気に入りから外す" : "お気に入りに追加"}
+        </MenuItem>
+        <MenuItem
+          icon={<Icon name="duplicate" size={16} />}
+          onClick={run(() => duplicateFlow(selected, me.id).then(done))}
+        >
+          {n === 1 ? "複製" : `${n}枚を複製`}
         </MenuItem>
         {n === 1 && (
           <MenuItem
@@ -821,6 +858,14 @@ function InlineName({
   onEditEnd?: () => void;
 }) {
   const [draft, setDraft] = useState<string | null>(startEditing ? name : null);
+  // 入力欄になったら、そこに入力の場所を移して名前を全部選ぶ（そのまま打てば書き換わる）
+  const input = useRef<HTMLInputElement>(null);
+  const editing = draft !== null;
+  useEffect(() => {
+    if (!editing) return;
+    input.current?.focus();
+    input.current?.select();
+  }, [editing]);
   const save = () => {
     const v = draft?.trim() ?? "";
     setDraft(null);
@@ -829,7 +874,7 @@ function InlineName({
   };
   return draft !== null ? (
     <input
-      autoFocus
+      ref={input}
       value={draft}
       aria-label="名前"
       size={Math.max(6, [...draft].length * 2 + 2)}

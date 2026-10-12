@@ -1,10 +1,11 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { forgetBlobUrls } from "@/lib/media/blob-url";
-import { readImage } from "@/lib/media/image";
+import { forgetBlobUrls, refreshBlobUrls } from "@/lib/media/blob-url";
+import { isDefaultEdit, renderEdit, type ImageEdit } from "@/lib/media/edit";
+import { makeThumb, readImage } from "@/lib/media/image";
 import { childrenOf, descendants, withAncestors } from "@/lib/media/logic";
-import { db, newId, type Library, type Media } from "./db";
+import { db, newId, type Library, type Media, type MediaBlob } from "./db";
 
 export type Undo = () => Promise<void>;
 
@@ -110,6 +111,212 @@ export async function deleteForever(ids: string[], userId: string) {
   });
   forgetBlobUrls(mine);
   return { deleted: mine.length, skipped: ids.length - mine.length };
+}
+
+// ---- 編集（元の画像は source に残しておき、いつでも戻せる） ----
+
+/** 編集の前の状態に戻す「元に戻す」を作る */
+async function blobSnapshot(id: string): Promise<Undo> {
+  const row = await db.mediaBlobs.get(id);
+  const m = await db.media.get(id);
+  return async () => {
+    if (!row || !m) return;
+    const { fileName, mime, size, width, height, edited } = m;
+    await db.transaction("rw", db.media, db.mediaBlobs, async () => {
+      await db.mediaBlobs.put(row);
+      const now = await db.media.get(id);
+      await db.media.update(id, { fileName, mime, size, width, height, edited, rev: (now?.rev ?? 0) + 1 });
+    });
+    refreshBlobUrls([id]);
+  };
+}
+
+const canKeepType = (type: string) => ["image/jpeg", "image/png", "image/webp"].includes(type);
+
+/** 編集した画像のファイル名：形式が変わったら拡張子も替える */
+function withExt(fileName: string, mime: string) {
+  const ext = "." + mime.slice(6).replace("jpeg", "jpg");
+  return /\.[^.]+$/.test(fileName) ? fileName.replace(/\.[^.]+$/, ext) : fileName + ext;
+}
+
+/** 編集前の画像（まだ編集していなければ、今の画像）と、その情報 */
+function sourceOf(row: MediaBlob, m: Media) {
+  return {
+    source: row.source ?? row.original,
+    sourceInfo: row.sourceInfo ?? { fileName: m.fileName, mime: m.mime, size: m.size, width: m.width, height: m.height },
+  };
+}
+
+/** 元の画像に編集をあてて、元の大きさの画像と一覧用の小さい画像を作る */
+async function renderEdited(source: Blob, sourceInfo: { fileName: string; mime: string }, edit: ImageEdit) {
+  const bitmap = await createImageBitmap(source);
+  let canvas: HTMLCanvasElement;
+  try {
+    canvas = renderEdit(bitmap, edit);
+  } finally {
+    bitmap.close();
+  }
+  const type = canKeepType(source.type) ? source.type : "image/png";
+  const blob = await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("画像を作れませんでした"))), type, 0.95),
+  );
+  const thumb = await makeThumb(canvas);
+  // ブラウザが作れない形式（Safari の WebP など）は PNG になるので、実際にできた形式を使う
+  const mime = blob.type || type;
+  return {
+    blob,
+    thumb,
+    fields: {
+      width: canvas.width,
+      height: canvas.height,
+      size: blob.size,
+      mime,
+      fileName: mime === sourceInfo.mime ? sourceInfo.fileName : withExt(sourceInfo.fileName, mime),
+    },
+  };
+}
+
+/** 編集を保存する。何も編集していなければ、元の画像に戻す */
+export async function saveEdit(id: string, edit: ImageEdit): Promise<Undo> {
+  const row = await db.mediaBlobs.get(id);
+  const m = await db.media.get(id);
+  if (!row || !m) throw new Error("画像が見つかりません");
+  if (isDefaultEdit(edit)) return revertEdit(id);
+  const undo = await blobSnapshot(id);
+  const { source, sourceInfo } = sourceOf(row, m);
+  const out = await renderEdited(source, sourceInfo, edit);
+  await db.transaction("rw", db.media, db.mediaBlobs, async () => {
+    await db.mediaBlobs.put({ id, original: out.blob, thumb: out.thumb, source, sourceInfo, edit });
+    await db.media.update(id, { ...out.fields, edited: true, rev: (m.rev ?? 0) + 1 });
+  });
+  refreshBlobUrls([id]);
+  return undo;
+}
+
+/**
+ * 複製の追加日時。元の画像と同じ日時にして、追加日時の順で並べたときに元の画像の隣に来るようにする。
+ * まったく同じだと前後が決まらないので、1ミリ秒より小さくずらす（画面の日時の表示は元と同じ）。
+ * 同じ画像を何回か複製したときは、前に作った複製の後ろに並べる
+ */
+async function copyCreatedAt(m: Media) {
+  const near = await db.media
+    .where("roomId")
+    .equals(m.roomId)
+    .filter((x) => x.createdAt > m.createdAt && x.createdAt < m.createdAt + 0.5)
+    .toArray();
+  return Math.max(m.createdAt, ...near.map((x) => x.createdAt)) + 0.001;
+}
+
+/**
+ * 編集を、新しい画像（複製）として保存する。元の画像はそのまま。
+ * 複製にも編集前の画像を残すので、複製もあとから編集し直したり、オリジナルに戻したりできる
+ */
+export async function saveEditAsCopy(id: string, edit: ImageEdit, userId: string): Promise<{ id: string; undo: Undo }> {
+  const row = await db.mediaBlobs.get(id);
+  const m = await db.media.get(id);
+  if (!row || !m) throw new Error("画像が見つかりません");
+  const { source, sourceInfo } = sourceOf(row, m);
+  const copyId = newId();
+  const base: Media = {
+    id: copyId,
+    roomId: m.roomId,
+    uploadedBy: userId,
+    name: `${m.name} のコピー`,
+    fileName: sourceInfo.fileName,
+    mime: sourceInfo.mime,
+    size: sourceInfo.size,
+    width: sourceInfo.width,
+    height: sourceInfo.height,
+    dpi: m.dpi,
+    createdAt: await copyCreatedAt(m),
+    fav: false,
+    trashed: false,
+    // 元の画像と同じライブラリーに入れる
+    libIds: [...m.libIds],
+  };
+  let blobRow: MediaBlob;
+  let media: Media;
+  if (isDefaultEdit(edit)) {
+    // 何も編集していなければ、オリジナルをそのまま複製する
+    const thumb = row.source ? (await readImage(source)).thumb : row.thumb;
+    blobRow = { id: copyId, original: source, thumb };
+    media = base;
+  } else {
+    const out = await renderEdited(source, sourceInfo, edit);
+    blobRow = { id: copyId, original: out.blob, thumb: out.thumb, source, sourceInfo, edit };
+    media = { ...base, ...out.fields, edited: true };
+  }
+  await db.transaction("rw", db.media, db.mediaBlobs, async () => {
+    await db.mediaBlobs.add(blobRow);
+    await db.media.add(media);
+  });
+  return { id: copyId, undo: () => removeCopies([copyId]) };
+}
+
+/** 作った複製を取り消す（「元に戻す」用） */
+async function removeCopies(ids: string[]) {
+  await db.transaction("rw", db.media, db.mediaBlobs, db.libraries, async () => {
+    await db.media.bulkDelete(ids);
+    await db.mediaBlobs.bulkDelete(ids);
+    await db.libraries
+      .filter((l) => l.repMediaId !== null && ids.includes(l.repMediaId))
+      .modify({ repMediaId: null });
+  });
+  forgetBlobUrls(ids);
+}
+
+/**
+ * 画像をそのまま複製する（右クリックの「複製」）。名前は「〇〇 のコピー」、元と同じライブラリーに入れる。
+ * 編集してある画像は、編集の内容とオリジナルも写すので、複製もオリジナルに戻せる
+ */
+export async function duplicateMedia(ids: string[], userId: string): Promise<{ ids: string[]; undo: Undo }> {
+  const made: string[] = [];
+  await db.transaction("rw", db.media, db.mediaBlobs, async () => {
+    for (const id of ids) {
+      const m = await db.media.get(id);
+      const row = await db.mediaBlobs.get(id);
+      if (!m || !row) continue;
+      const copyId = newId();
+      await db.mediaBlobs.add({ ...row, id: copyId });
+      await db.media.add({
+        ...m,
+        id: copyId,
+        uploadedBy: userId,
+        name: `${m.name} のコピー`,
+        createdAt: await copyCreatedAt(m),
+        fav: false,
+        trashed: false,
+        rev: 0,
+        libIds: [...m.libIds],
+      });
+      made.push(copyId);
+    }
+  });
+  return { ids: made, undo: () => removeCopies(made) };
+}
+
+/** 編集をやめて、元の画像に戻す（iPhone の「オリジナルに戻す」） */
+export async function revertEdit(id: string): Promise<Undo> {
+  const row = await db.mediaBlobs.get(id);
+  const m = await db.media.get(id);
+  if (!row || !m || !row.source) return async () => {};
+  const undo = await blobSnapshot(id);
+  const info = await readImage(row.source);
+  const s = row.sourceInfo;
+  await db.transaction("rw", db.media, db.mediaBlobs, async () => {
+    await db.mediaBlobs.put({ id, original: row.source!, thumb: info.thumb });
+    await db.media.update(id, {
+      edited: false,
+      rev: (m.rev ?? 0) + 1,
+      width: info.width,
+      height: info.height,
+      size: s?.size ?? row.source!.size,
+      mime: s?.mime ?? row.source!.type,
+      fileName: s?.fileName ?? m.fileName,
+    });
+  });
+  refreshBlobUrls([id]);
+  return undo;
 }
 
 // ---- ライブラリー ----

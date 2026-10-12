@@ -31,7 +31,7 @@ export function rememberOpenedFrom(el: Element | null) {
  * カードを押すとフィルムストリップがそのライブラリーの並びに、ダブルクリックでそのライブラリーを開く。
  */
 export function Lightbox() {
-  const { viewing, setViewing, byId, media, libs, roomId, setOrganizing } =
+  const { viewing, setViewing, byId, media, libs, roomId, setOrganizing, setEditing } =
     useMediaState();
   const prefs = useMediaPrefs();
   const pathname = usePathname();
@@ -232,14 +232,27 @@ export function Lightbox() {
         WebkitBackdropFilter: "blur(11px)",
       }}
     >
-      <button
-        aria-label="閉じる"
-        onClick={close}
-        className="btn-sub absolute top-3 right-4 w-10 px-0 backdrop-blur-md"
-        style={{ background: "color-mix(in srgb, var(--bg) 70%, transparent)" }}
-      >
-        <Icon name="x" />
-      </button>
+      <div className="absolute top-3 right-4 flex gap-2">
+        {!m.trashed && (
+          <button
+            onClick={() => setEditing(m.id)}
+            title="画像を編集（調整・フィルタ・切り取り）"
+            className="btn-sub px-4 backdrop-blur-md"
+            style={{ background: "color-mix(in srgb, var(--bg) 70%, transparent)" }}
+          >
+            <Icon name="tune" size={16} />
+            編集
+          </button>
+        )}
+        <button
+          aria-label="閉じる"
+          onClick={close}
+          className="btn-sub w-10 px-0 backdrop-blur-md"
+          style={{ background: "color-mix(in srgb, var(--bg) 70%, transparent)" }}
+        >
+          <Icon name="x" />
+        </button>
+      </div>
 
       <div
         className="relative flex min-h-0 w-full flex-1 touch-pan-y items-center justify-center px-14"

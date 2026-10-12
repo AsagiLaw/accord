@@ -27,6 +27,9 @@ export type MediaState = {
   /** 名前をその場で書き換えている画像（右クリックの「名前を変更」） */
   renaming: string | null;
   setRenaming: (id: string | null) => void;
+  /** 編集している画像 */
+  editing: string | null;
+  setEditing: (id: string | null) => void;
 };
 
 const Ctx = createContext<MediaState | null>(null);
@@ -58,6 +61,7 @@ export function MediaProvider({
   const [organizing, setOrganizing] = useState<string[] | null>(null);
   const [addingTo, setAddingTo] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
 
   const value = useMemo<MediaState | null>(() => {
     if (!media || !libs) return null;
@@ -81,6 +85,8 @@ export function MediaProvider({
       setAddingTo,
       renaming,
       setRenaming,
+      editing: editing && media.some((m) => m.id === editing) ? editing : null,
+      setEditing,
     };
   }, [
     roomId,
@@ -93,6 +99,7 @@ export function MediaProvider({
     organizing,
     addingTo,
     renaming,
+    editing,
   ]);
 
   if (!value) return <p className="p-8 text-muted">読み込み中…</p>;

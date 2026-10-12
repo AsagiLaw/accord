@@ -4,20 +4,27 @@ const THUMB_MAX = 512;
 
 export type ImageInfo = { width: number; height: number; dpi: number; thumb: Blob };
 
-export async function readImage(file: File): Promise<ImageInfo> {
+export async function readImage(file: Blob): Promise<ImageInfo> {
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, THUMB_MAX / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  const thumb = await new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("thumb failed"))), "image/webp", 0.85),
-  );
+  const thumb = await makeThumb(bitmap);
   const head = await file.slice(0, HEAD_SIZE).arrayBuffer();
   const info = { width: bitmap.width, height: bitmap.height, dpi: dpiOf(head), thumb };
   bitmap.close();
   return info;
+}
+
+/** 一覧用の小さい画像を作る */
+export async function makeThumb(src: CanvasImageSource & { width: number; height: number }): Promise<Blob> {
+  const scale = Math.min(1, THUMB_MAX / Math.max(src.width, src.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(src.width * scale));
+  canvas.height = Math.max(1, Math.round(src.height * scale));
+  const ctx = canvas.getContext("2d")!;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(src, 0, 0, canvas.width, canvas.height);
+  return new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("thumb failed"))), "image/webp", 0.85),
+  );
 }
 
 /** 画像の情報（解像度・カラープロファイル）を読むために、ファイルの先頭から読む大きさ（情報は画像の中身より前にある） */

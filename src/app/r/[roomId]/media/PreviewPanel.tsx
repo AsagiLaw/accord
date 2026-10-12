@@ -23,30 +23,31 @@ export function libraryPaths(m: Media, libs: Library[]): string[] {
   );
 }
 
-// 元の画像から読んだ解像度とカラープロファイル（画像の中身は変わらないので、一度読んだら使い回す）
+// 元の画像から読んだ解像度とカラープロファイル（一度読んだら使い回す。編集して中身が変わったら読み直す）
 const metaCache = new Map<string, ImageMeta>();
 
 /** 元の画像の解像度とカラープロファイル。読み終わるまでは undefined */
-function useImageMeta(id: string | undefined): ImageMeta | undefined {
-  const [loaded, setLoaded] = useState<{ id: string; meta: ImageMeta } | null>(null);
+function useImageMeta(id: string | undefined, rev = 0): ImageMeta | undefined {
+  const [loaded, setLoaded] = useState<{ key: string; meta: ImageMeta } | null>(null);
+  const key = id ? `${id}:${rev}` : "";
   useEffect(() => {
-    if (!id || metaCache.has(id)) return;
+    if (!id || metaCache.has(key)) return;
     let alive = true;
     db.mediaBlobs
       .get(id)
       .then((row) => (row ? readImageMeta(row.original) : null))
       .then((meta) => {
         if (!meta) return;
-        metaCache.set(id, meta);
-        if (alive) setLoaded({ id, meta });
+        metaCache.set(key, meta);
+        if (alive) setLoaded({ key, meta });
       })
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [id, key]);
   if (!id) return undefined;
-  return metaCache.get(id) ?? (loaded?.id === id ? loaded.meta : undefined);
+  return metaCache.get(key) ?? (loaded?.key === key ? loaded.meta : undefined);
 }
 
 /** プレビューの中身（選んだ画像の大きな表示と詳細） */
@@ -55,7 +56,7 @@ function PreviewBody() {
   const { showExt, previewRatio, previewFields } = useMediaPrefs();
   const id = selected.at(-1);
   const m = id ? byId.get(id) : undefined;
-  const meta = useImageMeta(m?.id);
+  const meta = useImageMeta(m?.id, m?.rev);
   // 解像度は、追加したときに読めなかった画像（Photoshop の JPEG など）も、元の画像から読み直す
   const dpi = meta?.dpi || m?.dpi;
 

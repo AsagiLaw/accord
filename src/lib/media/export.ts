@@ -58,7 +58,9 @@ export function useOriginalUrl(m: Media | undefined) {
   const named = useFileServer();
   const blob = useBlobUrl(m && !named ? m.id : undefined, "original");
   if (!m) return undefined;
-  return named ? `/media-file/${m.id}/${encodeURIComponent(exportFileName(m))}` : blob;
+  // 編集して中身が変わったら、別の URL にする（ブラウザが前の画像を使い回さないように）。ファイル名は最後の部分なので変わらない
+  const rev = m.rev ? `${m.rev}/` : "";
+  return named ? `/media-file/${m.id}/${rev}${encodeURIComponent(exportFileName(m))}` : blob;
 }
 
 /**

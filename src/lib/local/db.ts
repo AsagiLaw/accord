@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable, type Table } from "dexie";
 import { newId } from "@/lib/id";
+import type { ImageEdit } from "@/lib/media/edit";
 import { DEFAULT_STAGES as REQUEST_DEFAULT_STAGES, requestDatabase } from "@/lib/requests/defaults";
 import { copyView, fromGrid, homeBlocks, layoutToBlocks, mapTabs, mergePageProp, replaceProgress, standardRequestBlocks, standardRequestTemplate, toBlockTab } from "./windowLayout";
 
@@ -38,10 +39,24 @@ export type Media = {
   trashed: boolean;
   /** 入っているライブラリー。子ライブラリーに入れたら、その親たちも必ず含む */
   libIds: string[];
+  /** 編集してある（元の画像に戻せる） */
+  edited?: boolean;
+  /** 画像の中身を変えた回数。表示用の URL を作り直すのに使う */
+  rev?: number;
 };
 
-/** 画像の中身。一覧で毎回読まないよう、情報とは別のテーブルに置く */
-export type MediaBlob = { id: string; original: Blob; thumb: Blob };
+/**
+ * 画像の中身。一覧で毎回読まないよう、情報とは別のテーブルに置く。
+ * 編集したら original は編集後の画像になり、元の画像は source に、編集の内容は edit に残す
+ */
+export type MediaBlob = {
+  id: string;
+  original: Blob;
+  thumb: Blob;
+  source?: Blob;
+  sourceInfo?: { fileName: string; mime: string; size: number; width: number; height: number };
+  edit?: ImageEdit;
+};
 
 export type Library = {
   id: string;
