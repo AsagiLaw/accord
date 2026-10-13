@@ -24,7 +24,7 @@ import { IconMark } from "@/components/IconMark";
 import { ImageViewer } from "@/components/ImageViewer";
 import { MediaPicker } from "@/components/MediaPicker";
 import { ViewRenderer } from "@/components/db/views/ViewRenderer";
-import { useMedia } from "@/lib/local/media";
+import { useMediaByIds } from "@/lib/local/media";
 import { updatePageValue, updateProperty, useDatabases, useEvents, usePage, usePages, useViews } from "@/lib/local/requests";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 import { useBlobUrl } from "@/lib/media/blob-url";
@@ -111,10 +111,11 @@ export function MediaImageView({
   fill?: boolean;
 }) {
   const { roomId, userId, locked } = useNoteContext();
-  const media = useMedia(roomId);
+  // 貼った画像は、どのボックスに入っていても ID で引く
+  const media = useMediaByIds(mediaId ? [mediaId] : []);
   const [picking, setPicking] = useState(false);
   const [viewing, setViewing] = useState(false);
-  const m = media?.find((x) => x.id === mediaId);
+  const m = media?.get(mediaId);
   const url = useBlobUrl(mediaId || undefined, "original");
 
   const picker = picking && (

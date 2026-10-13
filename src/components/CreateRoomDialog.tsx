@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { Icon, type IconName } from "@/components/Icon";
+import { newMediaDraft, RoomMediaFields, toMediaChoice, type RoomMediaDraft } from "@/components/RoomMediaFields";
 import { PopupDialog } from "@/components/ui/Dialog";
 import { toast } from "@/components/ui/overlay";
 import { createRoom, ROOM_TEMPLATES, type RoomTemplateId } from "@/lib/local/rooms";
@@ -46,7 +47,7 @@ function Choice({ icon, title, description, onClick, disabled }: { icon: IconNam
 
 /**
  * ルームバーの「ルームを作る」で出すポップアップ。
- * 1画面目で始め方（オリジナル・テンプレート・サーバーに参加）を選び、2画面目でアイコンと名前を決めて作る
+ * 1画面目で始め方（オリジナル・テンプレート・サーバーに参加）を選び、2画面目でアイコンと名前、3画面目でメディアを決めて作る
  */
 export function CreateRoomDialog({ userId, onClose }: { userId: string; onClose: () => void }) {
   const router = useRouter();
@@ -55,6 +56,8 @@ export function CreateRoomDialog({ userId, onClose }: { userId: string; onClose:
   const [icon, setIcon] = useState<string>();
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  // 3画面目（メディア）を開いているときの設定。名前を決めてから開くので、ボックスの名前の初めの値に使える
+  const [media, setMedia] = useState<RoomMediaDraft | null>(null);
 
   const chosen = ROOM_TEMPLATES.find((t) => t.id === template);
 
@@ -75,19 +78,49 @@ export function CreateRoomDialog({ userId, onClose }: { userId: string; onClose:
     );
   }
 
+  if (media) {
+    return (
+      <PopupDialog title="メディアの設定" onClose={onClose} width="max-w-md">
+        <form
+          data-name="ルームのメディア"
+          className="space-y-5"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const trimmed = name.trim();
+            if (!trimmed || busy) return;
+            setBusy(true);
+            const id = await createRoom(trimmed, userId, template, icon, toMediaChoice(media, trimmed));
+            onClose();
+            router.push(`/r/${id}`);
+          }}
+        >
+          <p className="text-sm text-muted">ルーム「{name.trim()}」で、画像をどこに入れて共有するかを決めます。</p>
+          <RoomMediaFields userId={userId} value={media} onChange={setMedia} />
+          <div className="flex justify-between gap-2">
+            <button type="button" className="btn-sub" onClick={() => setMedia(null)}>
+              <Icon name="back" />
+              戻る
+            </button>
+            <button className="btn" disabled={busy || (media.kind === "box" && !media.boxId)}>
+              新規作成
+            </button>
+          </div>
+        </form>
+      </PopupDialog>
+    );
+  }
+
   return (
     <PopupDialog title={chosen ? `テンプレート「${chosen.name}」` : "オリジナルの作成"} onClose={onClose} width="max-w-md">
       <form
         data-name="ルームの設定"
         className="space-y-5"
-        onSubmit={async (e) => {
+        onSubmit={(e) => {
           e.preventDefault();
           const trimmed = name.trim();
-          if (!trimmed || busy) return;
-          setBusy(true);
-          const id = await createRoom(trimmed, userId, template, icon);
-          onClose();
-          router.push(`/r/${id}`);
+          if (!trimmed) return;
+          // 次の画面：メディアの設定
+          setMedia(newMediaDraft(trimmed));
         }}
       >
         <div className="flex flex-col items-center gap-2">
@@ -143,8 +176,9 @@ export function CreateRoomDialog({ userId, onClose }: { userId: string; onClose:
             <Icon name="back" />
             戻る
           </button>
-          <button className="btn" disabled={!name.trim() || busy}>
-            新規作成
+          <button className="btn" disabled={!name.trim()}>
+            次へ
+            <Icon name="r" />
           </button>
         </div>
       </form>

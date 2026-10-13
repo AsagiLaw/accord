@@ -25,7 +25,7 @@ import { BLOCK_KINDS, MENU_KINDS } from "@/components/blockKinds";
 import { NoteContext } from "@/components/embeds";
 import { Icon } from "@/components/Icon";
 import { toast } from "@/components/ui/overlay";
-import { uploadFiles } from "@/lib/local/media";
+import { uploadToRoom } from "@/lib/local/media";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { noteSchema, type NoteEditor as Editor } from "./blocks";
 
@@ -406,7 +406,7 @@ export function EditorMenus({ editor }: { editor: Editor }) {
 /** 画像を、まずメディアに入れてから「画像（メディアから）」ブロックにして貼る */
 export async function insertUploaded(editor: Editor, roomId: string, userId: string, files: File[]) {
   toast(`${files.length}枚をメディアに追加しています…`);
-  const { ids } = await uploadFiles(roomId, userId, files);
+  const { ids, toMine } = await uploadToRoom(roomId, userId, files);
   if (!ids.length) return;
   const at = editor.getTextCursorPosition().block;
   editor.insertBlocks(
@@ -414,7 +414,7 @@ export async function insertUploaded(editor: Editor, roomId: string, userId: str
     at,
     "after",
   );
-  toast(`${ids.length}枚をメディアに追加して貼りました`);
+  toast(`${ids.length}枚を${toMine ? "マイメディア" : "メディア"}に追加して貼りました`);
 }
 
 /** ドロップされた画像をメディア経由で貼る（ドロップ先の要素の onDropCapture に渡す） */

@@ -1,27 +1,58 @@
 "use client";
 
+import Dexie from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
 import { forgetBlobUrls, refreshBlobUrls } from "@/lib/media/blob-url";
 import { isDefaultEdit, renderEdit, type ImageEdit } from "@/lib/media/edit";
 import { makeThumb, readImage } from "@/lib/media/image";
 import { childrenOf, descendants, withAncestors } from "@/lib/media/logic";
+import { uploadBoxForRoom } from "./boxes";
 import { db, newId, type Library, type Media, type MediaBlob } from "./db";
 
 export type Undo = () => Promise<void>;
 
-export function useMedia(roomId: string) {
-  return useLiveQuery(() => db.media.where("roomId").equals(roomId).sortBy("createdAt"), [roomId]);
+export function useMedia(boxId: string) {
+  return useLiveQuery(() => db.media.where("boxId").equals(boxId).sortBy("createdAt"), [boxId]);
 }
 
-export function useLibraries(roomId: string) {
-  return useLiveQuery(() => db.libraries.where("roomId").equals(roomId).toArray(), [roomId]);
+/** ボックスごとの画像の数と、表紙に使う新しい画像3枚（ゴミ箱の画像は除く） */
+export function useBoxSummaries(boxIds: string[]) {
+  const key = boxIds.join(",");
+  return useLiveQuery(async () => {
+    const out = new Map<string, { count: number; covers: Media[] }>();
+    for (const id of boxIds) out.set(id, { count: 0, covers: [] });
+    const rows = (await db.media.where("boxId").anyOf(boxIds).toArray()).filter((m) => !m.trashed);
+    rows.sort((a, b) => b.createdAt - a.createdAt);
+    for (const m of rows) {
+      const s = out.get(m.boxId)!;
+      s.count++;
+      if (s.covers.length < 3) s.covers.push(m);
+    }
+    return out;
+  }, [key]); // boxIds は中身（key）で比べる
 }
 
-// ---- 元に戻す：操作の前にルームのライブラリーと画像の所属を丸ごと控えておく ----
+/**
+ * ID で画像を引く（どのボックスに入っていても）。チャットやノートに貼った画像は、見られる人なら必ず見られるようにするため、
+ * ボックスからではなく ID で引く。消された画像は入らない
+ */
+export function useMediaByIds(ids: string[]) {
+  const key = ids.join(",");
+  return useLiveQuery(async () => {
+    const rows = await db.media.bulkGet([...new Set(ids)]);
+    return new Map(rows.flatMap((m) => (m ? [[m.id, m] as const] : [])));
+  }, [key]); // ids は中身（key）で比べる
+}
 
-async function snapshot(roomId: string): Promise<Undo> {
-  const libs = await db.libraries.where("roomId").equals(roomId).toArray();
-  const media = (await db.media.where("roomId").equals(roomId).toArray()).map((m) => ({
+export function useLibraries(boxId: string) {
+  return useLiveQuery(() => db.libraries.where("boxId").equals(boxId).toArray(), [boxId]);
+}
+
+// ---- 元に戻す：操作の前にボックスのライブラリーと画像の所属を丸ごと控えておく ----
+
+async function snapshot(boxId: string): Promise<Undo> {
+  const libs = await db.libraries.where("boxId").equals(boxId).toArray();
+  const media = (await db.media.where("boxId").equals(boxId).toArray()).map((m) => ({
     id: m.id,
     libIds: [...m.libIds],
     trashed: m.trashed,
@@ -29,20 +60,20 @@ async function snapshot(roomId: string): Promise<Undo> {
   }));
   return async () => {
     await db.transaction("rw", db.libraries, db.media, async () => {
-      await db.libraries.where("roomId").equals(roomId).delete();
+      await db.libraries.where("boxId").equals(boxId).delete();
       await db.libraries.bulkAdd(libs);
       for (const m of media) await db.media.update(m.id, { libIds: m.libIds, trashed: m.trashed, fav: m.fav });
     });
   };
 }
 
-async function roomLibs(roomId: string) {
-  return db.libraries.where("roomId").equals(roomId).toArray();
+async function boxLibs(boxId: string) {
+  return db.libraries.where("boxId").equals(boxId).toArray();
 }
 
 // ---- 画像 ----
 
-export async function uploadFiles(roomId: string, userId: string, files: File[]) {
+export async function uploadFiles(boxId: string, userId: string, files: File[]) {
   const ids: string[] = [];
   let failed = 0;
   for (const file of files) {
@@ -57,7 +88,7 @@ export async function uploadFiles(roomId: string, userId: string, files: File[])
         await db.mediaBlobs.add({ id, original: file, thumb: info.thumb });
         await db.media.add({
           id,
-          roomId,
+          boxId,
           uploadedBy: userId,
           name: file.name.replace(/\.\w+$/, ""),
           fileName: file.name,
@@ -80,6 +111,60 @@ export async function uploadFiles(roomId: string, userId: string, files: File[])
   return { ids, failed };
 }
 
+/**
+ * ルームで画像を入れる（ルームに紐づいたボックスへ。紐づいていない・見るだけ・DM なら、自分のマイメディアへ）。
+ * toMine：マイメディアに入れたか（知らせの文に使う）
+ */
+export async function uploadToRoom(roomId: string, userId: string, files: File[]) {
+  const target = await uploadBoxForRoom(roomId, userId);
+  return { ...(await uploadFiles(target.boxId, userId, files)), toMine: target.mine };
+}
+
+/** ボックスに画像を入れた人と、その枚数（ゴミ箱の画像は除く。多い順） */
+export function useBoxContributors(boxId: string | undefined) {
+  return useLiveQuery(async () => {
+    if (!boxId) return [];
+    const counts = new Map<string, number>();
+    await db.media
+      .where("boxId")
+      .equals(boxId)
+      .each((m) => {
+        if (!m.trashed) counts.set(m.uploadedBy, (counts.get(m.uploadedBy) ?? 0) + 1);
+      });
+    const people = await db.profiles.bulkGet([...counts.keys()]);
+    return [...counts.entries()]
+      .map(([userId, count], i) => ({ userId, name: people[i]?.displayName ?? "削除された人", count }))
+      .sort((a, b) => b.count - a.count);
+  }, [boxId]);
+}
+
+export type SentImage = { media: Media; by: string; at: number };
+
+/**
+ * そのチャットで送られた画像（新しい順）。チャットの上のフォルダから見る。
+ * 発言から集めるので、発言やチャットを消すと、その画像も一覧から消える（画像そのものは、入っているボックスに残る）
+ */
+export function useChatSentMedia(chatId: string) {
+  return useLiveQuery(async (): Promise<SentImage[]> => {
+    const messages = (await db.messages.where("[chatId+createdAt]").between([chatId, Dexie.minKey], [chatId, Dexie.maxKey]).toArray())
+      .filter((m) => m.mediaIds.length)
+      .reverse();
+    const people = new Map((await db.profiles.toArray()).map((p) => [p.id, p.displayName]));
+    const media = new Map((await db.media.bulkGet([...new Set(messages.flatMap((m) => m.mediaIds))])).flatMap((m) => (m ? [[m.id, m] as const] : [])));
+    const out: SentImage[] = [];
+    const seen = new Set<string>();
+    for (const msg of messages) {
+      for (const id of msg.mediaIds) {
+        const m = media.get(id);
+        if (!m || seen.has(id)) continue;
+        seen.add(id);
+        out.push({ media: m, by: msg.speaker ?? people.get(msg.authorId) ?? "退出した人", at: msg.createdAt });
+      }
+    }
+    return out;
+  }, [chatId]);
+}
+
 export async function renameMedia(id: string, name: string) {
   await db.media.update(id, { name });
 }
@@ -88,8 +173,8 @@ export async function setFav(ids: string[], fav: boolean) {
   await db.media.where("id").anyOf(ids).modify({ fav });
 }
 
-export async function moveToTrash(roomId: string, ids: string[]): Promise<Undo> {
-  const undo = await snapshot(roomId);
+export async function moveToTrash(boxId: string, ids: string[]): Promise<Undo> {
+  const undo = await snapshot(boxId);
   await db.media.where("id").anyOf(ids).modify({ trashed: true });
   return undo;
 }
@@ -200,8 +285,8 @@ export async function saveEdit(id: string, edit: ImageEdit): Promise<Undo> {
  */
 async function copyCreatedAt(m: Media) {
   const near = await db.media
-    .where("roomId")
-    .equals(m.roomId)
+    .where("boxId")
+    .equals(m.boxId)
     .filter((x) => x.createdAt > m.createdAt && x.createdAt < m.createdAt + 0.5)
     .toArray();
   return Math.max(m.createdAt, ...near.map((x) => x.createdAt)) + 0.001;
@@ -219,7 +304,7 @@ export async function saveEditAsCopy(id: string, edit: ImageEdit, userId: string
   const copyId = newId();
   const base: Media = {
     id: copyId,
-    roomId: m.roomId,
+    boxId: m.boxId,
     uploadedBy: userId,
     name: `${m.name} のコピー`,
     fileName: sourceInfo.fileName,
@@ -295,6 +380,35 @@ export async function duplicateMedia(ids: string[], userId: string): Promise<{ i
   return { ids: made, undo: () => removeCopies(made) };
 }
 
+/**
+ * 画像を、そのボックスに入っている状態にする。もう入っていればそのまま、ほかのボックスの画像はコピーを入れる
+ * （名前はそのまま・ライブラリーには入れない・入れた人は userId）。
+ * 返すのは、そのボックスに入っている画像の ID（並びは ids と同じ）と、コピーした枚数
+ */
+export async function ensureInBox(ids: string[], boxId: string, userId: string) {
+  const out: string[] = [];
+  let copied = 0;
+  const now = Date.now();
+  await db.transaction("rw", db.media, db.mediaBlobs, async () => {
+    for (const [k, id] of ids.entries()) {
+      const m = await db.media.get(id);
+      const row = await db.mediaBlobs.get(id);
+      if (!m || !row) continue;
+      if (m.boxId === boxId) {
+        out.push(id);
+        continue;
+      }
+      const copyId = newId();
+      await db.mediaBlobs.add({ ...row, id: copyId });
+      // 同時に入れた画像も順番を保つ
+      await db.media.add({ ...m, id: copyId, boxId, uploadedBy: userId, createdAt: now + k, fav: false, trashed: false, rev: 0, libIds: [] });
+      out.push(copyId);
+      copied++;
+    }
+  });
+  return { ids: out, copied };
+}
+
 /** 編集をやめて、元の画像に戻す（iPhone の「オリジナルに戻す」） */
 export async function revertEdit(id: string): Promise<Undo> {
   const row = await db.mediaBlobs.get(id);
@@ -321,11 +435,11 @@ export async function revertEdit(id: string): Promise<Undo> {
 
 // ---- ライブラリー ----
 
-export async function createLibrary(roomId: string, name: string, parentId: string | null) {
-  const siblings = childrenOf(await roomLibs(roomId), parentId);
+export async function createLibrary(boxId: string, name: string, parentId: string | null) {
+  const siblings = childrenOf(await boxLibs(boxId), parentId);
   const lib: Library = {
     id: newId(),
-    roomId,
+    boxId,
     name,
     parentId,
     repMediaId: null,
@@ -345,14 +459,14 @@ export async function setRepresentative(libId: string, mediaId: string) {
 }
 
 /** ライブラリーと子ライブラリーを削除。画像は消さない */
-export async function deleteLibrary(roomId: string, id: string): Promise<Undo> {
-  const undo = await snapshot(roomId);
-  const ids = descendants(await roomLibs(roomId), id);
+export async function deleteLibrary(boxId: string, id: string): Promise<Undo> {
+  const undo = await snapshot(boxId);
+  const ids = descendants(await boxLibs(boxId), id);
   await db.transaction("rw", db.libraries, db.media, async () => {
     await db.libraries.bulkDelete(ids);
     await db.media
-      .where("roomId")
-      .equals(roomId)
+      .where("boxId")
+      .equals(boxId)
       .modify((m) => {
         m.libIds = m.libIds.filter((x) => !ids.includes(x));
       });
@@ -364,9 +478,9 @@ export async function deleteLibrary(roomId: string, id: string): Promise<Undo> {
  * 「整理」：選んだ画像を、選んだライブラリーに入れる。
  * もともと入っていて選択を外したライブラリーからは、その子ライブラリーごと外す。
  */
-export async function organize(roomId: string, mediaIds: string[], selected: string[], before: string[]): Promise<Undo> {
-  const undo = await snapshot(roomId);
-  const libs = await roomLibs(roomId);
+export async function organize(boxId: string, mediaIds: string[], selected: string[], before: string[]): Promise<Undo> {
+  const undo = await snapshot(boxId);
+  const libs = await boxLibs(boxId);
   const removed = [...new Set(before.filter((x) => !selected.includes(x)).flatMap((x) => descendants(libs, x)))].filter(
     (x) => !selected.includes(x),
   );
@@ -381,13 +495,13 @@ export async function organize(roomId: string, mediaIds: string[], selected: str
 }
 
 /** ライブラリーの「画像を追加」：選択した画像だけがこのライブラリーに入っている状態にする */
-export async function setLibraryMembers(roomId: string, libId: string, selected: string[]): Promise<Undo> {
-  const undo = await snapshot(roomId);
-  const libs = await roomLibs(roomId);
+export async function setLibraryMembers(boxId: string, libId: string, selected: string[]): Promise<Undo> {
+  const undo = await snapshot(boxId);
+  const libs = await boxLibs(boxId);
   const below = descendants(libs, libId);
   await db.media
-    .where("roomId")
-    .equals(roomId)
+    .where("boxId")
+    .equals(boxId)
     .modify((m) => {
       if (m.trashed) return;
       const has = m.libIds.includes(libId);
@@ -399,9 +513,9 @@ export async function setLibraryMembers(roomId: string, libId: string, selected:
 }
 
 /** ライブラリーから画像を出す（子ライブラリーからも外れる） */
-export async function removeFromLibrary(roomId: string, libId: string, mediaIds: string[]): Promise<Undo> {
-  const undo = await snapshot(roomId);
-  const below = descendants(await roomLibs(roomId), libId);
+export async function removeFromLibrary(boxId: string, libId: string, mediaIds: string[]): Promise<Undo> {
+  const undo = await snapshot(boxId);
+  const below = descendants(await boxLibs(boxId), libId);
   await db.media
     .where("id")
     .anyOf(mediaIds)
@@ -412,9 +526,9 @@ export async function removeFromLibrary(roomId: string, libId: string, mediaIds:
 }
 
 /** 選んだ画像で新しいライブラリーを作る */
-export async function groupIntoLibrary(roomId: string, mediaIds: string[], name: string, parentId: string | null) {
-  const lib = await createLibrary(roomId, name, parentId);
-  const libs = await roomLibs(roomId);
+export async function groupIntoLibrary(boxId: string, mediaIds: string[], name: string, parentId: string | null) {
+  const lib = await createLibrary(boxId, name, parentId);
+  const libs = await boxLibs(boxId);
   await db.media
     .where("id")
     .anyOf(mediaIds)
@@ -429,15 +543,15 @@ export async function groupIntoLibrary(roomId: string, mediaIds: string[], name:
  * removeFromOldParent のとき、中の画像を元の親たちからも外す。
  */
 export async function moveLibrary(
-  roomId: string,
+  boxId: string,
   id: string,
   newParentId: string | null,
   removeFromOldParent: boolean,
   /** 並べる位置（あるライブラリーの前か後ろ）。無ければ最後 */
   place?: { targetId: string; after: boolean },
 ): Promise<Undo> {
-  const undo = await snapshot(roomId);
-  const libs = await roomLibs(roomId);
+  const undo = await snapshot(boxId);
+  const libs = await boxLibs(boxId);
   const lib = libs.find((l) => l.id === id);
   if (!lib || (newParentId && descendants(libs, id).includes(newParentId))) return undo;
   const sub = descendants(libs, id);
@@ -445,10 +559,10 @@ export async function moveLibrary(
   const siblings = childrenOf(libs, newParentId);
   await db.transaction("rw", db.libraries, db.media, async () => {
     await db.libraries.update(id, { parentId: newParentId, order: (siblings.at(-1)?.order ?? 0) + 1 });
-    const updated = await roomLibs(roomId);
+    const updated = await boxLibs(boxId);
     await db.media
-      .where("roomId")
-      .equals(roomId)
+      .where("boxId")
+      .equals(boxId)
       .modify((m) => {
         if (!m.libIds.some((x) => sub.includes(x))) return;
         let ids = m.libIds;
@@ -477,8 +591,8 @@ function chainIds(libs: Library[], id: string): string[] {
 }
 
 /** 同じ親の中で並び順を入れ替える */
-export async function reorderLibrary(roomId: string, id: string, direction: -1 | 1) {
-  const libs = await roomLibs(roomId);
+export async function reorderLibrary(boxId: string, id: string, direction: -1 | 1) {
+  const libs = await boxLibs(boxId);
   const lib = libs.find((l) => l.id === id);
   if (!lib) return;
   const siblings = childrenOf(libs, lib.parentId);
@@ -494,14 +608,14 @@ export async function reorderLibrary(roomId: string, id: string, direction: -1 |
 }
 
 /** ライブラリーを別のライブラリーにまとめる（中の画像と子ライブラリーを移して、元は削除） */
-export async function mergeLibrary(roomId: string, id: string, intoId: string): Promise<Undo> {
-  const undo = await snapshot(roomId);
-  const libs = await roomLibs(roomId);
+export async function mergeLibrary(boxId: string, id: string, intoId: string): Promise<Undo> {
+  const undo = await snapshot(boxId);
+  const libs = await boxLibs(boxId);
   if (descendants(libs, id).includes(intoId)) return undo;
   await db.transaction("rw", db.libraries, db.media, async () => {
     await db.libraries.where("parentId").equals(id).modify({ parentId: intoId });
     await db.libraries.delete(id);
-    const updated = await roomLibs(roomId);
+    const updated = await boxLibs(boxId);
     await db.media
       .where("libIds")
       .equals(id)

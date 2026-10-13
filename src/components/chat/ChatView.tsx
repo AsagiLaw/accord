@@ -8,7 +8,8 @@ import { ThumbImage } from "@/components/ThumbImage";
 import { choose, confirmAction, promptText, toast } from "@/components/ui/overlay";
 import { addSpeaker, changeSpeaker, deleteMessage, editMessage, markRead, sendMessage, useMessages } from "@/lib/local/chat";
 import type { Chat, Media, Message, Profile } from "@/lib/local/db";
-import { uploadFiles, useMedia } from "@/lib/local/media";
+import { ensureMyMedia } from "@/lib/local/boxes";
+import { ensureInBox, uploadToRoom, useMediaByIds } from "@/lib/local/media";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 
@@ -33,8 +34,8 @@ export function ChatView({
   readOnlyNotice?: string;
 }) {
   const messages = useMessages(chat.id);
-  const media = useMedia(chat.roomId);
-  const byId = useMemo(() => new Map((media ?? []).map((m) => [m.id, m])), [media]);
+  // 添付した画像は、どのボックスに入っていても ID で引く（チャットを見られる人なら必ず見られる）
+  const byId = useMediaByIds(useMemo(() => (messages ?? []).flatMap((m) => m.mediaIds), [messages]));
   const nameOf = (id: string) => members.find((m) => m.userId === id)?.displayName ?? "退出した人";
   // やり取り再現チャット：話者を選んで、依頼者とのやり取りを写して記録する
   const reenact = chat.kind === "reenact";
@@ -61,7 +62,7 @@ export function ChatView({
     return () => document.removeEventListener("visibilitychange", read);
   }, [chat.id, me.id, last]);
 
-  if (!messages || !media) return <p className="text-muted">読み込み中…</p>;
+  if (!messages || !byId) return <p className="text-muted">読み込み中…</p>;
 
   const open = (ids: string[], i: number) => {
     const items = ids.map((id) => byId.get(id)).filter((m): m is Media => !!m);
@@ -331,7 +332,14 @@ function Composer({
 
   const send = async () => {
     if (!canSend) return;
-    await sendMessage(chat, me.id, { text: text.trim(), mediaIds: attached, replyTo: replyTo?.id ?? null, speaker: speakers ? speaker || speakers[0] : null });
+    let mediaIds = attached;
+    // DM で送る画像は、送った人のマイメディアに入れる（ほかのボックスから選んだ画像は、マイメディアにコピーして送る）
+    if (chat.dm && attached.length) {
+      const r = await ensureInBox(attached, await ensureMyMedia(me.id), me.id);
+      mediaIds = r.ids;
+      if (r.copied) toast(`${r.copied}枚をマイメディアにコピーして送りました`);
+    }
+    await sendMessage(chat, me.id, { text: text.trim(), mediaIds, replyTo: replyTo?.id ?? null, speaker: speakers ? speaker || speakers[0] : null });
     setText("");
     setAttached([]);
     onClearReply();
@@ -342,10 +350,11 @@ function Composer({
     const images = files.filter((f) => f.type.startsWith("image/"));
     if (!images.length) return;
     setUploading(true);
-    const { ids } = await uploadFiles(chat.roomId, me.id, images);
+    const { ids, toMine } = await uploadToRoom(chat.roomId, me.id, images);
     setUploading(false);
     setAttached((a) => [...a, ...ids]);
-    toast(`${ids.length}枚をメディアに追加して添付しました`);
+    // DM や、ボックスが紐づいていない・見るだけのルームでは、送った人のマイメディアに入る
+    toast(`${ids.length}枚を${toMine ? "マイメディア" : "メディア"}に追加して添付しました`);
   };
 
   return (

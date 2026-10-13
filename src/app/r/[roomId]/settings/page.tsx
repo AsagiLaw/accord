@@ -8,6 +8,7 @@ import { deleteChannelTemplate, renameChannelTemplate, useChannelTemplates } fro
 import { useState } from "react";
 import { addMember, deleteRoom, renameProfile, renameRoom, useAllProfiles, useMembers, useRoom } from "@/lib/local/rooms";
 import { useCurrentUser } from "@/lib/local/session";
+import { RoomMediaSettings } from "@/components/media/RoomMediaSettings";
 import { setNameHints, useNameHints } from "@/lib/name-hints";
 import { setTheme, useTheme } from "@/lib/theme";
 
@@ -115,6 +116,8 @@ export default function SettingsPage() {
         <InlineEdit key={me.id} value={me.displayName} label="表示名" onSave={(v) => renameProfile(me.id, v)} />
       </section>
 
+      <RoomMediaSettings roomId={roomId} room={room} me={me} />
+
       <section className="card">
         <h2 className="mb-3 font-bold">メンバー</h2>
         <ul className="divide-y divide-line">
@@ -171,7 +174,7 @@ export default function SettingsPage() {
         <section data-name="ルームの削除" className="card space-y-3 border-warn/50">
           <div>
             <h2 className="mb-1 font-bold text-warn">ルームを削除</h2>
-            <p className="text-sm text-muted">チャンネル・ページ・メディア・メッセージなど、このルームの中身がすべて消えます。元に戻せません。</p>
+            <p className="text-sm text-muted">チャンネル・ページ・メッセージなど、このルームの中身がすべて消えます。元に戻せません。メディアのボックスと画像は消えず、紐づけだけが外れます（メンバーが入れた画像は、それぞれのマイメディアに移ります）。</p>
           </div>
           <button
             className="btn-sub border-warn text-warn hover:bg-warn hover:text-white"

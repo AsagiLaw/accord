@@ -11,7 +11,7 @@ import { MenuDivider, MenuItem, MenuLabel, Popover, usePopover } from "@/compone
 import { confirmAction } from "@/components/ui/overlay";
 import { deleteImageUser, deleteMessage, editMessage, changeSpeaker, saveImageUser, sendMessage, useImageUsers, useMessages } from "@/lib/local/chat";
 import type { Chat, ImageUser, Media, Message, Profile } from "@/lib/local/db";
-import { useMedia } from "@/lib/local/media";
+import { useMediaByIds } from "@/lib/local/media";
 
 /** イメージユーザーのアイコン（絵文字かメディアの画像。無ければ名前の1文字目） */
 export function ImageUserIcon({ user, size = 32 }: { user: ImageUser | undefined; size?: number }) {
@@ -35,8 +35,9 @@ export function ImageChatView({ chat, me, readOnlyNotice, fixedUsers = [] }: { c
   const roomUsers = useImageUsers(chat.roomId);
   const users = [...fixedUsers, ...(roomUsers ?? [])];
   const messages = useMessages(chat.id);
-  const media = useMedia(chat.roomId);
-  const byId = useMemo(() => new Map((media ?? []).map((m) => [m.id, m])), [media]);
+  // 添付した画像は、どのボックスに入っていても ID で引く
+  const media = useMediaByIds(useMemo(() => (messages ?? []).flatMap((m) => m.mediaIds), [messages]));
+  const byId = useMemo(() => media ?? new Map<string, Media>(), [media]);
   const [speakerState, setSpeakerState] = useState<string | null>(() => {
     try {
       return localStorage.getItem(SPEAKER_KEY(chat.id));

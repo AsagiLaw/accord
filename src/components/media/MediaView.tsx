@@ -63,7 +63,7 @@ const TITLES = {
 
 export function MediaView({ view }: { view: MediaViewKind }) {
   const s = useMediaState();
-  const { media, libs, selected, setSelected, roomId, me } = s;
+  const { media, libs, selected, setSelected, boxId, me, canEdit } = s;
   const prefs = useMediaPrefs();
   // カードの左の四角は、画像一覧の画像と同じ大きさ
   // 画像とカードの左の四角の大きさ：選んだ大きさを、画面の幅に合わせて少し広げたもの
@@ -71,7 +71,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
   const cardSize = useTileSize(contentEl, THUMB_SIZES[prefs.level - 1]);
   const router = useRouter();
   const pathname = usePathname();
-  const base = `/r/${roomId}/media`;
+  const { base } = s;
   const [selectMode, setSelectMode] = useState(false);
   const [dragging, setDragging] = useState(false);
   // プレビュー欄を開いているか（最初は、広い画面なら開いておく）と、その幅。一覧はその分だけ右を空ける
@@ -162,11 +162,12 @@ export function MediaView({ view }: { view: MediaViewKind }) {
       if (e.key === "Escape" && selected.length) setSelected([]);
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
+        canEdit &&
         selected.length &&
         view.kind !== "trash"
       ) {
         e.preventDefault();
-        trashFlow(roomId, selected);
+        trashFlow(boxId, selected);
         setSelected([]);
       }
       // Ctrl+C：選んだ画像をコピー（Discord などに Ctrl+V で貼れる）
@@ -182,7 +183,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selected, setSelected, view.kind, roomId, list, s.byId]);
+  }, [selected, setSelected, view.kind, boxId, list, s.byId, canEdit]);
 
   // 右クリック：大きく表示している画像・一覧の画像・ライブラリーの何もない所で、それぞれのメニューを出す
   const openCtx = ctx.openAt;
@@ -249,6 +250,24 @@ export function MediaView({ view }: { view: MediaViewKind }) {
         )}
       </>
     );
+    // 見るだけのボックス：中身を変えない操作（コピー・ダウンロード）だけ
+    if (!canEdit) {
+      const items = ctxKind === "viewing" && viewingMedia ? [viewingMedia] : ctxKind === "media" ? selected.flatMap((id) => s.byId.get(id) ?? []) : [];
+      if (!items.length) return null;
+      return (
+        <>
+          <MenuLabel>見るだけのボックス</MenuLabel>
+          {items.length === 1 && (
+            <MenuItem icon={<Icon name="copy" size={16} />} onClick={run(() => copyImageFlow(items))}>
+              画像をコピー
+            </MenuItem>
+          )}
+          <MenuItem icon={<Icon name="download" size={16} />} onClick={run(() => downloadFlow(items))}>
+            {items.length === 1 ? "ダウンロード" : `${items.length}枚を ZIP でダウンロード`}
+          </MenuItem>
+        </>
+      );
+    }
     if (ctxKind === "viewing" && viewingMedia) {
       return (
         <>
@@ -301,7 +320,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
                   const v = s.viewing!;
                   const rest = v.list.filter((x) => x !== viewingMedia.id);
                   const at = v.list.indexOf(viewingMedia.id);
-                  trashFlow(roomId, [viewingMedia.id]);
+                  trashFlow(boxId, [viewingMedia.id]);
                   s.setViewing(rest[at] ?? rest[at - 1] ?? null, rest);
                 })}
               >
@@ -398,7 +417,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
           <MenuItem
             icon={<Icon name="out" size={16} />}
             onClick={run(() =>
-              removeFromLibraryFlow(roomId, lib, selected).then(done),
+              removeFromLibraryFlow(boxId, lib, selected).then(done),
             )}
           >
             このライブラリーから出す
@@ -408,7 +427,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
         <MenuItem
           danger
           icon={<Icon name="del" size={16} />}
-          onClick={run(() => trashFlow(roomId, selected).then(done))}
+          onClick={run(() => trashFlow(boxId, selected).then(done))}
         >
           ゴミ箱へ
         </MenuItem>
@@ -423,7 +442,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
   // 上のバーの場所：今開いているものより前（リンク）と、今開いているもの
   const crumbItems: Crumb[] = [];
   if (view.kind !== "home" || viewingMedia)
-    crumbItems.push({ key: "media", label: "メディア", href: base });
+    crumbItems.push({ key: "media", label: s.title, href: base });
   if (view.kind !== "home" && view.kind !== "lib" && viewingMedia)
     crumbItems.push({ key: "view", label: TITLES[view.kind], href: pathname });
   crumbs.forEach((c, i) => {
@@ -438,8 +457,11 @@ export function MediaView({ view }: { view: MediaViewKind }) {
   const currentLabel =
     viewingMedia?.name ??
     curLib?.name ??
-    (view.kind === "lib" ? "" : TITLES[view.kind]);
-  const currentCrumb = viewingMedia ? (
+    (view.kind === "lib" ? "" : view.kind === "home" ? s.title : TITLES[view.kind]);
+  const currentCrumb = !canEdit ? (
+    // 見るだけのボックスでは、名前を書き換えられない
+    <b className="truncate px-1">{currentLabel}</b>
+  ) : viewingMedia ? (
     <InlineName
       key={`${viewingMedia.id}${s.renaming === viewingMedia.id ? ":edit" : ""}`}
       name={viewingMedia.name}
@@ -464,8 +486,8 @@ export function MediaView({ view }: { view: MediaViewKind }) {
       className="relative"
       style={{ marginRight: reserve }}
       onDragOver={(e) => {
-        // アプリの中の画像をドラッグしているときは、ファイルの追加として扱わない
-        if (e.dataTransfer.types.includes(MEDIA_DRAG_TYPE)) return;
+        // アプリの中の画像をドラッグしているときは、ファイルの追加として扱わない。見るだけのボックスには入れられない
+        if (e.dataTransfer.types.includes(MEDIA_DRAG_TYPE) || !canEdit) return;
         if (e.dataTransfer.types.includes("Files")) {
           e.preventDefault();
           setDragging(true);
@@ -475,12 +497,13 @@ export function MediaView({ view }: { view: MediaViewKind }) {
       onDrop={(e) => {
         if (
           !e.dataTransfer.files.length ||
-          e.dataTransfer.types.includes(MEDIA_DRAG_TYPE)
+          e.dataTransfer.types.includes(MEDIA_DRAG_TYPE) ||
+          !canEdit
         )
           return;
         e.preventDefault();
         setDragging(false);
-        uploadFlow(roomId, me.id, [...e.dataTransfer.files], () =>
+        uploadFlow(boxId, me.id, [...e.dataTransfer.files], () =>
           router.push(`${base}/unsorted`),
         );
       }}
@@ -634,11 +657,10 @@ function MediaHome({
   selectMode: boolean;
   size: number;
 }) {
-  const { media, libs, roomId } = useMediaState();
+  const { media, libs, base, canEdit } = useMediaState();
   const prefs = useMediaPrefs();
   // カードの左の四角は、画像一覧の画像と同じ大きさ
   const cardSize = size;
-  const base = `/r/${roomId}/media`;
   const alive = media.filter((m) => !m.trashed);
   const unsorted = arrange(media.filter(isUnsorted), prefs);
   const fav = alive.filter((m) => m.fav);
@@ -650,7 +672,7 @@ function MediaHome({
       <div className="card text-center">
         <p className="mb-1 font-bold">まだ画像がありません</p>
         <p className="text-sm text-muted">
-          サイドバーの「メディアを追加」を押すか、この画面に画像をドラッグしてください。
+          {canEdit ? "サイドバーの「メディアを追加」を押すか、この画面に画像をドラッグしてください。" : "このボックスは見るだけです。"}
         </p>
       </div>
     );
@@ -733,7 +755,7 @@ function MediaHome({
           )
         ) : (
           <p className="text-sm text-muted">
-            ライブラリーはまだありません。サイドバーの「ライブラリー」の＋から作れます。
+            {canEdit ? "ライブラリーはまだありません。サイドバーの「ライブラリー」の＋から作れます。" : "ライブラリーはありません。"}
           </p>
         )}
       </section>
@@ -750,7 +772,7 @@ const HOME_OPEN_KEY = "irai-note:media-home-open-path";
  * 1つの段で開けるのは1つ（開いた道筋が、上から下への階層になる）
  */
 function LibraryRows({ size }: { size: number }) {
-  const { media, libs, roomId } = useMediaState();
+  const { media, libs, base } = useMediaState();
   const [saved, setSaved] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem(HOME_OPEN_KEY) ?? "[]");
@@ -787,7 +809,7 @@ function LibraryRows({ size }: { size: number }) {
       <div key={l.id} className="shrink-0">
         <CoverCard
           size={size}
-          href={`/r/${roomId}/media/lib/${l.id}`}
+          href={`${base}/lib/${l.id}`}
           openOnDoubleClick
           name={l.name}
           covers={coverOf(media, l)}
@@ -913,7 +935,7 @@ const LIST_OPEN_KEY = "irai-note:media-list-open";
  * 子ライブラリーは左の ▸ で開き、一段右にずらして下に並べる（サイドバーと同じ形）
  */
 function LibraryList({ parentId }: { parentId: string | null }) {
-  const { media, libs, roomId } = useMediaState();
+  const { media, libs, base } = useMediaState();
   const router = useRouter();
   const [openIds, setOpenIds] = useState<string[]>(() => {
     try {
@@ -965,11 +987,11 @@ function LibraryList({ parentId }: { parentId: string | null }) {
               tabIndex={0}
               title="ダブルクリックで開く"
               onDoubleClick={() =>
-                router.push(`/r/${roomId}/media/lib/${l.id}`)
+                router.push(`${base}/lib/${l.id}`)
               }
               onKeyDown={(e) =>
                 e.key === "Enter" &&
-                router.push(`/r/${roomId}/media/lib/${l.id}`)
+                router.push(`${base}/lib/${l.id}`)
               }
               className="flex h-full min-w-0 flex-1 cursor-default items-center gap-2 outline-none select-none"
             >

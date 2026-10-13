@@ -29,10 +29,10 @@ import { chain, descendants } from "@/lib/media/logic";
 
 const undoable = (message: string, undo: Undo) => toast(message, { label: "元に戻す", run: () => void undo() });
 
-export async function uploadFlow(roomId: string, userId: string, files: File[], openUnsorted: () => void) {
+export async function uploadFlow(boxId: string, userId: string, files: File[], openUnsorted: () => void) {
   if (!files.length) return;
   toast(`${files.length}枚を読み込み中…`);
-  const { ids, failed } = await uploadFiles(roomId, userId, files);
+  const { ids, failed } = await uploadFiles(boxId, userId, files);
   if (ids.length) toast(`${ids.length}枚を追加しました${failed ? `（${failed}枚は画像でないため追加できません）` : ""}`, { label: "整理する", run: openUnsorted });
   else toast("画像を追加できませんでした");
 }
@@ -161,8 +161,8 @@ export async function revertEditFlow(m: Media) {
   return true;
 }
 
-export async function trashFlow(roomId: string, ids: string[]) {
-  undoable(`${ids.length}枚をゴミ箱へ移動しました`, await moveToTrash(roomId, ids));
+export async function trashFlow(boxId: string, ids: string[]) {
+  undoable(`${ids.length}枚をゴミ箱へ移動しました`, await moveToTrash(boxId, ids));
 }
 
 export async function restoreFlow(ids: string[]) {
@@ -187,11 +187,11 @@ export async function deleteForeverFlow(ids: string[], media: Media[], userId: s
   toast(`${r.deleted}枚を完全に削除しました`);
 }
 
-export async function removeFromLibraryFlow(roomId: string, lib: Library, ids: string[]) {
-  undoable(`${ids.length}枚を「${lib.name}」から出しました`, await removeFromLibrary(roomId, lib.id, ids));
+export async function removeFromLibraryFlow(boxId: string, lib: Library, ids: string[]) {
+  undoable(`${ids.length}枚を「${lib.name}」から出しました`, await removeFromLibrary(boxId, lib.id, ids));
 }
 
-export async function groupFlow(roomId: string, ids: string[], current: Library | undefined) {
+export async function groupFlow(boxId: string, ids: string[], current: Library | undefined) {
   const name = await promptText(`選んだ${ids.length}枚で新しいライブラリーを作る`, "", "例：〇〇のイラスト");
   if (!name) return;
   let parentId: string | null = null;
@@ -200,14 +200,14 @@ export async function groupFlow(roomId: string, ids: string[], current: Library 
     if (i === null) return;
     parentId = i === 0 ? current.id : null;
   }
-  await groupIntoLibrary(roomId, ids, name, parentId);
+  await groupIntoLibrary(boxId, ids, name, parentId);
   toast(`${ids.length}枚で「${name}」を作りました`);
 }
 
-export async function newLibraryFlow(roomId: string, parentId: string | null, parentName?: string) {
+export async function newLibraryFlow(boxId: string, parentId: string | null, parentName?: string) {
   const name = await promptText(parentName ? `「${parentName}」に子ライブラリーを追加` : "ライブラリーを追加", "", "ライブラリー名");
   if (!name) return null;
-  return createLibrary(roomId, name, parentId);
+  return createLibrary(boxId, name, parentId);
 }
 
 export async function renameLibraryFlow(lib: Library) {
@@ -217,7 +217,7 @@ export async function renameLibraryFlow(lib: Library) {
 
 /** 画像を元の親から外すかを確かめてから、ライブラリーの場所を変える */
 async function moveWithAsk(
-  roomId: string,
+  boxId: string,
   lib: Library,
   libs: Library[],
   media: Media[],
@@ -245,7 +245,7 @@ async function moveWithAsk(
     if (i === null) return;
     removeFromOld = i === 0;
   }
-  undoable(done, await moveLibrary(roomId, lib.id, newParentId, removeFromOld, place));
+  undoable(done, await moveLibrary(boxId, lib.id, newParentId, removeFromOld, place));
 }
 
 /**
@@ -255,7 +255,7 @@ async function moveWithAsk(
  * root：一番上の階層に出す
  */
 export async function dropLibraryFlow(
-  roomId: string,
+  boxId: string,
   libs: Library[],
   media: Media[],
   id: string,
@@ -263,18 +263,18 @@ export async function dropLibraryFlow(
 ) {
   const lib = libs.find((l) => l.id === id);
   if (!lib) return;
-  if (drop.zone === "root") return moveWithAsk(roomId, lib, libs, media, null, `「${lib.name}」を一番上に移しました`);
+  if (drop.zone === "root") return moveWithAsk(boxId, lib, libs, media, null, `「${lib.name}」を一番上に移しました`);
   const target = libs.find((l) => l.id === drop.targetId);
   if (!target || descendants(libs, id).includes(target.id)) return;
   if (drop.zone !== "inside") {
-    return moveWithAsk(roomId, lib, libs, media, target.parentId, `「${lib.name}」を移動しました`, { targetId: target.id, after: drop.zone === "after" });
+    return moveWithAsk(boxId, lib, libs, media, target.parentId, `「${lib.name}」を移動しました`, { targetId: target.id, after: drop.zone === "after" });
   }
   const i = await choose(`「${lib.name}」を「${target.name}」へ`, [
     { label: "子ライブラリーにする", detail: `「${lib.name}」の画像は「${target.name}」にも入ります` },
     { label: "合体する", detail: `「${lib.name}」の画像と子ライブラリーを「${target.name}」にまとめ、「${lib.name}」は削除します` },
   ]);
-  if (i === 0) return moveWithAsk(roomId, lib, libs, media, target.id, `「${lib.name}」を「${target.name}」の子ライブラリーにしました`);
-  if (i === 1) undoable(`「${lib.name}」を「${target.name}」と合体しました`, await mergeLibrary(roomId, lib.id, target.id));
+  if (i === 0) return moveWithAsk(boxId, lib, libs, media, target.id, `「${lib.name}」を「${target.name}」の子ライブラリーにしました`);
+  if (i === 1) undoable(`「${lib.name}」を「${target.name}」と合体しました`, await mergeLibrary(boxId, lib.id, target.id));
 }
 
 /** サイドバーのライブラリーの「…」メニュー */
@@ -291,7 +291,7 @@ export const LIBRARY_MENU = [
 ] as const;
 
 /** ライブラリーのメニューで選んだもの（i は LIBRARY_MENU の番号）を行う */
-export async function libraryAction(i: number, roomId: string, lib: Library, libs: Library[], media: Media[], onDeleted: () => void) {
+export async function libraryAction(i: number, boxId: string, lib: Library, libs: Library[], media: Media[], onDeleted: () => void) {
   const path = (l: Library) =>
     chain(libs, l.id)
       .map((x) => x.name)
@@ -302,10 +302,10 @@ export async function libraryAction(i: number, roomId: string, lib: Library, lib
     case 0:
       return renameLibraryFlow(lib);
     case 1:
-      return newLibraryFlow(roomId, lib.id, lib.name);
+      return newLibraryFlow(boxId, lib.id, lib.name);
     case 2:
     case 3:
-      return reorderLibrary(roomId, lib.id, i === 2 ? -1 : 1);
+      return reorderLibrary(boxId, lib.id, i === 2 ? -1 : 1);
     case 4: {
       const targets = [...(lib.parentId ? [null] : []), ...others.filter((l) => l.id !== lib.parentId)];
       if (!targets.length) return toast("移動できる場所がありません");
@@ -315,7 +315,7 @@ export async function libraryAction(i: number, roomId: string, lib: Library, lib
       );
       if (j === null) return;
       const to = targets[j];
-      return moveWithAsk(roomId, lib, libs, media, to ? to.id : null, `「${lib.name}」を移動しました`);
+      return moveWithAsk(boxId, lib, libs, media, to ? to.id : null, `「${lib.name}」を移動しました`);
     }
     case 5: {
       if (!others.length) return toast("合体できるライブラリーがありません");
@@ -324,7 +324,7 @@ export async function libraryAction(i: number, roomId: string, lib: Library, lib
         others.map((t) => ({ label: path(t) })),
       );
       if (j === null) return;
-      return undoable(`「${lib.name}」を「${others[j].name}」と合体しました`, await mergeLibrary(roomId, lib.id, others[j].id));
+      return undoable(`「${lib.name}」を「${others[j].name}」と合体しました`, await mergeLibrary(boxId, lib.id, others[j].id));
     }
     case 6:
       return exportLibraryFlow(lib, libs, media);
@@ -332,7 +332,7 @@ export async function libraryAction(i: number, roomId: string, lib: Library, lib
       const n = descendants(libs, lib.id).length - 1;
       const ok = await confirmAction(`「${lib.name}」を削除します`, "削除", `${n ? `子ライブラリー${n}件も削除します。` : ""}画像は削除されません。`);
       if (!ok) return;
-      const undo = await deleteLibrary(roomId, lib.id);
+      const undo = await deleteLibrary(boxId, lib.id);
       onDeleted();
       return undoable(`「${lib.name}」を削除しました`, undo);
     }

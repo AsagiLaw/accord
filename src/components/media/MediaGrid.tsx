@@ -53,6 +53,8 @@ export function MediaGrid({
     setRenaming,
     members,
     viewing,
+    base,
+    canEdit,
   } = useMediaState();
   // 拡大表示中の「名前を変更」は、上のバーの名前で書き換える。
   // 後ろの一覧でも入力欄を出すと、見えない入力欄に文字が入ってしまうので出さない
@@ -316,7 +318,7 @@ export function MediaGrid({
       const n = media.filter(
         (x) => !x.trashed && x.libIds.includes(k.id),
       ).length;
-      const go = () => router.push(`/r/${k.roomId}/media/lib/${k.id}`);
+      const go = () => router.push(`${base}/lib/${k.id}`);
       const kids = childrenOf(libs, k.id);
       const expanded = openLibs.includes(k.id);
       return (
@@ -433,7 +435,7 @@ export function MediaGrid({
             }
             onClick={(e) => click(e, m.id)}
             onDoubleClick={() => open(m.id)}
-            onFav={() => setFav([m.id], !m.fav)}
+            onFav={canEdit ? () => setFav([m.id], !m.fav) : undefined}
             renaming={renaming === m.id}
             onRenamed={renamed(m.id)}
             extra={
@@ -452,7 +454,7 @@ export function MediaGrid({
                       <Icon name="folder" size={14} />
                     </span>
                   )}
-                  {lib?.parentId && (
+                  {lib?.parentId && canEdit && (
                     <button
                       title="親ライブラリーで、この子ライブラリーの代表として表示する画像にする"
                       aria-label="代表の画像にする"

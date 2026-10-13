@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { toast } from "@/components/ui/overlay";
+import { ensureMyMedia, useMyBoxes, useRoomBox } from "@/lib/local/boxes";
 import { useLibraries, useMedia, uploadFiles } from "@/lib/local/media";
 import { chain, isUnsorted } from "@/lib/media/logic";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
@@ -10,7 +11,8 @@ import { ThumbImage } from "@/components/ThumbImage";
 
 /**
  * メディアから画像を選ぶダイアログ。チャットやノートに画像を貼るときは必ずここを通る。
- * 新しい画像もここからアップロードでき、メディアの「未整理」に入る。
+ * はじめはルームに紐づいたボックス（ルームの外や、紐づいていなければマイメディア）を出し、使えるほかのボックスにも切り替えられる。
+ * 新しい画像もここからアップロードでき、開いているボックスの「未整理」に入る（見るだけのボックスなら、マイメディアに入る）。
  */
 export function MediaPicker({
   roomId,
@@ -20,6 +22,7 @@ export function MediaPicker({
   single,
   pickLabel,
 }: {
+  /** 開いているルーム（DM など、ルームの外なら空） */
   roomId: string;
   userId: string;
   onPick: (ids: string[]) => void;
@@ -29,8 +32,14 @@ export function MediaPicker({
   /** 決めるボタンの文字（無ければ「N枚を貼る」） */
   pickLabel?: string;
 }) {
-  const media = useMedia(roomId);
-  const libs = useLibraries(roomId);
+  const boxes = useMyBoxes(userId);
+  const roomBox = useRoomBox(roomId);
+  const [picked, setPicked] = useState<string | null>(null);
+  const roomBoxId = roomBox && boxes?.access.has(roomBox.box.id) ? roomBox.box.id : undefined;
+  const boxId = picked ?? roomBoxId ?? boxes?.mine?.id ?? "";
+  const canAdd = ["owner", "edit"].includes(boxes?.access.get(boxId) ?? "");
+  const media = useMedia(boxId);
+  const libs = useLibraries(boxId);
   const [filter, setFilter] = useState<string>("recent");
   const [chosen, setChosen] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -46,8 +55,13 @@ export function MediaPicker({
   const upload = async (files: File[]) => {
     if (!files.length) return;
     setBusy(true);
-    const { ids, failed } = await uploadFiles(roomId, userId, files);
+    const target = canAdd ? boxId : await ensureMyMedia(userId);
+    const { ids, failed } = await uploadFiles(target, userId, files);
     setBusy(false);
+    if (target !== boxId) {
+      setPicked(target);
+      toast("このボックスは見るだけなので、マイメディアに追加しました");
+    }
     if (failed) toast(`${failed}枚は画像でないため追加できませんでした`);
     // アップロードした画像は、そのまま選んだ状態にする
     setChosen((c) => (single ? ids.slice(0, 1) : [...c, ...ids]));
@@ -97,6 +111,24 @@ export function MediaPicker({
               }}
             />
           </label>
+          {boxes && (
+            <select
+              value={boxId}
+              onChange={(e) => {
+                setPicked(e.target.value);
+                setFilter("recent");
+              }}
+              className="field w-auto max-w-full"
+              aria-label="ボックス"
+            >
+              {[...(boxes.mine ? [boxes.mine] : []), ...boxes.own, ...boxes.shared].map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                  {b.id === roomBox?.box.id ? "（このルーム）" : ""}
+                </option>
+              ))}
+            </select>
+          )}
           <select value={filter} onChange={(e) => setFilter(e.target.value)} className="field w-auto" aria-label="表示する画像">
             <option value="recent">新しい順にすべて</option>
             <option value="unsorted">未整理</option>

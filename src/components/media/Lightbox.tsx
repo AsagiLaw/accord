@@ -31,7 +31,7 @@ export function rememberOpenedFrom(el: Element | null) {
  * カードを押すとフィルムストリップがそのライブラリーの並びに、ダブルクリックでそのライブラリーを開く。
  */
 export function Lightbox() {
-  const { viewing, setViewing, byId, media, libs, roomId, setOrganizing, setEditing } =
+  const { viewing, setViewing, byId, media, libs, base, setOrganizing, setEditing, canEdit } =
     useMediaState();
   const prefs = useMediaPrefs();
   const pathname = usePathname();
@@ -233,7 +233,7 @@ export function Lightbox() {
       }}
     >
       <div className="absolute top-3 right-4 flex gap-2">
-        {!m.trashed && (
+        {!m.trashed && canEdit && (
           <button
             onClick={() => setEditing(m.id)}
             title="画像を編集（調整・フィルタ・切り取り）"
@@ -320,14 +320,16 @@ export function Lightbox() {
           WebkitBackdropFilter: "blur(14px)",
         }}
       >
-        <button
-          aria-label="ライブラリーに整理"
-          title="ライブラリーに整理"
-          onClick={() => setOrganizing([m.id])}
-          className="grid h-[88px] w-[88px] shrink-0 place-items-center rounded-[16px] border-2 border-dashed border-line bg-tint text-ink"
-        >
-          <Icon name="add" size={28} />
-        </button>
+        {canEdit && (
+          <button
+            aria-label="ライブラリーに整理"
+            title="ライブラリーに整理"
+            onClick={() => setOrganizing([m.id])}
+            className="grid h-[88px] w-[88px] shrink-0 place-items-center rounded-[16px] border-2 border-dashed border-line bg-tint text-ink"
+          >
+            <Icon name="add" size={28} />
+          </button>
+        )}
         {related.map((l) => {
           const covers = coverOf(media, l);
           return (
@@ -343,7 +345,7 @@ export function Lightbox() {
               onDoubleClick={() => {
                 if (clickTimer.current) clearTimeout(clickTimer.current);
                 close();
-                router.push(`/r/${roomId}/media/lib/${l.id}`);
+                router.push(`${base}/lib/${l.id}`);
               }}
               className={`relative aspect-[3/2] h-[88px] shrink-0 overflow-hidden rounded-[16px] border border-line bg-card ${l.id === cur ? "outline-[3px] -outline-offset-1 outline-accent" : ""}`}
             >

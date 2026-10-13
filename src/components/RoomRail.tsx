@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useState } from "react";
 import { CreateRoomDialog } from "@/components/CreateRoomDialog";
 import { Icon } from "@/components/Icon";
-import { toast } from "@/components/ui/overlay";
 import { useRoomUnreadTotals } from "@/lib/local/chat";
+import { useMyDms } from "@/lib/local/dm";
+import { useFriendships } from "@/lib/local/friends";
 
 type Room = { id: string; name: string; icon?: string };
 
@@ -22,7 +23,8 @@ export function RoomRail({
   userId,
 }: {
   rooms: Room[];
-  currentId: string;
+  /** 今いるルーム。ダイレクトメッセージを開いているときは null */
+  currentId: string | null;
   userId: string;
 }) {
   const unread = useRoomUnreadTotals(
@@ -30,23 +32,43 @@ export function RoomRail({
     userId,
   );
   const [creating, setCreating] = useState(false);
+  const inDm = currentId === null;
+  // DM の未読と、届いたフレンドの申請の数
+  const dms = useMyDms(userId);
+  const friendships = useFriendships(userId);
+  const dmCount = (dms ?? []).reduce((n, d) => n + d.unread, 0) + (friendships?.incoming.length ?? 0);
 
   return (
     <div
       data-name="ルームバー"
       className="flex w-[68px] shrink-0 flex-col items-center gap-2 overflow-y-auto bg-rail pt-16 pb-3 md:pt-3"
     >
-      {/* Discord のダイレクトメッセージに当たる場所。中身はまだ考え中なので、押しても「準備中」と出すだけ */}
-      <button
-        type="button"
-        data-name="ダイレクトメッセージ"
-        aria-label="ダイレクトメッセージ（準備中）"
-        title="ダイレクトメッセージ（準備中）"
-        onClick={() => toast("ダイレクトメッセージは準備中です")}
-        className="grid h-12 w-12 shrink-0 place-items-center rounded-[24px] bg-card text-ink transition-all hover:rounded-[16px] hover:bg-accent hover:text-accent-ink"
-      >
-        <Icon name="chat" size={24} />
-      </button>
+      {/* Discord のホームに当たる場所：ダイレクトメッセージ・フレンド・メディア。開いている間は色が付き、左に印が付く */}
+      <div className="group relative flex w-full shrink-0 justify-center">
+        <span
+          aria-hidden
+          className={`absolute top-1/2 left-0 w-1 -translate-y-1/2 rounded-r-full bg-ink transition-all ${inDm ? "h-10" : dmCount ? "h-2 group-hover:h-5" : "h-0 group-hover:h-5"}`}
+        />
+        <Link
+          href="/dm"
+          data-name="ダイレクトメッセージ"
+          aria-label={`ダイレクトメッセージ${dmCount ? `（新着${dmCount}件）` : ""}`}
+          aria-current={inDm ? "page" : undefined}
+          title="ダイレクトメッセージ"
+          className={`relative grid h-12 w-12 place-items-center transition-all ${
+            inDm
+              ? "rounded-[16px] bg-accent text-accent-ink"
+              : "rounded-[24px] bg-card text-ink group-hover:rounded-[16px] group-hover:bg-accent group-hover:text-accent-ink"
+          }`}
+        >
+          <Icon name="chat" size={24} />
+          {dmCount > 0 && (
+            <span className="absolute -right-1 -bottom-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-rail bg-warn px-1 text-[11px] leading-none font-bold text-white">
+              {dmCount > 99 ? "99+" : dmCount}
+            </span>
+          )}
+        </Link>
+      </div>
       <span aria-hidden className="h-0.5 w-8 shrink-0 rounded-full bg-line" />
       {rooms.map((r) => {
         const active = r.id === currentId;

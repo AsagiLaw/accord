@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/Icon";
+import { toast } from "@/components/ui/overlay";
+import { ensureMyMedia, useBoxAccess, useRoomBox } from "@/lib/local/boxes";
 import type { Media } from "@/lib/local/db";
+import { ensureInBox } from "@/lib/local/media";
+import { useCurrentUser } from "@/lib/local/session";
 import { useBlobUrl } from "@/lib/media/blob-url";
 
 /** チャットなどで添付画像を大きく見る、シンプルな表示画面 */
@@ -11,6 +15,19 @@ export function ImageViewer({ items, start, roomId, onClose }: { items: Media[];
   const [i, setI] = useState(start);
   const m = items[i];
   const url = useBlobUrl(m?.id, "original");
+  // 「メディアで見る」：ルームのボックスの画像ならルームのメディア、ほかのボックス（マイメディアなど）なら DM のボックスの画面
+  const roomBox = useRoomBox(roomId);
+  const mediaHref = m && roomBox?.box.id === m.boxId ? `/r/${roomId}/media/all` : `/dm/media/${m?.boxId}/all`;
+  // 見られないボックスの画像（DM で受け取った画像など）は「メディアで見る」の代わりに、自分のマイメディアに保存できる
+  const me = useCurrentUser();
+  const access = useBoxAccess(m?.boxId ?? "", me?.id);
+  const [saved, setSaved] = useState<string[]>([]);
+  const save = async () => {
+    if (!me || !m) return;
+    await ensureInBox([m.id], await ensureMyMedia(me.id), me.id);
+    setSaved((s) => [...s, m.id]);
+    toast("マイメディアに保存しました");
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -33,9 +50,15 @@ export function ImageViewer({ items, start, roomId, onClose }: { items: Media[];
           </span>
         )}
         <div className="ml-auto flex items-center gap-1">
-          <Link href={`/r/${roomId}/media/all`} className="rounded-full px-3 py-1.5 text-sm hover:bg-white/15" onClick={onClose}>
-            メディアで見る
-          </Link>
+          {access ? (
+            <Link href={mediaHref} className="rounded-full px-3 py-1.5 text-sm hover:bg-white/15" onClick={onClose}>
+              メディアで見る
+            </Link>
+          ) : access === null && me ? (
+            <button className="rounded-full px-3 py-1.5 text-sm hover:bg-white/15 disabled:opacity-60" disabled={saved.includes(m.id)} onClick={save}>
+              {saved.includes(m.id) ? "保存しました" : "マイメディアに保存"}
+            </button>
+          ) : null}
           {url && (
             <a href={url} download={m.fileName} aria-label="元の画像を保存" title="元の画像を保存" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/15">
               <Icon name="download" />

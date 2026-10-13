@@ -6,7 +6,14 @@ import { useLibraries, useMedia } from "@/lib/local/media";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 
 export type MediaState = {
-  roomId: string;
+  /** 開いているボックス */
+  boxId: string;
+  /** このメディア画面の URL の土台（ルームの「メディア」なら /r/（ルーム）/media、DM のボックスなら /dm/media/（ボックス）） */
+  base: string;
+  /** 上のバーのいちばん左に出す名前（ルームでは「メディア」、DM ではボックスの名前） */
+  title: string;
+  /** 画像の追加・整理・編集などができるか（見るだけの共有なら false） */
+  canEdit: boolean;
   me: Profile;
   members: MemberWithProfile[];
   media: Media[];
@@ -41,18 +48,24 @@ export function useMediaState() {
 }
 
 export function MediaProvider({
-  roomId,
+  boxId,
+  base,
+  title,
+  canEdit,
   me,
   members,
   children,
 }: {
-  roomId: string;
+  boxId: string;
+  base: string;
+  title: string;
+  canEdit: boolean;
   me: Profile;
   members: MemberWithProfile[];
   children: React.ReactNode;
 }) {
-  const media = useMedia(roomId);
-  const libs = useLibraries(roomId);
+  const media = useMedia(boxId);
+  const libs = useLibraries(boxId);
   const [selected, setSelected] = useState<string[]>([]);
   const [viewing, setViewingState] = useState<{
     id: string;
@@ -66,7 +79,10 @@ export function MediaProvider({
   const value = useMemo<MediaState | null>(() => {
     if (!media || !libs) return null;
     return {
-      roomId,
+      boxId,
+      base,
+      title,
+      canEdit,
       me,
       members,
       media,
@@ -89,7 +105,10 @@ export function MediaProvider({
       setEditing,
     };
   }, [
-    roomId,
+    boxId,
+    base,
+    title,
+    canEdit,
     me,
     members,
     media,

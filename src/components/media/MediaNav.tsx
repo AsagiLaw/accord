@@ -35,17 +35,22 @@ type DragState = {
 
 /** メディアを開いている間のサイドバーの中身 */
 export function MediaNav({
-  roomId,
+  boxId,
+  base,
   userId,
+  canEdit,
 }: {
-  roomId: string;
+  boxId: string;
+  /** メディア画面の URL の土台（MediaContext の base と同じ） */
+  base: string;
   userId: string;
+  /** 見るだけのボックスなら false（追加・ライブラリーの作成・メニュー・並べ替えを出さない） */
+  canEdit: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const media = useMedia(roomId) ?? [];
-  const libs = useLibraries(roomId) ?? [];
-  const base = `/r/${roomId}/media`;
+  const media = useMedia(boxId) ?? [];
+  const libs = useLibraries(boxId) ?? [];
   const [toggled, setToggled] = useState<Record<string, boolean>>({});
   // 右クリックで出すライブラリーのメニュー（チャンネルの右クリックと同じ形）
   const libMenu = usePopover();
@@ -100,7 +105,7 @@ export function MediaNav({
       setTimeout(() => (justDragged.current = false), 60);
       if (drop && z)
         void dropLibraryFlow(
-          roomId,
+          boxId,
           latest.current.libs,
           latest.current.media,
           d.id,
@@ -209,8 +214,8 @@ export function MediaNav({
     return (
       <div
         data-lib={libId}
-        onPointerDown={libId ? (e) => startDrag(e, libId) : undefined}
-        onContextMenu={onContextMenu}
+        onPointerDown={libId && canEdit ? (e) => startDrag(e, libId) : undefined}
+        onContextMenu={canEdit ? onContextMenu : undefined}
         className={`group flex min-h-[38px] items-center rounded-[10px] transition ${active ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"} ${
           z === "before"
             ? "shadow-[inset_0_3px_0_var(--accent)]"
@@ -285,6 +290,13 @@ export function MediaNav({
         }
       }}
     >
+      {!canEdit && (
+        <p data-name="見るだけの印" className="mb-2 flex items-center gap-1.5 rounded-[10px] bg-tint px-3 py-1.5 text-xs text-muted">
+          <Icon name="eye" size={14} className="shrink-0" />
+          見るだけのボックスです
+        </p>
+      )}
+      {canEdit && (
       <label
         className={`btn-sub mb-2 cursor-pointer font-bold active:border-accent active:bg-accent active:text-accent-ink ${
           picking
@@ -317,12 +329,13 @@ export function MediaNav({
             setPicking(false);
             const files = [...(e.target.files ?? [])];
             e.target.value = "";
-            uploadFlow(roomId, userId, files, () =>
+            uploadFlow(boxId, userId, files, () =>
               router.push(`${base}/unsorted`),
             );
           }}
         />
       </label>
+      )}
 
       <div data-name="メディアの一覧" className="space-y-0.5">
         {row(
@@ -364,13 +377,17 @@ export function MediaNav({
         className={`mx-1 mt-5 mb-1 flex items-center justify-between rounded-[8px] px-2 text-xs text-muted ${zone?.zone === "root" ? "text-accent outline-2 outline-accent outline-dashed" : ""}`}
       >
         ライブラリー
-        <button
-          aria-label="ライブラリーを追加"
-          onClick={() => newLibraryFlow(roomId, null)}
-          className="grid h-7 w-7 place-items-center rounded-full hover:bg-tint"
-        >
-          <Icon name="add" />
-        </button>
+        {canEdit ? (
+          <button
+            aria-label="ライブラリーを追加"
+            onClick={() => newLibraryFlow(boxId, null)}
+            className="grid h-7 w-7 place-items-center rounded-full hover:bg-tint"
+          >
+            <Icon name="add" />
+          </button>
+        ) : (
+          <span className="h-7" />
+        )}
       </h6>
       <div
         data-name="ライブラリー一覧"
@@ -378,9 +395,9 @@ export function MediaNav({
       >
         {childrenOf(libs, null).map((l) => libNode(l, 0))}
         {!libs.length && (
-          <p className="px-3 text-xs text-muted">右の＋で作れます</p>
+          <p className="px-3 text-xs text-muted">{canEdit ? "右の＋で作れます" : "ライブラリーはありません"}</p>
         )}
-        {libs.length > 0 && (
+        {libs.length > 0 && canEdit && (
           <p className="px-3 pt-2 text-[11px] text-muted">
             右クリックでメニュー。ドラッグで並べ替え。行の真ん中に落とすと中に入れる・合体、見出しに落とすと一番上へ
           </p>
@@ -405,7 +422,7 @@ export function MediaNav({
                       const l = menuLib;
                       libraryAction(
                         i,
-                        roomId,
+                        boxId,
                         l,
                         libs,
                         media,

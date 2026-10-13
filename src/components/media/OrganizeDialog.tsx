@@ -20,7 +20,7 @@ import { ThumbImage } from "./Thumb";
 const VIEW_KEY = "irai-note:media-organize-view";
 
 export function OrganizeDialog({ ids }: { ids: string[] }) {
-  const { libs, media, byId, roomId, setOrganizing, setSelected } =
+  const { libs, media, byId, boxId, setOrganizing, setSelected } =
     useMediaState();
   const items = ids.map((id) => byId.get(id)).filter((m) => m !== undefined);
   const [before] = useState(() =>
@@ -98,7 +98,7 @@ export function OrganizeDialog({ ids }: { ids: string[] }) {
   };
 
   const addLib = async (parent: Library | null) => {
-    const lib = await newLibraryFlow(roomId, parent?.id ?? null, parent?.name);
+    const lib = await newLibraryFlow(boxId, parent?.id ?? null, parent?.name);
     if (lib) setChosen((c) => [...c, lib.id]);
   };
 
@@ -245,7 +245,7 @@ export function OrganizeDialog({ ids }: { ids: string[] }) {
               className="btn"
               disabled={!changed}
               onClick={async () => {
-                const undo = await organize(roomId, ids, chosen, before);
+                const undo = await organize(boxId, ids, chosen, before);
                 close();
                 setSelected([]);
                 toast(`${items.length}枚を整理しました`, {

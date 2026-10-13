@@ -13,7 +13,7 @@ type Filter = "all" | "hideIn" | "onlyIn";
 
 /** ライブラリーに入れる画像を選ぶ。選択を外した画像はライブラリーから出る */
 export function AddToLibraryDialog({ libId }: { libId: string }) {
-  const { media, libs, roomId, setAddingTo } = useMediaState();
+  const { media, libs, boxId, setAddingTo } = useMediaState();
   const prefs = useMediaPrefs();
   const lib = libs.find((l) => l.id === libId)!;
   const [before] = useState(() =>
@@ -61,7 +61,7 @@ export function AddToLibraryDialog({ libId }: { libId: string }) {
     }
     const added = chosen.filter((x) => !before.includes(x)).length;
     const removed = leaving.length;
-    const undo = await setLibraryMembers(roomId, libId, chosen);
+    const undo = await setLibraryMembers(boxId, libId, chosen);
     close();
     toast(
       `${[added && `${added}枚を追加`, removed && `${removed}枚を除外`].filter(Boolean).join("、")}しました`,

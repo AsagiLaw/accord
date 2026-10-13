@@ -1,4 +1,4 @@
-import Dexie, { type EntityTable, type Table } from "dexie";
+import Dexie, { type EntityTable, type Table, type Transaction } from "dexie";
 import { newId } from "@/lib/id";
 import type { ImageEdit } from "@/lib/media/edit";
 import { DEFAULT_STAGES as REQUEST_DEFAULT_STAGES, requestDatabase } from "@/lib/requests/defaults";
@@ -22,9 +22,49 @@ export type Room = {
 };
 export type RoomMember = { roomId: string; userId: string; role: RoomRole; joinedAt: number };
 
+/**
+ * フレンドの間柄。fromId が申請を送り、toId が承認すると accepted になる。
+ * 断る・取り消す・フレンドの解除は、この行を消す
+ */
+export type Friendship = {
+  id: string;
+  fromId: string;
+  toId: string;
+  status: "pending" | "accepted";
+  createdAt: number;
+  respondedAt?: number;
+};
+
+/**
+ * メディアのボックス。画像とライブラリーは、どれか1つのボックスに入る。
+ * 持ち主は1人。フレンドやルームと共有できる（共有先は BoxShare）
+ */
+export type MediaBox = {
+  id: string;
+  ownerId: string;
+  name: string;
+  /** mine：アカウントごとに1つある「マイメディア」（削除・共有・ルームとの紐づけはできない）／box：自分で作ったボックス */
+  kind: "mine" | "box";
+  createdAt: number;
+};
+
+/**
+ * ボックスの共有先：フレンド（userId）か、ルーム（roomId。そのルームのメンバー全員）のどちらか一方。
+ * 1つのルームに紐づけられるボックスは1つだけ。canEdit が無ければ見るだけ
+ */
+export type BoxShare = {
+  id: string;
+  boxId: string;
+  userId?: string;
+  roomId?: string;
+  canEdit: boolean;
+  createdAt: number;
+};
+
 export type Media = {
   id: string;
-  roomId: string;
+  /** 入っているボックス */
+  boxId: string;
   /** アップロードした人。完全に削除できるのはこの人だけ */
   uploadedBy: string;
   name: string;
@@ -60,7 +100,8 @@ export type MediaBlob = {
 
 export type Library = {
   id: string;
-  roomId: string;
+  /** 入っているボックス（ライブラリーの中の画像も、同じボックスのもの） */
+  boxId: string;
   name: string;
   parentId: string | null;
   /** 親ライブラリーで、この子ライブラリーの代表として見せる画像（試作の「印」） */
@@ -72,6 +113,7 @@ export type Library = {
 
 export type Chat = {
   id: string;
+  /** ダイレクトメッセージのチャットは、どのルームにも入らないので空 */
   roomId: string;
   name: string;
   /** アイコン（絵文字・メディアの画像・シンプルなアイコン）。無ければ種類のアイコン */
@@ -90,6 +132,8 @@ export type Chat = {
   /** サイドバーでの置き場所：カテゴリー（無ければカテゴリーの外）と、その中の並び順 */
   categoryId?: string | null;
   navOrder?: number;
+  /** ダイレクトメッセージの2人（ID の小さい順）。ある2人の DM は1つだけ */
+  dm?: string[];
 };
 
 export type Message = {
@@ -402,6 +446,9 @@ export const db = new Dexie("irai-note") as Dexie & {
   categories: EntityTable<Category, "id">;
   imageUsers: EntityTable<ImageUser, "id">;
   windows: EntityTable<WindowPage, "id">;
+  friendships: EntityTable<Friendship, "id">;
+  mediaBoxes: EntityTable<MediaBox, "id">;
+  boxShares: EntityTable<BoxShare, "id">;
 };
 
 db.version(1).stores({
@@ -849,6 +896,18 @@ export function defaultRoomContents(roomId: string) {
   };
 }
 
+/** アカウントごとに1つの「マイメディア」 */
+export function newMyMediaBox(userId: string, now = Date.now()): MediaBox {
+  return { id: newId(), ownerId: userId, name: "マイメディア", kind: "mine", createdAt: now };
+}
+
+/** ルームのメディアにするボックスと、ルームとの紐づけ（メンバーは編集もできる）。持ち主はルームを作った人 */
+export function newRoomMediaBox(room: Pick<Room, "id" | "name" | "createdBy">, now = Date.now()) {
+  const box: MediaBox = { id: newId(), ownerId: room.createdBy, name: `${room.name}のメディア`, kind: "box", createdAt: now };
+  const share: BoxShare = { id: newId(), boxId: box.id, roomId: room.id, canEdit: true, createdAt: now };
+  return { box, share };
+}
+
 export function defaultChat(roomId: string): Chat {
   return { id: newId(), roomId, name: "雑談", kind: "normal", order: 1, createdAt: Date.now() };
 }
@@ -864,6 +923,10 @@ db.on("populate", (tx) => {
     { id: illustrator, displayName: "イラストレーター", createdAt: now + 1 },
   ]);
   tx.table("rooms").add({ id: room, name: "依頼ノート", createdBy: manager, createdAt: now });
+  tx.table("mediaBoxes").bulkAdd([newMyMediaBox(manager, now), newMyMediaBox(illustrator, now)]);
+  const roomMedia = newRoomMediaBox({ id: room, name: "依頼ノート", createdBy: manager }, now);
+  tx.table("mediaBoxes").add(roomMedia.box);
+  tx.table("boxShares").add(roomMedia.share);
   tx.table("roomMembers").bulkAdd([
     { roomId: room, userId: manager, role: "host", joinedAt: now },
     { roomId: room, userId: illustrator, role: "member", joinedAt: now + 1 },
@@ -878,6 +941,8 @@ db.on("populate", (tx) => {
 // 開発中だけ、ブラウザのコンソールから中身を確かめられるようにする
 if (process.env.NODE_ENV === "development" && typeof window !== "undefined") {
   (window as unknown as { __db: typeof db }).__db = db;
+  // 古い形のデータで、作り替え（移し替え）を試せるようにする
+  (window as unknown as { __migrations: object }).__migrations = { moveMediaToBoxes };
 }
 
 db.version(21)
@@ -992,3 +1057,60 @@ db.version(25)
       .filter((d: Database) => d.kind === "request" && d.nameSuffix === undefined)
       .modify({ nameSuffix: "様" });
   });
+
+// フレンドと、ダイレクトメッセージ（チャットの dm で、自分の DM を探せるようにする）
+db.version(26).stores({
+  friendships: "id, fromId, toId",
+  chats: "id, roomId, *dm",
+});
+
+/**
+ * メディアをルームから切り離し、持ち主のいる「メディアボックス」に入れる（v27）。
+ * 一人ひとりにマイメディアを作り、ルームの画像とライブラリーは「（ルーム名）のメディア」に移して、そのルームに紐づける
+ */
+async function moveMediaToBoxes(tx: Transaction) {
+  const now = Date.now();
+  const mine = new Map<string, string>();
+  for (const p of (await tx.table("profiles").toArray()) as Profile[]) {
+    const box = newMyMediaBox(p.id, now);
+    await tx.table("mediaBoxes").add(box);
+    mine.set(p.id, box.id);
+  }
+  const roomBox = new Map<string, string>();
+  for (const r of (await tx.table("rooms").toArray()) as Room[]) {
+    const { box, share } = newRoomMediaBox(r, now);
+    await tx.table("mediaBoxes").add(box);
+    await tx.table("boxShares").add(share);
+    roomBox.set(r.id, box.id);
+  }
+  type Old = { roomId?: string; boxId?: string };
+  // ルームが無くなっていた画像は、入れた人のマイメディアへ（ライブラリーからは外す）
+  await tx
+    .table("media")
+    .toCollection()
+    .modify((m: Media & Old) => {
+      const box = roomBox.get(m.roomId ?? "");
+      m.boxId = box ?? mine.get(m.uploadedBy) ?? "";
+      if (!box) m.libIds = [];
+      delete m.roomId;
+    });
+  // ルームが無くなっていたライブラリーは消す
+  const libs = (await tx.table("libraries").toArray()) as (Library & Old)[];
+  await tx.table("libraries").bulkDelete(libs.filter((l) => !roomBox.has(l.roomId ?? "")).map((l) => l.id));
+  await tx
+    .table("libraries")
+    .toCollection()
+    .modify((l: Library & Old) => {
+      l.boxId = roomBox.get(l.roomId ?? "")!;
+      delete l.roomId;
+    });
+}
+
+db.version(27)
+  .stores({
+    mediaBoxes: "id, ownerId",
+    boxShares: "id, boxId, userId, roomId",
+    media: "id, boxId, *libIds",
+    libraries: "id, boxId, parentId",
+  })
+  .upgrade(moveMediaToBoxes);
