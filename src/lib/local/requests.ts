@@ -2,11 +2,13 @@
 
 import { useLiveQuery } from "dexie-react-hooks";
 import { DONE, P } from "@/lib/requests/defaults";
+import { renameInFormula, withFormulas } from "@/lib/requests/formula";
+import { defaultsOf } from "@/lib/requests/props";
 import { stamp, today } from "@/lib/requests/logic";
 import { stageOf } from "@/lib/requests/stages";
 import { deleteOwnedChats } from "./channels";
 import { freshBlocks } from "./templates";
-import { db, newId, type CalEvent, type Database, type DbPage, type DbView, type PageTemplate, type Property, type TagColor, type Todo } from "./db";
+import { db, newId, type CalEvent, type Database, type DbPage, type DbView, type PageTemplate, type Property, type StatusGroup, type TagColor, type Todo } from "./db";
 
 // ---- 読み込み ----
 
@@ -23,12 +25,27 @@ export function useRequestDatabase(roomId: string) {
   return useLiveQuery(async () => (await db.databases.where("roomId").equals(roomId).filter((d) => d.kind === "request").first()) ?? null, [roomId]);
 }
 
+/** データベースのページ（ゴミ箱のものは除く）。数式の項目は、計算した値を入れて返す（保存はしない） */
 export function usePages(dbId: string | undefined) {
-  return useLiveQuery(async () => (dbId ? db.dbPages.where("dbId").equals(dbId).toArray() : []), [dbId]);
+  return useLiveQuery(async () => {
+    if (!dbId) return [];
+    const [database, pages] = await Promise.all([db.databases.get(dbId), db.dbPages.where("dbId").equals(dbId).toArray()]);
+    return withFormulas(database, pages.filter((p) => !p.deletedAt));
+  }, [dbId]);
 }
 
+/** ページ1つ（ゴミ箱のものも返す。deletedAt で分かる）。数式の項目は計算した値を入れる */
 export function usePage(pageId: string) {
-  return useLiveQuery(async () => (await db.dbPages.get(pageId)) ?? null, [pageId]);
+  return useLiveQuery(async () => {
+    const page = await db.dbPages.get(pageId);
+    if (!page) return null;
+    return withFormulas(await db.databases.get(page.dbId), [page])[0];
+  }, [pageId]);
+}
+
+/** ゴミ箱のページ（新しく入れた順） */
+export function useTrash(dbId: string) {
+  return useLiveQuery(async () => (await db.dbPages.where("dbId").equals(dbId).filter((p) => !!p.deletedAt).toArray()).sort((a, b) => b.deletedAt! - a.deletedAt!), [dbId]);
 }
 
 export function useViews(dbId: string | undefined) {
@@ -48,8 +65,8 @@ export function useTodos(roomId: string) {
 /** ページの名前の後ろに付ける言葉（データベースの設定。無いときは、依頼は「様」） */
 export const nameSuffixOf = (d: Pick<Database, "nameSuffix">) => d.nameSuffix ?? "";
 
-/** 新しい依頼の初期値：受付日・開始日は今日、枚数1、進行0%、ステータスは最初の選択肢 */
-export function newPageDefaults(database: Database): Record<string, unknown> {
+/** 新しいページの初期値：受付日・開始日は今日、枚数1、進行0%、ステータスは最初の選択肢。項目に「はじめから入る値」があれば、そちらを使う */
+export function newPageDefaults(database: Database, userId?: string): Record<string, unknown> {
   const v: Record<string, unknown> = {};
   for (const p of database.props) {
     if (p.type === "status") v[p.id] = p.options?.[0] ?? "";
@@ -59,7 +76,15 @@ export function newPageDefaults(database: Database): Record<string, unknown> {
       if (p.id === P.progress || p.id === P.fee) v[p.id] = 0;
     }
   }
-  return v;
+  return { ...v, ...defaultsOf(database, userId) };
+}
+
+/** 通し番号の項目ごとの、次の番号（ゴミ箱のページも数える。同じ番号を二度使わない） */
+async function nextSerials(database: Database): Promise<Record<string, number>> {
+  const props = database.props.filter((p) => p.type === "serial");
+  if (!props.length) return {};
+  const pages = await db.dbPages.where("dbId").equals(database.id).toArray();
+  return Object.fromEntries(props.map((p) => [p.id, Math.max(0, ...pages.map((pg) => Number(pg.values[p.id]) || 0)) + 1]));
 }
 
 /** 依頼（ページ）を作る。チャットの項目の会話も一緒に作る。
@@ -69,8 +94,11 @@ export async function createPage(database: Database, userId: string, title: stri
   const now = Date.now();
   const chatId = newId();
   const reenactChatId = newId();
-  // 作成日時・更新日時の項目は、作ったときの日時を入れておく
-  const auto = Object.fromEntries(database.props.filter((p) => p.type === "created" || p.type === "edited").map((p) => [p.id, stamp(now)]));
+  // 作成日時・更新日時の項目は、作ったときの日時を入れておく。通し番号は次の番号
+  const auto = { ...Object.fromEntries(database.props.filter((p) => p.type === "created" || p.type === "edited").map((p) => [p.id, stamp(now)])), ...(await nextSerials(database)) };
+  // はじめから入る値：渡された値に無い項目だけ入れる（「自分」は作った人）
+  const given = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== undefined).map(([k, v]) => [k, v === "@me" ? userId : v]));
+  values = { ...defaultsOf(database, userId), ...given };
   // チャット・イメージチャットの項目（1つずつ）があれば、その会話を作って入れておく。無ければ作らない
   const chatProp = database.props.find((p) => p.type === "chat");
   const imageProp = database.props.find((p) => p.type === "imageChat");
@@ -134,8 +162,34 @@ export async function updatePageValue(pageId: string, propId: string, value: unk
   await db.dbPages.update(pageId, { values: t.values ?? values, updatedAt: t.updatedAt });
 }
 
-/** 依頼を削除する。チャットの発言も消える（添付した画像はメディアに残る） */
-export async function deletePage(page: DbPage) {
+/** ゴミ箱に入れておく日数。過ぎたら完全に削除する */
+export const TRASH_DAYS = 30;
+
+/** ページをゴミ箱に入れる（一覧から消える。チャットや本文はそのまま残り、戻せる） */
+export async function trashPage(page: Pick<DbPage, "id">) {
+  await db.dbPages.update(page.id, { deletedAt: Date.now() });
+}
+
+/** ゴミ箱から戻す */
+export async function restorePage(pageId: string) {
+  await db.dbPages.update(pageId, { deletedAt: undefined });
+}
+
+/** ゴミ箱に入れてから TRASH_DAYS 日たったページを、完全に削除する（アプリを開いたときに呼ぶ） */
+export async function purgeOldTrash() {
+  const limit = Date.now() - TRASH_DAYS * 864e5;
+  const old = await db.dbPages.filter((p) => !!p.deletedAt && p.deletedAt < limit).toArray();
+  for (const p of old) await deletePageForever(p);
+}
+
+/** ゴミ箱を空にする */
+export async function emptyTrash(dbId: string) {
+  const pages = await db.dbPages.where("dbId").equals(dbId).filter((p) => !!p.deletedAt).toArray();
+  for (const p of pages) await deletePageForever(p);
+}
+
+/** ページを完全に削除する。チャットの発言も消える（添付した画像はメディアに残る） */
+export async function deletePageForever(page: DbPage) {
   const chatIds = [page.chatId, page.reenactChatId].filter((x): x is string => !!x);
   // 本文（ノート・ウィンドウ）に置いたチャットも消す
   const notes = await db.notes.where("pageId").equals(page.id).toArray();
@@ -154,6 +208,48 @@ export async function deletePage(page: DbPage) {
   });
 }
 
+/**
+ * ページを複製する（項目の値・アイコン・本文・テンプレートとの繋がり）。名前は「〇〇のコピー」。
+ * チャット（チャットの項目・本文のチャット）は新しく空のものにする。作成日時・更新日時は今にする
+ */
+export async function duplicatePage(page: DbPage, userId: string) {
+  const database = await db.databases.get(page.dbId);
+  if (!database) return;
+  const now = Date.now();
+  const id = newId();
+  const values = { ...(await db.dbPages.get(page.id))?.values };
+  for (const p of database.props) {
+    if (p.type === "chat" || p.type === "imageChat" || p.type === "formula") delete values[p.id];
+    if (p.type === "created" || p.type === "edited") values[p.id] = stamp(now);
+  }
+  // 通し番号は新しい番号にする
+  Object.assign(values, await nextSerials(database));
+  const copy: DbPage = {
+    id,
+    dbId: page.dbId,
+    roomId: page.roomId,
+    title: page.title ? `${page.title}のコピー` : "",
+    icon: page.icon,
+    values,
+    chatId: null,
+    reenactChatId: null,
+    createdBy: userId,
+    createdAt: now,
+    updatedAt: now,
+    bodyKind: page.bodyKind,
+    sourceId: page.sourceId,
+  };
+  const note = await db.notes.where("pageId").equals(page.id).first();
+  await db.transaction("rw", db.dbPages, db.notes, async () => {
+    await db.dbPages.add(copy);
+    // 本文：チャットのブロックはチャットを外して入れる（開いたときに新しく作る）
+    if (note) await db.notes.add({ ...note, id: newId(), title: copy.title, blocks: freshBlocks(note.blocks), pageId: id, createdAt: now, updatedAt: now, updatedBy: userId });
+  });
+  // チャットの項目は、空の会話を用意しておく
+  for (const p of database.props.filter((x) => x.type === "chat" || x.type === "imageChat")) await ensurePropChat(id, p);
+  return copy;
+}
+
 // ---- データベースの設定 ----
 
 /** 選択肢を足す（依頼窓口・依頼プランなどの「追加…」） */
@@ -164,13 +260,16 @@ export async function addOption(dbId: string, propId: string, option: string) {
   await db.databases.update(dbId, { props });
 }
 
-export async function updateDatabase(dbId: string, patch: Partial<Pick<Database, "name" | "props" | "plans" | "nameSuffix">>) {
+export async function updateDatabase(dbId: string, patch: Partial<Pick<Database, "name" | "props" | "plans" | "nameSuffix" | "dueProp" | "dueDays">>) {
   await db.databases.update(dbId, patch);
 }
 
 // ---- ビュー ----
 
+/** ビューを保存する。固定したビューは、固定を外すとき（locked を外した保存）だけ通す */
 export async function saveView(view: DbView) {
+  const prev = await db.dbViews.get(view.id);
+  if (prev?.options.locked && view.options.locked) return;
   await db.dbViews.put(view);
 }
 
@@ -256,12 +355,29 @@ async function addPropertyNow(dbId: string, name: string, type: Property["type"]
     return i < 0 ? [...props, prop] : [...props.slice(0, i + 1), prop, ...props.slice(i + 1)];
   });
   if (type === "created" || type === "edited") await backfill(dbId, prop.id, type);
+  if (type === "serial") await numberPages(dbId, prop.id);
   return prop;
 }
 
+/** 通し番号の項目を足したとき、今あるページに作った順で番号を入れる */
+async function numberPages(dbId: string, propId: string) {
+  const pages = (await db.dbPages.where("dbId").equals(dbId).toArray()).sort((a, b) => a.createdAt - b.createdAt);
+  await db.transaction("rw", db.dbPages, async () => {
+    for (const [i, p] of pages.entries()) await db.dbPages.update(p.id, { values: { ...p.values, [propId]: i + 1 } });
+  });
+}
+
 export async function updateProperty(dbId: string, propId: string, patch: Partial<Omit<Property, "id">>) {
-  await patchProps(dbId, (props) => props.map((p) => (p.id === propId ? { ...p, ...patch } : p)));
+  await patchProps(dbId, (props) => {
+    const before = props.find((p) => p.id === propId);
+    const next = props.map((p) => (p.id === propId ? { ...p, ...patch } : p));
+    // 名前を変えたら、ほかの数式の中の {前の名前} も新しい名前にする
+    if (before && patch.name && patch.name !== before.name)
+      return next.map((p) => (p.type === "formula" && p.formula ? { ...p, formula: renameInFormula(p.formula, before.name, patch.name!) } : p));
+    return next;
+  });
   if (patch.type === "created" || patch.type === "edited") await backfill(dbId, propId, patch.type);
+  if (patch.type === "serial") await numberPages(dbId, propId);
 }
 
 /** 作成日時・更新日時の項目を足したとき、今あるページにも値を入れる */
@@ -307,6 +423,7 @@ export async function deleteProperty(dbId: string, propId: string) {
       .modify((v) => {
         v.filters = v.filters.filter((f) => f.prop !== propId);
         if (v.sort?.prop === propId) v.sort = null;
+        if (v.sorts) v.sorts = v.sorts.filter((x) => x.prop !== propId);
         if (v.options.visible) v.options.visible = v.options.visible.filter((x) => x !== propId);
         if (v.options.group === propId) delete v.options.group;
         if (v.options.calc) delete v.options.calc[propId];
@@ -330,6 +447,24 @@ export async function setOptionColor(dbId: string, propId: string, option: strin
   await patchProps(dbId, (props) => props.map((p) => (p.id === propId ? { ...p, colors: { ...p.colors, [option]: color } } : p)));
 }
 
+/** ステータスの選択肢のグループ（未着手・進行中・完了）を決める */
+export async function setOptionGroup(dbId: string, propId: string, option: string, group: StatusGroup) {
+  await patchProps(dbId, (props) => props.map((p) => (p.id === propId ? { ...p, groups: { ...p.groups, [option]: group } } : p)));
+}
+
+/** 選択肢に数を付ける（手数料の％など）。undefined なら外す */
+export async function setOptionValue(dbId: string, propId: string, option: string, value: number | undefined) {
+  await patchProps(dbId, (props) =>
+    props.map((p) => {
+      if (p.id !== propId) return p;
+      const optionValues = { ...p.optionValues };
+      if (value === undefined) delete optionValues[option];
+      else optionValues[option] = value;
+      return { ...p, optionValues };
+    }),
+  );
+}
+
 /** 選択肢の名前を変える。その選択肢が入っているページの値も変える */
 export async function renameOption(dbId: string, propId: string, from: string, to: string) {
   if (!to || from === to) return;
@@ -337,12 +472,16 @@ export async function renameOption(dbId: string, propId: string, from: string, t
     await patchProps(dbId, (props) =>
       props.map((p) => {
         if (p.id !== propId) return p;
-        const colors = { ...p.colors };
-        if (colors[from]) {
-          colors[to] = colors[from];
-          delete colors[from];
-        }
-        return { ...p, options: (p.options ?? []).map((o) => (o === from ? to : o)), colors };
+        // 色・グループ・付けた数・はじめから入る値も、新しい名前に移す
+        const move = <T,>(rec: Record<string, T> | undefined) => {
+          if (!rec || !(from in rec)) return rec;
+          const next = { ...rec, [to]: rec[from] };
+          delete next[from];
+          return next;
+        };
+        const dv = p.defaultValue;
+        const defaultValue = dv === from ? to : Array.isArray(dv) ? dv.map((x) => (x === from ? to : x)) : dv;
+        return { ...p, options: (p.options ?? []).map((o) => (o === from ? to : o)), colors: move(p.colors) ?? {}, groups: move(p.groups), optionValues: move(p.optionValues), defaultValue };
       }),
     );
     await db.dbPages
@@ -365,7 +504,14 @@ export async function renameOption(dbId: string, propId: string, from: string, t
 /** 選択肢を消す。その選択肢が入っているページは空になる */
 export async function deleteOption(dbId: string, propId: string, option: string) {
   await db.transaction("rw", db.databases, db.dbPages, async () => {
-    await patchProps(dbId, (props) => props.map((p) => (p.id === propId ? { ...p, options: (p.options ?? []).filter((o) => o !== option) } : p)));
+    await patchProps(dbId, (props) =>
+      props.map((p) => {
+        if (p.id !== propId) return p;
+        const dv = p.defaultValue;
+        const defaultValue = dv === option ? undefined : Array.isArray(dv) ? dv.filter((x) => x !== option) : dv;
+        return { ...p, options: (p.options ?? []).filter((o) => o !== option), defaultValue };
+      }),
+    );
     await db.dbPages
       .where("dbId")
       .equals(dbId)
@@ -396,7 +542,7 @@ export async function duplicateView(view: DbView) {
 
 /** 表のいちばん下の「＋ 新規」などから、名前なしで1件作る */
 export async function createBlankPage(database: Database, userId: string, values: Record<string, unknown> = {}) {
-  return createPage(database, userId, "", { ...newPageDefaults(database), ...values });
+  return createPage(database, userId, "", { ...newPageDefaults(database, userId), ...values });
 }
 
 /** ページの本文（ウィンドウ型）の並べ方を保存する */

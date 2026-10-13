@@ -70,7 +70,7 @@ export function ImportDialog({ database, userId, onClose }: { database: Database
     for (const row of body) {
       const title = row[titleCol]?.trim();
       if (!title) continue;
-      await createPage(database, userId, title, { ...newPageDefaults(database), ...convert(row) });
+      await createPage(database, userId, title, { ...newPageDefaults(database, userId), ...convert(row) });
       n++;
     }
     setBusy(false);

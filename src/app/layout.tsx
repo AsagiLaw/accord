@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Zen_Kaku_Gothic_New } from "next/font/google";
+import { Housekeeping } from "@/components/app/Housekeeping";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { NameInspector } from "@/components/NameInspector";
 import { OverlayHost } from "@/components/ui/overlay";
@@ -34,6 +35,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full">
         {/* ログインしていなければ、ログインの画面へ */}
         <AuthGate>{children}</AuthGate>
+        {/* ゴミ箱の片付け・納期の通知 */}
+        <Housekeeping />
         <OverlayHost />
         <NameInspector />
       </body>

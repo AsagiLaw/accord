@@ -4,15 +4,17 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Icon } from "@/components/Icon";
 import { MenuDivider, MenuItem, MenuLabel } from "@/components/ui/Popover";
-import { choose, confirmAction, promptText } from "@/components/ui/overlay";
+import { choose, promptText, toast } from "@/components/ui/overlay";
 import { editHref } from "@/components/window/editMode";
 import type { Database, DbPage, PageTemplate } from "@/lib/local/db";
-import { deletePage, usePages } from "@/lib/local/requests";
+import { TRASH_DAYS, duplicatePage, restorePage, trashPage, usePages } from "@/lib/local/requests";
+import { useCurrentUser } from "@/lib/local/session";
 import { applyNoteTemplate, createTemplateFromPage, linkPageTemplate, templateOf, unlinkPageTemplate } from "@/lib/local/templates";
+import { usePeek } from "./PageLink";
 import { pageHref } from "./views/common";
 
 /**
- * ページを右クリックしたときのメニュー（サイドバー・表）：開く（onOpen があるとき）、編集、ソース（テンプレート）、削除。
+ * ページを右クリックしたときのメニュー（サイドバー・表）：開く（onOpen があるとき）、編集、ソース（テンプレート）、複製、ゴミ箱に入れる。
  * ページの画面の右上には編集・削除のボタンを置かないので、ここから行う
  */
 export function PageMenu({
@@ -30,6 +32,8 @@ export function PageMenu({
   onDeleted?: () => void;
 }) {
   const router = useRouter();
+  const me = useCurrentUser();
+  const peek = usePeek();
   const pages = usePages(database.id) ?? [];
   const [screen, setScreen] = useState<"main" | "source">("main");
   const label = "ページ";
@@ -76,18 +80,29 @@ export function PageMenu({
       <MenuItem icon={<Icon name="copy" size={16} />} onClick={() => setScreen("source")} right={<span className="max-w-28 truncate text-xs text-muted">{template ? template.name : "選択なし"}</span>}>
         ソース
       </MenuItem>
+      <MenuItem
+        icon={<Icon name="duplicate" size={16} />}
+        onClick={async () => {
+          close();
+          if (!me) return;
+          const copy = await duplicatePage(page, me.id);
+          if (copy) toast(`「${copy.title || "無題"}」を作りました`, { label: "開く", run: () => peek(database, copy.id) });
+        }}
+      >
+        複製
+      </MenuItem>
       <MenuDivider />
       <MenuItem
         icon={<Icon name="del" size={16} />}
         danger
         onClick={async () => {
           close();
-          if (!(await confirmAction(`「${title}」を削除します`, "削除", "チャットの発言も消えます。添付した画像はメディアに残ります。"))) return;
           onDeleted?.();
-          await deletePage(page);
+          await trashPage(page);
+          toast(`「${title}」をゴミ箱に入れました（${TRASH_DAYS}日後に完全に削除）`, { label: "元に戻す", run: () => void restorePage(page.id) });
         }}
       >
-        この{label}を削除
+        ゴミ箱に入れる
       </MenuItem>
     </div>
   );

@@ -113,18 +113,15 @@ export function WritersScreen({
   allowed,
   onChange,
   onBack,
-  note,
 }: {
   members: MemberWithProfile[];
   allowed: string[];
   onChange: (next: string[] | undefined) => void;
   onBack: () => void;
-  note?: string;
 }) {
   return (
     <div>
       <BackHead title="書き込める人" onBack={onBack} />
-      {note && <p className="px-2 pb-1 text-xs text-muted">{note}</p>}
       <OptionRow icon="ppl" selected={!allowed.length} onClick={() => onChange(undefined)}>
         全員
       </OptionRow>

@@ -9,13 +9,17 @@ import { MenuDivider, MenuItem, MenuLabel, Popover, usePopover } from "@/compone
 import { TabStrip } from "@/components/ui/TabStrip";
 import { choose, promptText } from "@/components/ui/overlay";
 import type { CalEvent, Database, DbPage, DbView, PageTemplate, ViewType } from "@/lib/local/db";
-import { createView, nameSuffixOf, setDatabaseIcon, updateDatabase } from "@/lib/local/requests";
+import { createView, nameSuffixOf, setDatabaseIcon, updateDatabase, useTrash } from "@/lib/local/requests";
+import { dueDaysOf, dueProp } from "@/lib/requests/due";
 import type { MemberWithProfile } from "@/lib/local/rooms";
+import { sortsOf } from "@/lib/requests/logic";
 import { filterLabel } from "./editors";
 import { ImportDialog } from "./ImportDialog";
 import { EmojiPicker, VIEW_TYPES } from "./meta";
 import { NewPageDialog } from "./NewPageDialog";
+import { DueSettings } from "./DueSettings";
 import { StageSettings } from "./StageSettings";
+import { TrashDialog } from "./TrashDialog";
 import { TemplateMenu } from "./TemplateMenu";
 import { FilterScreens, SortScreens, ViewSettingsMenu } from "./ViewSettings";
 import { ViewRenderer } from "./views/ViewRenderer";
@@ -45,8 +49,9 @@ export function DatabaseView({
   onCloseNew: () => void;
 }) {
   const router = useRouter();
+  const trash = useTrash(database.id);
   const [search, setSearch] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<"new" | "plans" | "import" | "iconMedia" | null>(null);
+  const [dialog, setDialog] = useState<"new" | "plans" | "import" | "iconMedia" | "due" | "trash" | null>(null);
   // テンプレートから追加するときの、選んだテンプレート
   const [template, setTemplate] = useState<PageTemplate | null>(null);
   const pop = usePopover();
@@ -155,31 +160,41 @@ export function DatabaseView({
             ) : (
               <ToolButton icon="search" label="検索" onClick={() => setSearch("")} />
             )}
-            <ToolButton icon="filter" label="フィルター" active={view.filters.length > 0} onClick={openPop({ kind: "addFilter" })} />
-            <ToolButton icon="sort" label="並び替え" active={!!view.sort} onClick={openPop({ kind: "sort" })} />
+            {/* 固定したビュー：フィルター・並び替えは変えられない。鍵を押すと、ビューの設定（固定を外すスイッチ） */}
+            {view.options.locked ? (
+              <ToolButton icon="lock" label="固定中" active onClick={openPop({ kind: "view" })} />
+            ) : (
+              <>
+                <ToolButton icon="filter" label="フィルター" active={view.filters.length > 0} onClick={openPop({ kind: "addFilter" })} />
+                <ToolButton icon="sort" label="並び替え" active={sortsOf(view).length > 0} onClick={openPop({ kind: "sort" })} />
+              </>
+            )}
             <ToolButton ref={settingsBtn} icon="dots" label="ビューの設定" onClick={openPop({ kind: "view" })} />
           </div>
         )}
       </div>
 
       {/* かかっている条件（押すとその場で直せる） */}
-      {view && (view.filters.length > 0 || view.sort) && (
+      {view && (view.filters.length > 0 || sortsOf(view).length > 0) && (
         <div data-name="かかっている条件" className="flex flex-wrap items-center gap-1.5">
-          {view.sort && (
-            <button onClick={openPop({ kind: "sort" })} className="flex items-center gap-1 rounded-full border border-line px-2.5 py-0.5 text-xs hover:bg-tint">
-              <Icon name={view.sort.dir === "asc" ? "up" : "dn"} size={12} />
-              {database.props.find((p) => p.id === view.sort!.prop)?.name ?? "?"}
+          {sortsOf(view).map((x, i) => (
+            <button key={`sort:${x.prop}:${i}`} disabled={!!view.options.locked} onClick={openPop({ kind: "sort" })} className="flex items-center gap-1 rounded-full border border-line px-2.5 py-0.5 text-xs enabled:hover:bg-tint">
+              <Icon name={x.dir === "asc" ? "up" : "dn"} size={12} />
+              {database.props.find((p) => p.id === x.prop)?.name ?? "?"}
             </button>
-          )}
+          ))}
+          {view.filters.length > 1 && view.filterMode === "or" && <span className="text-xs text-muted">どれか1つ：</span>}
           {view.filters.map((f, i) => (
-            <button key={i} onClick={openPop({ kind: "filter", index: i })} className="flex items-center gap-1 rounded-full border border-accent bg-tint px-2.5 py-0.5 text-xs">
+            <button key={i} disabled={!!view.options.locked} onClick={openPop({ kind: "filter", index: i })} className="flex items-center gap-1 rounded-full border border-accent bg-tint px-2.5 py-0.5 text-xs">
               <Icon name="filter" size={12} />
               {filterLabel(database, f, members)}
             </button>
           ))}
-          <button onClick={openPop({ kind: "addFilter" })} className="rounded-full px-2 py-0.5 text-xs text-muted hover:bg-tint">
-            ＋ 条件
-          </button>
+          {!view.options.locked && (
+            <button onClick={openPop({ kind: "addFilter" })} className="rounded-full px-2 py-0.5 text-xs text-muted hover:bg-tint">
+              ＋ 条件
+            </button>
+          )}
         </div>
       )}
 
@@ -221,8 +236,9 @@ export function DatabaseView({
                     openSettings();
                   }}
                 >
-                  <span className="block">{VIEW_TYPES[t].label}</span>
-                  <span className="block truncate text-xs text-muted">{VIEW_TYPES[t].note}</span>
+                  <span className="block" title={VIEW_TYPES[t].note}>
+                    {VIEW_TYPES[t].label}
+                  </span>
                 </MenuItem>
               ))}
             </div>
@@ -253,12 +269,18 @@ export function DatabaseView({
               </MenuItem>
               {database.props.some((p) => p.type === "stage") && (
                 <MenuItem icon={<Icon name="timeline" size={16} />} onClick={() => (pop.close(), setDialog("plans"))}>
-                  工程の設定（プランごとの工程と％）
+                  工程の設定（プランごとの工程と割合）
                 </MenuItem>
               )}
+              <MenuItem icon={<Icon name="bell" size={16} />} right={<span className="text-xs text-muted">{dueProp(database) ? `${dueDaysOf(database)}日前から` : "なし"}</span>} onClick={() => (pop.close(), setDialog("due"))}>
+                納期のお知らせ
+              </MenuItem>
               <MenuDivider />
               <MenuItem icon={<Icon name="upload" size={16} />} onClick={() => (pop.close(), setDialog("import"))}>
                 Notion から取り込む
+              </MenuItem>
+              <MenuItem icon={<Icon name="del" size={16} />} right={trash?.length ? <span className="text-xs text-muted">{trash.length}件</span> : undefined} onClick={() => (pop.close(), setDialog("trash"))}>
+                ゴミ箱
               </MenuItem>
             </div>
           )}
@@ -287,6 +309,8 @@ export function DatabaseView({
         <StageSettings database={database} prop={database.props.find((p) => p.type === "stage")!} onClose={() => setDialog(null)} />
       )}
       {dialog === "import" && <ImportDialog database={database} userId={userId} onClose={() => setDialog(null)} />}
+      {dialog === "due" && <DueSettings database={database} onClose={() => setDialog(null)} />}
+      {dialog === "trash" && <TrashDialog database={database} onClose={() => setDialog(null)} />}
       {/* アイコンにするメディアの画像を1枚選ぶ */}
       {dialog === "iconMedia" && (
         <MediaPicker
@@ -312,7 +336,7 @@ function ToolButton({
   active,
   ref,
 }: {
-  icon: "search" | "filter" | "sort" | "dots";
+  icon: "search" | "filter" | "sort" | "dots" | "lock";
   label: string;
   onClick: (e: React.MouseEvent<HTMLElement>) => void;
   active?: boolean;

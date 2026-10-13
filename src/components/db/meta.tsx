@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Icon, type IconName } from "@/components/Icon";
 import { ICON_COLORS, SIMPLE_ICONS, iconColor, simpleIcon } from "@/components/IconMark";
 import type { PropType, Property, TagColor, ViewType } from "@/lib/local/db";
+import { statusGroupOf } from "@/lib/requests/props";
 
 // データベースの見た目に使う決まりごと（アイコン・名前・色）
 
@@ -23,9 +24,11 @@ export const PROP_TYPES: Record<PropType, { label: string; icon: IconName; note:
   phone: { label: "電話", icon: "phone", note: "電話番号" },
   created: { label: "作成日時", icon: "clock", note: "作ったときに自動で入る" },
   edited: { label: "更新日時", icon: "clock", note: "変えたときに自動で入る" },
-  stage: { label: "工程", icon: "timeline", note: "プランごとの工程と％" },
+  stage: { label: "工程", icon: "timeline", note: "プランごとの工程と割合" },
   chat: { label: "チャット", icon: "chat", note: "ページごとの会話" },
   imageChat: { label: "イメージチャット", icon: "ppl", note: "ページごとのやり取り再現" },
+  formula: { label: "数式", icon: "formula", note: "ほかの項目から計算する" },
+  serial: { label: "通し番号", icon: "hash", note: "作った順に #001 と自動で入る" },
 };
 
 /** チャットの項目（表やボード、詳細の入力欄には出さない） */
@@ -40,6 +43,8 @@ export const VIEW_TYPES: Record<ViewType, { label: string; icon: IconName; note:
   calendar: { label: "カレンダー", icon: "calendar", note: "日付と工程の期限を、月（マンスリー）か週（ウィークリー）ごとに" },
   timeline: { label: "タイムライン", icon: "timeline", note: "開始日から納期までの帯" },
   summary: { label: "集計", icon: "chart", note: "合計と月ごとの推移" },
+  workload: { label: "稼働", icon: "work", note: "週・月ごとに、進行中の件数や合計が重なる量" },
+  chart: { label: "グラフ", icon: "pie", note: "項目ごとの件数・合計を、棒・ドーナツ・折れ線で" },
 };
 
 export function PropIcon({ type, size = 14 }: { type: PropType; size?: number }) {
@@ -64,6 +69,8 @@ export const TAG_COLORS: Record<TagColor, { label: string; hue: string }> = {
 export function colorOf(prop: Property | undefined, option: string): TagColor {
   const c = prop?.colors?.[option];
   if (c) return c;
+  // ステータスは、色を決めていなければグループの色（未着手は灰色・進行中は青・完了は緑）
+  if (prop?.type === "status") return ({ todo: "gray", doing: "blue", done: "green" } as const)[statusGroupOf(prop, option)];
   if (/完了|済|done/i.test(option)) return "green";
   if (/進行|作業|対応/.test(option)) return "blue";
   if (/保留|待ち|確認/.test(option)) return "yellow";

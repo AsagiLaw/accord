@@ -179,11 +179,11 @@ export function StagePills({ stages, onPick }: { stages: { name: string; date: s
 }
 
 /**
- * 工程の項目の、ページの工程の期限（開始日から納期までを、工程の％で分けた日）。
- * 開始日か納期が空のときは日付を出せないので、工程の名前と終わったかだけ（date が ""）
+ * 工程の項目の、ページの工程の期限（工程の設定の開始日から終了日までを、工程の割合で分けた日）。
+ * 開始日か終了日が空のときは日付を出せないので、工程の名前と終わったかだけ（date が ""）
  */
 export function stageDatesOf(prop: Property, page: DbPage): { name: string; pct: number; date: string; done: boolean }[] {
-  const dated = stageDates(prop, page, page.values[P.start], page.values[P.due]);
+  const dated = stageDates(prop, page);
   if (dated.length) return dated;
   const { list, index } = stageOf(prop, page);
   return list.map((x, i) => ({ name: x.name, pct: x.pct, date: "", done: i <= index }));

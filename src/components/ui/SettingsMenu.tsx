@@ -5,7 +5,8 @@ import { IconMark } from "@/components/IconMark";
 import { Icon, type IconName } from "@/components/Icon";
 
 // ブロックの設定の画面（Notion のビューの設定と同じ形）。
-// 行を押すと中の画面に進み、左上の「‹」で戻る。選ぶものはプルダウンを使わず、中の画面の一覧から押して選ぶ
+// 行を押すと中の画面に進み、左上の「‹」で戻る。選ぶものはプルダウンを使わず、中の画面の一覧から押して選ぶ。
+// 説明（note）は行の下に出さず、カーソルを合わせたときに出す（行の下に並べると、高さがそろわず見にくいため）
 
 /** 設定のトップの見出し（「〇〇の設定」） */
 export function MenuTitle({ children }: { children: React.ReactNode }) {
@@ -84,11 +85,10 @@ export function OptionRow({
   onClick: () => void;
 }) {
   return (
-    <button role="menuitemradio" aria-checked={!!selected} onClick={onClick} className={`flex min-h-[34px] w-full items-center gap-2 rounded-[8px] px-2 py-1 text-left hover:bg-tint ${selected ? "font-bold" : ""}`}>
+    <button role="menuitemradio" aria-checked={!!selected} onClick={onClick} title={note} className={`flex min-h-[34px] w-full items-center gap-2 rounded-[8px] px-2 py-1 text-left hover:bg-tint ${selected ? "font-bold" : ""}`}>
       <Lead icon={icon} emoji={emoji} />
       <span className="min-w-0 flex-1">
         <span className="block truncate">{children}</span>
-        {note && <span className="block truncate text-xs font-normal text-muted">{note}</span>}
       </span>
       {selected && <Icon name="ok" size={16} className="shrink-0 text-accent" />}
     </button>
@@ -98,11 +98,10 @@ export function OptionRow({
 /** オン・オフを切り替える行（右にスイッチ） */
 export function ToggleRow({ icon, label, note, on, onChange }: { icon?: IconName; label: string; note?: string; on: boolean; onChange: (on: boolean) => void }) {
   return (
-    <button role="menuitemcheckbox" aria-checked={on} onClick={() => onChange(!on)} className="flex min-h-[34px] w-full items-center gap-2 rounded-[8px] px-2 py-1 text-left hover:bg-tint">
+    <button role="menuitemcheckbox" aria-checked={on} onClick={() => onChange(!on)} title={note} className="flex min-h-[34px] w-full items-center gap-2 rounded-[8px] px-2 py-1 text-left hover:bg-tint">
       <Lead icon={icon} />
       <span className="min-w-0 flex-1">
         <span className="block">{label}</span>
-        {note && <span className="block text-xs text-muted">{note}</span>}
       </span>
       <span aria-hidden className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${on ? "bg-accent" : "bg-line"}`}>
         <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? "left-[18px]" : "left-0.5"}`} />

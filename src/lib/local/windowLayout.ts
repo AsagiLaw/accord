@@ -269,15 +269,17 @@ export function replaceProgress(blocks: unknown[], ids: Parameters<typeof progre
 // ---- オールビュー（Notion のリンクされたビュー）のビュー ----
 
 /** オールビューのブロックが持つビュー1つ（データベースのビューと同じ中身。データベースとは別に持つ） */
-export type BlockView = Pick<DbView, "id" | "name" | "type" | "filters" | "sort" | "options">;
+export type BlockView = Pick<DbView, "id" | "name" | "type" | "filters" | "filterMode" | "sort" | "sorts" | "options">;
 
 /** データベースのビューを、ブロックが持つビューとしてコピーする（ID は新しくする） */
-export const copyView = (v: Pick<DbView, "name" | "type" | "filters" | "sort" | "options">): BlockView => ({
+export const copyView = (v: Pick<DbView, "name" | "type" | "filters" | "filterMode" | "sort" | "sorts" | "options">): BlockView => ({
   id: newId(),
   name: v.name,
   type: v.type,
   filters: v.filters ?? [],
+  ...(v.filterMode ? { filterMode: v.filterMode } : {}),
   sort: v.sort ?? null,
+  ...(v.sorts ? { sorts: v.sorts } : {}),
   options: v.options ?? {},
 });
 

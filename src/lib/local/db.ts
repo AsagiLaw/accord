@@ -1,7 +1,7 @@
 import Dexie, { type EntityTable, type Table, type Transaction } from "dexie";
 import { newId } from "@/lib/id";
 import type { ImageEdit } from "@/lib/media/edit";
-import { DEFAULT_STAGES as REQUEST_DEFAULT_STAGES, requestDatabase } from "@/lib/requests/defaults";
+import { DEFAULT_STAGES as REQUEST_DEFAULT_STAGES, requestDatabase, stepsFromPcts, stepsFromRatios } from "@/lib/requests/defaults";
 import { copyView, fromGrid, homeBlocks, layoutToBlocks, mapTabs, mergePageProp, replaceProgress, standardRequestBlocks, standardRequestTemplate, toBlockTab } from "./windowLayout";
 
 export { newId };
@@ -225,14 +225,21 @@ export type PropType =
   /** 作成日時・更新日時は自動で入る（"YYYY-MM-DD HH:mm"） */
   | "created"
   | "edited"
-  /** 工程：プランなどの選択肢ごとに、工程の名前と％を決めておき、その中から選ぶ */
+  /** 工程：プランなどの選択肢ごとに、工程の名前と割合を決めておき、その中から選ぶ */
   | "stage"
   /** ページごとのチャット・イメージチャット。値はチャットの ID。表やボードには出さず、シングルビューで出す */
   | "chat"
-  | "imageChat";
+  | "imageChat"
+  /** 数式：ほかの項目から計算する（値は保存せず、読むたびに計算する。式は formula） */
+  | "formula"
+  /** 通し番号：ページを作ると 1, 2, 3… と自動で入る（値は数。見せるときは prefix と digits で「#001」） */
+  | "serial";
 
-/** 工程の1段階。pct はその工程まで終わったときの進み具合（0〜100） */
-export type StageStep = { name: string; pct: number };
+/** ステータスのグループ（Notion と同じ）：未着手・進行中・完了 */
+export type StatusGroup = "todo" | "doing" | "done";
+
+/** 工程の1段階。weight はこの工程の割合（例：下書き 1・清書 4 なら 20% と 80%）。進み具合は「ここまでの割合の合計 ÷ 全部の合計」 */
+export type StageStep = { name: string; weight: number };
 /** 選択肢の色（Notion と同じ9色） */
 export type TagColor = "gray" | "brown" | "orange" | "yellow" | "green" | "blue" | "purple" | "pink" | "red";
 export type Property = {
@@ -242,15 +249,29 @@ export type Property = {
   options?: string[];
   /** 選択肢ごとの色。無い選択肢は灰色 */
   colors?: Record<string, TagColor>;
-  format?: "yen" | "percent";
+  format?: "yen" | "percent" | "plain";
   /** 工程の項目：どの選択の項目で工程を切り替えるか（無ければ1つの並びだけ） */
   basedOn?: string;
   /** 工程の項目：選択肢ごとの工程の並び。basedOn が無いときは "" に入れる */
   stages?: Record<string, StageStep[]>;
+  /** 工程の項目：工程の期限を割り振る開始日と終了日（日付の項目の ID）。無ければ期限は出さない */
+  start?: string;
+  end?: string;
   /** チャットの項目：書き込める人（無ければルームの全員） */
   allowed?: string[];
   /** イメージチャットの項目："page" なら依頼者（ページの名前）と参加者を最初から話す人に入れる */
   seed?: string;
+  /** 数式の項目：式（例：{依頼料} * 0.78）。書き方は lib/requests/formula.ts */
+  formula?: string;
+  /** ステータスの項目：選択肢ごとのグループ。無い選択肢は名前から決める（statusGroupOf） */
+  groups?: Record<string, StatusGroup>;
+  /** 選択・マルチセレクト・ステータス：選択肢に付けた数（手数料の％など）。数式の 数({項目}) で使う */
+  optionValues?: Record<string, number>;
+  /** 通し番号の項目：番号の頭に付ける文字（例：#）と桁数（例：3 → 001） */
+  prefix?: string;
+  digits?: number;
+  /** はじめから入る値（新しいページを作ったとき）。"@me" は作った人、"@today" は作った日 */
+  defaultValue?: unknown;
 };
 /** 依頼プランの工程。ratio は開始日（0）から納期（1）までのどのあたりが期限か */
 export type Stage = { name: string; ratio: number };
@@ -280,6 +301,10 @@ export type Database = {
   sidebarViewId?: string | null;
   /** ページの名前の後ろに付ける言葉（例：「様」）。無いときは、依頼は「様」、ほかは付けない */
   nameSuffix?: string;
+  /** 納期のお知らせに使う日付の項目。undefined は名前（納期・締切・期限）から自動で選ぶ、null はお知らせしない */
+  dueProp?: string | null;
+  /** 納期の何日前から「近い」とするか（無ければ3日） */
+  dueDays?: number;
 };
 
 /** ページのテンプレート。note はスクロールする本文（ノート）、window は画面固定の本文（ウィンドウ） */
@@ -320,19 +345,28 @@ export type DbPage = {
   sourceId?: string | null;
   /** 前の window 型の並べ方（今はページのノートを使う） */
   layout?: WinNode | null;
+  /** ゴミ箱に入れた日時。あるページは一覧に出さず、30日たったら完全に削除する */
+  deletedAt?: number;
 };
 
-export type ViewType = "table" | "board" | "list" | "gallery" | "progress" | "calendar" | "timeline" | "summary";
+/** workload：稼働（期間ごとに重なっている件数・合計）／chart：グラフ（項目ごとの件数・合計を棒・円・折れ線で） */
+export type ViewType = "table" | "board" | "list" | "gallery" | "progress" | "calendar" | "timeline" | "summary" | "workload" | "chart";
 export type CalcType = "none" | "count" | "filled" | "empty" | "sum" | "avg" | "min" | "max";
 export type FilterOp = "is" | "isNot" | "empty" | "notEmpty" | "contains" | "gt" | "lt";
 export type Filter = { prop: string; op: FilterOp; value?: string };
+export type Sort = { prop: string; dir: "asc" | "desc" };
 export type DbView = {
   id: string;
   dbId: string;
   name: string;
   type: ViewType;
   filters: Filter[];
-  sort: { prop: string; dir: "asc" | "desc" } | null;
+  /** フィルターの条件を「すべてに合う（and）」か「どれか1つに合う（or）」でつなぐ。無ければ and */
+  filterMode?: "and" | "or";
+  /** 前の並び替え（1つだけ）。今は sorts を使い、無いときだけこれを読む（sortsOf） */
+  sort: Sort | null;
+  /** 並び替え（上から順に比べる） */
+  sorts?: Sort[];
   /** gauge：ゲージにする数値／date：期限に使う日付／stages：工程を自動で出す／sum：合計する数値 */
   options: {
     gauge?: string;
@@ -341,8 +375,40 @@ export type DbView = {
     sum?: string;
     /** 表示する項目と順番（無ければすべて） */
     visible?: string[];
-    /** ボードの列に使う項目（選択・ステータス） */
+    /** ボードの列に使う項目（選択・ステータス）。テーブル・リスト・ギャラリー・タイムラインでは、グループ分けに使う項目（無ければ分けない）。グラフでは分ける項目 */
     group?: string;
+    /** グループ（ボードの列）ごとに合計する数の項目。見出しに件数と一緒に出す */
+    groupSum?: string;
+    /** ページが無いグループ（ボードの列）を隠す */
+    hideEmptyGroups?: boolean;
+    /** グループ（ボードの列）の並び順（グループの名前の並び。無いものは後ろに元の順で） */
+    groupOrder?: string[];
+    /** 色分けに使う項目（選択・ステータス）。カード・帯・予定を、その選択肢の色で塗る */
+    colorBy?: string;
+    /** ページの開き方：ポップアップ（peek。無いときも）・右から出す（side）・ページの画面（page） */
+    openAs?: "peek" | "side" | "page";
+    /** ビューを固定する（並び替え・フィルター・列の幅などを変えられなくする。ページの中身は変えられる） */
+    locked?: boolean;
+    /** テーブル：セルの文章を右端で折り返す */
+    wrap?: boolean;
+    /** ギャラリー：カードの大きさと、画像の収め方（cover は切り抜く、contain は全体を見せる） */
+    cardSize?: "s" | "m" | "l";
+    imageFit?: "cover" | "contain";
+    /** カレンダー：週の始まり（0 は日曜、1 は月曜）と、土日を隠すか */
+    weekStart?: 0 | 1;
+    hideWeekends?: boolean;
+    /** タイムライン：帯の左に表（名前と、出す項目の列）を出す */
+    timelineTable?: boolean;
+    /** 集計：合計を分ける項目・期間（all はすべて、year は今年、last12 は直近12か月）・去年と比べるか */
+    split?: string;
+    period?: "all" | "year" | "last12";
+    compare?: boolean;
+    /** 稼働：期間の単位（週・月）・1期間あたりの上限・終わったページも数えるか */
+    workUnit?: "week" | "month";
+    limit?: number;
+    includeDone?: boolean;
+    /** グラフ：形（棒・ドーナツ・折れ線） */
+    chartType?: "bar" | "donut" | "line";
     /** テーブルの列ごとの集計 */
     calc?: Record<string, CalcType>;
     /** ギャラリーの表紙に使うメディアの項目 */
@@ -354,6 +420,10 @@ export type DbView = {
     calendarRange?: "day" | "week" | "month" | "year";
     /** カレンダーの右上に「日・週・月・年」の切り替えボタンを出す（編集モードでなくても切り替えられる。切り替えはその場だけ） */
     calendarSwitch?: boolean;
+    /** カレンダーの予定の文章を、…で切らずにマスの右端で折り返す */
+    calendarWrap?: boolean;
+    /** タイムラインの幅（Notion と同じく、画面の横幅にだいたい入る期間）。無ければ月。右上のドロップダウンでその場だけ切り替えられる */
+    timelineScale?: "week" | "biweek" | "month" | "quarter" | "year";
     /** オールビューのブロックでの高さ（小・中・大）。無ければ中身に合わせる。入りきらない分は「すべて見る」から */
     size?: "s" | "m" | "l";
     /** 割合ビューのゲージの形 */
@@ -910,7 +980,7 @@ db.version(7)
       const stages: Record<string, StageStep[]> = {};
       for (const opt of planProp?.options ?? []) {
         const list = d.plans[opt] ?? REQUEST_DEFAULT_STAGES;
-        stages[opt] = list.map((x) => ({ name: x.name, pct: Math.round(x.ratio * 100) }));
+        stages[opt] = stepsFromRatios(list);
       }
       const stageProp: Property = { id: "p_stage", name: "工程", type: "stage", basedOn: "p_plan", stages };
       const props = [...d.props];
@@ -920,9 +990,9 @@ db.version(7)
       // 各依頼の今の工程は、進行の％から決める（その％までに終わっている一番後ろの工程）
       const pages = (await tx.table("dbPages").where("dbId").equals(d.id).toArray()) as DbPage[];
       for (const pg of pages) {
-        const list = stages[String(pg.values["p_plan"] ?? "")] ?? REQUEST_DEFAULT_STAGES.map((x) => ({ name: x.name, pct: Math.round(x.ratio * 100) }));
+        const list = d.plans[String(pg.values["p_plan"] ?? "")] ?? REQUEST_DEFAULT_STAGES;
         const prog = Number(pg.values["p_prog"]) || 0;
-        const done = list.filter((x) => x.pct <= prog).at(-1);
+        const done = list.filter((x) => Math.round(x.ratio * 100) <= prog).at(-1);
         if (done) await tx.table("dbPages").update(pg.id, { values: { ...pg.values, p_stage: done.name } });
       }
       // ビューも工程の項目を使う
@@ -1180,3 +1250,61 @@ db.version(29).stores({
   accounts: "userId, &email",
   authTokens: "token, userId",
 });
+
+// 工程の％（その工程まで終わったときの進み具合）を、工程ごとの割合（weight）に移す。今の％はそのまま
+db.version(30)
+  .stores({})
+  .upgrade(async (tx) => {
+    await tx
+      .table("databases")
+      .toCollection()
+      .modify((d: Database) => {
+        let changed = false;
+        const props = d.props.map((p) => {
+          if (p.type !== "stage" || !p.stages) return p;
+          const stages: Record<string, StageStep[]> = {};
+          for (const [k, list] of Object.entries(p.stages)) {
+            const old = list as unknown as { name: string; pct?: number; weight?: number }[];
+            if (old.every((x) => typeof x.weight === "number")) stages[k] = list;
+            else {
+              stages[k] = stepsFromPcts(old.map((x) => ({ name: x.name, pct: Number(x.pct) || 0 })));
+              changed = true;
+            }
+          }
+          return { ...p, stages };
+        });
+        if (changed) d.props = props;
+      });
+  });
+
+// 工程の期限に使う日付を、工程の項目で選べるようにした。今までの依頼は「依頼開始日」と「納期」を使っていたので、それを入れる
+db.version(31)
+  .stores({})
+  .upgrade(async (tx) => {
+    await tx
+      .table("databases")
+      .toCollection()
+      .modify((d: Database) => {
+        const has = (id: string) => d.props.some((p) => p.id === id && p.type === "date");
+        if (!d.props.some((p) => p.type === "stage" && !p.start && !p.end)) return;
+        d.props = d.props.map((p) =>
+          p.type === "stage" && !p.start && !p.end ? { ...p, start: has("p_start") ? "p_start" : undefined, end: has("p_due") ? "p_due" : undefined } : p,
+        );
+      });
+  });
+
+// カレンダーの「工程の期限を出す」を外して、「出す日付」で工程を選ぶ形にした。選んでいた工程は「出す日付」に移す（出す日付を決めていたら、そちらを残す）
+db.version(32)
+  .stores({})
+  .upgrade(async (tx) => {
+    await tx
+      .table("dbViews")
+      .toCollection()
+      .modify((v: DbView) => {
+        if (v.type !== "calendar" || (!v.options.stage && !v.options.stages)) return;
+        const stage = v.options.stage;
+        if (stage && !v.options.date) v.options.date = stage;
+        delete v.options.stage;
+        delete v.options.stages;
+      });
+  });

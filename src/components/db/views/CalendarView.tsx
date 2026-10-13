@@ -1,21 +1,20 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { choose, confirmAction, promptText } from "@/components/ui/overlay";
-import { useRouter } from "next/navigation";
 import { addEvent, createPage, deleteEvent, nameSuffixOf, newPageDefaults } from "@/lib/local/requests";
 import { P } from "@/lib/requests/defaults";
 import { addDays, isDate, stagesOf, today, valueOf } from "@/lib/requests/logic";
-import { stageDates } from "@/lib/requests/stages";
+import { stageDates, stageOf } from "@/lib/requests/stages";
 import { PopupDialog } from "@/components/ui/Dialog";
-import { pageHref, type ViewProps } from "./common";
-import { timelineProps } from "./TimelineView";
+import type { ViewProps } from "./common";
+import { colorHueOf, tintOf } from "./groups";
+import { PageLink as PeekLink, usePeek } from "../PageLink";
 
 const WEEK = "日月火水木金土";
 
-type Item = { key: string; text: string; href?: string; eventId?: string; tone: "auto" | "manual" | "done" };
+type Item = { key: string; text: string; pageId?: string; eventId?: string; tone: "auto" | "manual" | "done" };
 
 /** サイズ（小・中・大）ごとの、1日のマスに出す件数 */
 const PER_DAY = { s: 1, m: 2, l: 4 } as const;
@@ -61,14 +60,35 @@ const md = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8))}`
  * 設定で「切り替えボタン」をオンにすると、右上の「日・週・月・年」で、その場で切り替えられる（編集モードでなくても）
  */
 export function CalendarView({ database, pages, view, events, compact, fit, userId }: ViewProps) {
-  const router = useRouter();
+  const peek = usePeek();
   // 出す日付の項目。依頼以外で設定が無ければ、1つ目の日付の項目
   const dateId = view.options.date ?? (database.kind === "request" ? undefined : database.props.find((p) => p.type === "date")?.id);
   const now = today();
   const [month, setMonth] = useState(now.slice(0, 7));
   const [y, m] = month.split("-").map(Number);
-  const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
-  const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  // 週の始まり（日曜・月曜）と、土日を隠すか。order は並べる曜日の順（0 が日曜）
+  const ws = view.options.weekStart ?? 0;
+  const hideWe = !!view.options.hideWeekends;
+  const order = Array.from({ length: 7 }, (_, i) => (ws + i) % 7).filter((d) => !hideWe || (d !== 0 && d !== 6));
+  const colsStyle = { gridTemplateColumns: `repeat(${order.length}, minmax(0, 1fr))` };
+  /** 週の中の位置（週の始まりが 0） */
+  const posInWeek = (d: number) => (d - ws + 7) % 7;
+  /** 月の日付のマス：週ごとに、並べる曜日の順で。月の外のマスは null */
+  const monthCells = (ym: string) => {
+    const [yy, mo] = ym.split("-").map(Number);
+    const lead = posInWeek(new Date(Date.UTC(yy, mo - 1, 1)).getUTCDay());
+    const n = new Date(Date.UTC(yy, mo, 0)).getUTCDate();
+    const weeks = Math.ceil((lead + n) / 7);
+    const cells: (string | null)[] = [];
+    for (let w = 0; w < weeks; w++)
+      for (const d of order) {
+        const i = w * 7 + posInWeek(d) - lead + 1;
+        cells.push(i >= 1 && i <= n ? `${ym}-${pad(i)}` : null);
+      }
+    return { cells, weeks };
+  };
+  // 色分け：ページの予定は、選んだ項目の選択肢の色でうすく塗る
+  const pageById = new Map(pages.map((p) => [p.id, p]));
   const move = (n: number) => setMonth(new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7));
   // 期間：設定で決めたもの。切り替えボタンで選んだら、その場だけそれにする（設定の期間を変えたら、設定のほうに戻る）
   const setting: Range = view.options.calendarRange ?? "month";
@@ -80,11 +100,14 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
   // デイリー：今日から始める
   const daily = range === "day";
   const [day, setDay] = useState(now);
-  // ウィークリー：今週の日曜から始める
+  // ウィークリー：今週の始まり（日曜か月曜）から始める。土日を隠すときは、平日だけ並べる
   const weekly = range === "week";
-  const thisWeek = addDays(now, -dayOfWeek(now));
-  const [weekStart, setWeekStart] = useState(thisWeek);
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const thisWeek = addDays(now, -posInWeek(dayOfWeek(now)));
+  const [weekPicked, setWeekStart] = useState(thisWeek);
+  // 週の始まりの設定を変えたときも、その週の始まりにそろえる
+  const weekStart = addDays(weekPicked, -posInWeek(dayOfWeek(weekPicked)));
+  const weekAll = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const weekDays = weekAll.filter((d) => order.includes(dayOfWeek(d)));
   // サイズを決めていれば、1日に出す件数をそこまでにする（日付のマスは減らさない）。入りきらない日は「▼」でその日をポップアップ。
   // ウィンドウ（fit）では、高さは区画で決まるので、サイズは使わない
   const size = fit ? undefined : view.options.size;
@@ -92,7 +115,7 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
   const [dayOpen, setDayOpen] = useState<string | null>(null);
   // マスの高さ：サイズで決まる。決めていなければ中身に合わせる（ウィンドウでは、測るまでの仮の高さ）
   const natural = size ? CELL_PX[weekly ? "week" : "month"][size] : weekly ? (compact ? 160 : 256) : compact ? 64 : 96;
-  const rows = weekly ? 1 : Math.ceil((first + days) / 7);
+  const rows = weekly ? 1 : monthCells(month).weeks;
   // ウィンドウ（fit）では、マスの高さは区画の高さで決まる。今のマスの高さを測って、入る件数を決める
   const grid = useRef<HTMLDivElement>(null);
   const [rowH, setRowH] = useState<number | null>(null);
@@ -147,27 +170,25 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
   const push = (date: string, item: Item) => items.set(date, [...(items.get(date) ?? []), item]);
   for (const p of pages) {
     const suffix = nameSuffixOf(database);
-    const stageProp = database.props.find((x) => x.id === view.options.stage && x.type === "stage");
+    // 「出す日付」で工程の項目を選んだら、工程ごとの期限を出す
+    const stageProp = database.props.find((x) => x.type === "stage" && x.id === dateId);
+    // 終わった工程（今の工程より前）だけ斜線にする。今の工程は進めている途中なので、ふつうに出す
     if (stageProp) {
-      const { start, end } = timelineProps(database, view);
-      for (const s of stageDates(stageProp, p, start ? p.values[start] : undefined, end ? p.values[end] : undefined)) {
-        push(s.date, { key: `${p.id}:${s.name}`, text: `${s.name}：${p.title}${suffix}`, href: pageHref(database, p.id), tone: s.done ? "done" : "auto" });
-      }
-    } else if (view.options.stages) {
-      for (const s of stagesOf(database, p)) {
-        if (s.kind === "stage")
-          push(s.date, { key: `${p.id}:${s.name}`, text: `${s.name}：${p.title}${suffix}`, href: pageHref(database, p.id), tone: s.date < now ? "done" : "auto" });
-      }
+      const current = stageOf(stageProp, p).index;
+      stageDates(stageProp, p).forEach((s, i) => {
+        push(s.date, { key: `${p.id}:${s.name}`, text: `${s.name}：${p.title}${suffix}`, pageId: p.id, tone: i < current ? "done" : "auto" });
+      });
     }
-    const dp = database.props.find((x) => x.id === dateId);
+    const dp = database.props.find((x) => x.id === dateId && x.type !== "stage");
     const dv = dp ? valueOf(p, dp.id) : undefined;
-    if (dp && isDate(dv)) push(dv, { key: `${p.id}:${dp.id}`, text: `${dp.name}：${p.title}${suffix}`, href: pageHref(database, p.id), tone: "auto" });
+    if (dp && isDate(dv)) push(dv, { key: `${p.id}:${dp.id}`, text: `${dp.name}：${p.title}${suffix}`, pageId: p.id, tone: "auto" });
   }
   for (const e of events) push(e.date, { key: e.id, text: e.text, eventId: e.id, tone: "manual" });
 
   const add = async (date: string) => {
     const label = `${Number(date.slice(5, 7))}月${Number(date.slice(8))}日`;
-    const dp = database.props.find((x) => x.id === dateId);
+    // 「出す日付」が工程のときは、日付からページは作らない（予定だけ）
+    const dp = database.props.find((x) => x.id === dateId && x.type === "date");
     if (database.kind !== "request") {
       const k = await choose(label, [
         ...(dp ? [{ label: "ページを追加", detail: `「${dp.name}」がこの日のページを作る` }] : []),
@@ -177,8 +198,8 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
       if (dp && k === 0) {
         const title = await promptText(`${label}にページを追加`, "", "名前");
         if (!title) return;
-        const page = await createPage(database, userId, title, { ...newPageDefaults(database), [dp.id]: date });
-        router.push(pageHref(database, page.id));
+        const page = await createPage(database, userId, title, { ...newPageDefaults(database, userId), [dp.id]: date });
+        peek(database, page.id);
         return;
       }
       const text = await promptText(`${label}に予定を追加`, "", "内容");
@@ -284,7 +305,6 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
   /** 年のカレンダーの1か月：小さな日付のマス。予定のある日は色を付けて、押すとその日の予定をポップアップで出す */
   const miniMonth = (mm: number) => {
     const key = `${y}-${pad(mm)}`;
-    const f = new Date(Date.UTC(y, mm - 1, 1)).getUTCDay();
     const n = new Date(Date.UTC(y, mm, 0)).getUTCDate();
     let total = 0;
     for (let i = 1; i <= n; i++) total += items.get(`${key}-${pad(i)}`)?.length ?? 0;
@@ -314,31 +334,28 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
           </span>
         )}
         <div
-          className={`grid grid-cols-7 gap-px text-center text-[10px] ${fit ? "min-h-0 grow" : "auto-rows-[22px]"}`}
-          style={fit ? { gridTemplateRows: "repeat(7, minmax(0, 1fr))" } : undefined}
+          className={`grid gap-px text-center text-[10px] ${fit ? "min-h-0 grow" : "auto-rows-[22px]"}`}
+          style={{ ...colsStyle, ...(fit ? { gridTemplateRows: "repeat(7, minmax(0, 1fr))" } : {}) }}
         >
-          {[...WEEK].map((w, i) => (
-            <span key={w} className={`grid place-items-center ${i === 0 ? "text-warn" : "text-muted"}`}>
-              {w}
+          {order.map((d) => (
+            <span key={d} className={`grid place-items-center ${d === 0 ? "text-warn" : "text-muted"}`}>
+              {WEEK[d]}
             </span>
           ))}
-          {Array.from({ length: f }, (_, i) => (
-            <span key={`e${i}`} />
-          ))}
-          {Array.from({ length: n }, (_, i) => {
-            const day = `${key}-${pad(i + 1)}`;
+          {monthCells(key).cells.map((day, i) => {
+            if (!day) return <span key={`e${i}`} />;
             const c = items.get(day)?.length ?? 0;
             const tone = c >= 3 ? "bg-accent/45" : c === 2 ? "bg-accent/30" : c === 1 ? "bg-accent/15" : "";
             return (
               <button
                 key={day}
                 onClick={() => setDayOpen(day)}
-                title={`${mm}月${i + 1}日${c ? `：${c}件の予定` : ""}`}
+                title={`${mm}月${Number(day.slice(8))}日${c ? `：${c}件の予定` : ""}`}
                 className={`grid min-h-0 place-items-center overflow-hidden rounded-[4px] leading-none ${tone} ${c ? "font-bold text-ink" : "text-muted hover:bg-tint"} ${
                   day === now ? "outline-2 -outline-offset-2 outline-accent font-bold text-accent" : ""
                 }`}
               >
-                {i + 1}
+                {Number(day.slice(8))}
               </button>
             );
           })}
@@ -349,23 +366,34 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
 
   /** 予定1件（依頼の工程・日付はページへ、自分で入れた予定は押すと削除） */
   function item(it: Item) {
-    return it.href ? (
-      <Link key={it.key} href={it.href} title={it.text} className={`block truncate rounded px-1 ${it.tone === "done" ? "w-fit max-w-full text-muted line-through" : "bg-tint"}`}>
+    // 折り返す設定なら、…で切らずにマスの右端で折り返す
+    const fold = view.options.calendarWrap ? "break-words whitespace-normal" : "truncate";
+    const page = it.pageId ? pageById.get(it.pageId) : undefined;
+    const hue = page && it.tone !== "done" ? colorHueOf(database, view, page) : undefined;
+    return it.pageId ? (
+      <PeekLink
+        key={it.key}
+        database={database}
+        pageId={it.pageId}
+        title={it.text}
+        className={`block rounded px-1 ${fold} ${it.tone === "done" ? "w-fit max-w-full text-muted line-through" : "bg-tint"}`}
+        style={hue ? { background: tintOf(hue, 22), boxShadow: `inset 3px 0 0 ${hue}` } : undefined}
+      >
         {it.text}
-      </Link>
+      </PeekLink>
     ) : (
       <button
         key={it.key}
         title={`${it.text}（クリックで削除）`}
         onClick={async () => it.eventId && (await confirmAction(`「${it.text}」を削除します`, "削除")) && deleteEvent(it.eventId)}
-        className="block w-full truncate rounded border border-dashed border-accent px-1 text-left"
+        className={`block w-full rounded border border-dashed border-accent px-1 text-left ${fold}`}
       >
         {it.text}
       </button>
     );
   }
 
-  const weekEnd = weekDays[6];
+  const weekEnd = weekAll[6];
   const unit = daily ? "日" : weekly ? "週" : yearly ? "年" : "月";
   const step = (n: number) => (daily ? setDay(addDays(day, n)) : weekly ? setWeekStart(addDays(weekStart, 7 * n)) : move(yearly ? 12 * n : n));
   // 今の日・週・月・年を出していないときは、そこへ戻るボタンを出す
@@ -447,10 +475,10 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
         </div>
       ) : (
         <div className={`flex min-h-0 flex-col gap-px overflow-hidden rounded-[10px] border border-line bg-line text-xs ${fit ? "grow" : ""}`}>
-          <div className="grid shrink-0 grid-cols-7 gap-px">
-            {[...WEEK].map((w, i) => (
-              <div key={w} className={`bg-card py-1 text-center ${i === 0 ? "text-warn" : "text-muted"}`}>
-                {w}
+          <div className="grid shrink-0 gap-px" style={colsStyle}>
+            {order.map((d) => (
+              <div key={d} className={`bg-card py-1 text-center ${d === 0 ? "text-warn" : "text-muted"}`}>
+                {WEEK[d]}
               </div>
             ))}
           </div>
@@ -458,23 +486,15 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
             ウィンドウでは、区画の高さを全部の行で同じだけ分ける（日付は減らさない） */}
           <div
             ref={grid}
-            className={`grid grid-cols-7 gap-px ${fit ? "min-h-0 grow" : "auto-rows-fr"}`}
-            style={fit ? { gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` } : undefined}
+            className={`grid gap-px ${fit ? "min-h-0 grow" : "auto-rows-fr"}`}
+            style={{ ...colsStyle, ...(fit ? { gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` } : {}) }}
           >
             {weekly ? (
               // ウィークリー：1週間を大きく（予定が多くても読めるように）
               weekDays.map((d) => cell(d, md(d)))
             ) : (
-              <>
-                {Array.from({ length: first }, (_, i) => (
-                  <div key={`e${i}`} className="bg-card/60" />
-                ))}
-                {Array.from({ length: days }, (_, i) => cell(`${month}-${String(i + 1).padStart(2, "0")}`, String(i + 1)))}
-                {/* 最後の週の残りのマス（ほかの行と同じ見た目にする） */}
-                {Array.from({ length: (7 - ((first + days) % 7)) % 7 }, (_, i) => (
-                  <div key={`t${i}`} className="bg-card/60" />
-                ))}
-              </>
+              // 月の外のマスも、ほかと同じ見た目の空きにする
+              monthCells(month).cells.map((d, i) => (d ? cell(d, String(Number(d.slice(8)))) : <div key={`e${i}`} className="bg-card/60" />))
             )}
           </div>
         </div>

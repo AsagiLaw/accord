@@ -27,7 +27,7 @@ export function NewPageDialog({
 }) {
   const router = useRouter();
   const [title, setTitle] = useState("");
-  const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...newPageDefaults(database), ...template?.values, ...initial }));
+  const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...newPageDefaults(database, userId), ...template?.values, ...initial }));
   const [busy, setBusy] = useState(false);
   const titleProp = database.props.find((p) => p.type === "title");
   const label = "ページ";
@@ -68,7 +68,7 @@ export function NewPageDialog({
             <input value={title} onChange={(e) => setTitle(e.target.value)} required autoFocus className="field" placeholder={database.kind === "request" ? "例：〇〇" : ""} />
           </label>
           {database.props
-            .filter((p) => p.type !== "title" && p.type !== "chat" && p.type !== "imageChat" && !(database.kind === "request" && p.id === P.status))
+            .filter((p) => p.type !== "title" && p.type !== "chat" && p.type !== "imageChat" && p.type !== "formula" && p.type !== "serial" && !(database.kind === "request" && p.id === P.status))
             .map((p) => (
               <label key={p.id} className="block" htmlFor={`np-${p.id}`}>
                 <span className="text-sm text-muted">{p.name}</span>

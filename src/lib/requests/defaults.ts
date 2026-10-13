@@ -1,5 +1,5 @@
 import { newId } from "@/lib/id";
-import type { Database, DbView, Stage } from "@/lib/local/db";
+import type { Database, DbView, Stage, StageStep } from "@/lib/local/db";
 import { standardRequestTemplate } from "@/lib/local/windowLayout";
 
 // 依頼データベースの最初の形。項目は試作「依頼ノート」と同じ
@@ -67,9 +67,11 @@ export function requestDatabase(roomId: string): { database: Database; views: Db
         name: "工程",
         type: "stage",
         basedOn: P.plan,
+        start: P.start,
+        end: P.due,
         stages: {
-          通常: DEFAULT_STAGES.map((x) => ({ name: x.name, pct: Math.round(x.ratio * 100) })),
-          ラフ付き: ROUGH_STAGES.map((x) => ({ name: x.name, pct: Math.round(x.ratio * 100) })),
+          通常: stepsFromRatios(DEFAULT_STAGES),
+          ラフ付き: stepsFromRatios(ROUGH_STAGES),
         },
       },
       { id: P.progress, name: "進行", type: "number", format: "percent" },
@@ -89,10 +91,23 @@ export function requestDatabase(roomId: string): { database: Database; views: Db
   const views: DbView[] = [
     view(1, { name: "現在の依頼", type: "list", filters: notDone, sort: { prop: P.due, dir: "asc" }, options: { gauge: P.stage, date: P.due } }),
     view(2, { name: "テーブル", type: "table", filters: [], sort: { prop: P.received, dir: "desc" }, options: {} }),
-    view(3, { name: "依頼タイムライン", type: "timeline", filters: notDone, sort: { prop: P.due, dir: "asc" }, options: { stages: true, stage: P.stage } }),
+    view(3, { name: "依頼タイムライン", type: "timeline", filters: notDone, sort: { prop: P.due, dir: "asc" }, options: { date: P.stage } }),
     view(4, { name: "カレンダー", type: "calendar", filters: notDone, sort: null, options: { stages: true, stage: P.stage } }),
     view(5, { name: "これまでの収入", type: "summary", filters: [{ prop: P.status, op: "is", value: DONE }], sort: null, options: { sum: P.fee, date: P.due } }),
     view(6, { name: "終了した依頼", type: "table", filters: [{ prop: P.status, op: "is", value: DONE }], sort: { prop: P.due, dir: "desc" }, options: {} }),
   ];
   return { database, views };
 }
+
+const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+
+/** 「その工程まで終わったら何％か」の並びを、工程ごとの割合にする（差を取り、できるだけ小さな整数にする。例：30・60・85・100 → 6・6・5・3） */
+export function stepsFromPcts(list: { name: string; pct: number }[]): StageStep[] {
+  const sorted = [...list].sort((a, b) => a.pct - b.pct);
+  const diffs = sorted.map((x, i) => Math.max(0, Math.round(x.pct) - (i ? Math.round(sorted[i - 1].pct) : 0)));
+  const g = diffs.reduce((a, b) => gcd(a, b), 0) || 1;
+  return sorted.map((x, i) => ({ name: x.name, weight: diffs[i] / g }));
+}
+
+/** 依頼プランの工程（納期までのどのあたりか）から、工程の項目の割合を作る */
+export const stepsFromRatios = (list: Stage[]) => stepsFromPcts(list.map((x) => ({ name: x.name, pct: x.ratio * 100 })));

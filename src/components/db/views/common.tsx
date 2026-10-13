@@ -1,10 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { DEFAULT_PAGE_ICON, IconMark } from "@/components/IconMark";
 import { nameSuffixOf } from "@/lib/local/requests";
 import type { CalEvent, Database, DbPage, DbView } from "@/lib/local/db";
 import type { MemberWithProfile } from "@/lib/local/rooms";
+import { dueStatus, dueText, type DueState } from "@/lib/requests/due";
+import { Tag } from "../meta";
+import { PageLink as PeekLink } from "../PageLink";
 
 export type ViewProps = {
   database: Database;
@@ -25,8 +27,22 @@ export type ViewProps = {
 
 export const pageHref = (database: Database, pageId: string) => `/r/${database.roomId}/db/${database.id}/p/${pageId}`;
 
-/** ページのアイコン（絵文字・シンプルなアイコン・メディアの画像。付けていなければ標準のアイコン）と名前。名前が空なら「無題」。noIcon のときはアイコンを出さない */
-export function PageName({ database, page, className, noIcon }: { database: Database; page: DbPage; className?: string; noIcon?: boolean }) {
+/** 納期の印（3日超過・今日まで・あと2日）。過ぎた・今日は赤、近いはオレンジ */
+export function DueBadge({ state }: { state: DueState }) {
+  return (
+    // 狭い場所では、名前と一緒に縮む（どちらも少しずつ見えるように）
+    <span className="flex min-w-0 text-xs font-bold" title={`納期：${state.date.replaceAll("-", "/")}`} data-name="納期の印">
+      <Tag color={state.tone === "soon" ? "orange" : "red"}>{dueText(state)}</Tag>
+    </span>
+  );
+}
+
+/**
+ * ページのアイコン（絵文字・シンプルなアイコン・メディアの画像。付けていなければ標準のアイコン）と名前。名前が空なら「無題」。noIcon のときはアイコンを出さない。
+ * 納期が近い・過ぎたページは、名前の横に納期の印を出す（noDue のときは出さない）
+ */
+export function PageName({ database, page, className, noIcon, noDue }: { database: Database; page: DbPage; className?: string; noIcon?: boolean; noDue?: boolean }) {
+  const due = noDue ? null : dueStatus(database, page);
   return (
     <span className={`inline-flex min-w-0 items-center gap-1.5 ${className ?? ""}`}>
       {!noIcon && (
@@ -38,15 +54,16 @@ export function PageName({ database, page, className, noIcon }: { database: Data
         {page.title || "無題"}
         {page.title && nameSuffixOf(database)}
       </span>
+      {due && <DueBadge state={due} />}
     </span>
   );
 }
 
 export function PageLink({ database, page, className }: { database: Database; page: DbPage; className?: string }) {
   return (
-    <Link href={pageHref(database, page.id)} className={`hover:underline ${className ?? ""}`}>
+    <PeekLink database={database} pageId={page.id} className={`hover:underline ${className ?? ""}`}>
       <PageName database={database} page={page} />
-    </Link>
+    </PeekLink>
   );
 }
 

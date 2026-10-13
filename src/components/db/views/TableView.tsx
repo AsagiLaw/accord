@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
@@ -12,13 +11,16 @@ import { Popover, MenuItem, usePopover } from "@/components/ui/Popover";
 import type { CalcType, DbPage, Property } from "@/lib/local/db";
 import { createBlankPage, setPageIcon, updatePageTitle, updatePageValue } from "@/lib/local/requests";
 import { useSaveView } from "../viewSave";
-import { valueOf } from "@/lib/requests/logic";
+import { sortsOf, valueOf } from "@/lib/requests/logic";
 import { AddPropertyMenu, PropertyMenu, calcLabel, calcsFor, calculate, visibleProps } from "../editors";
 import { PropIcon } from "../meta";
 import { PropInput } from "../PropInput";
 import { StageSettings } from "../StageSettings";
 import { PropValue, SelectEditor, StageEditor } from "../values";
 import { PageName, pageHref, type ViewProps } from "./common";
+import { PageLink as PeekLink } from "../PageLink";
+import { asValueProp, valueTypeOf } from "@/lib/requests/formula";
+import { GroupHead, colorHueOf, groupPages, groupPropOf, groupSumText, useCollapsed } from "./groups";
 
 const MIN_W = 60;
 const MAX_W = 800;
@@ -51,6 +53,13 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
   const rowMenu = usePopover();
   const [menuFor, setMenuFor] = useState<DbPage | null>(null);
   const vertical = view.options.layout === "vertical";
+  // 固定したビュー：列の幅を変えたり、項目を足したりしない
+  const locked = !!view.options.locked;
+  // 文章を右端で折り返す
+  const wrap = !!view.options.wrap;
+  // グループ分け（横一列の表だけ）
+  const group = vertical ? undefined : groupPropOf(database, view);
+  const collapsed = useCollapsed();
   // 列の幅・集計は、ビューに保存する（ブロックだけのビューなら、ブロックに）
   const saveView = useSaveView();
 
@@ -77,7 +86,9 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
     el.classList.remove("fit-measuring");
     if (max) void saveWidth(key, max + extra);
   };
-  const resizer = (key: string, def: number, extra: number) => (
+  // 固定したビューでは、列の幅は変えない（つまみを出さない）
+  const resizer = (key: string, def: number, extra: number) =>
+    !locked && (
     <span
       role="separator"
       aria-orientation="vertical"
@@ -113,7 +124,8 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
     if (c.type === "checkbox") return void updatePageValue(p.id, c.id, !valueOf(p, c.id));
     // チャットの項目は、会話をポップアップで開く
     if (c.type === "chat" || c.type === "imageChat") return setChatAt({ page: p, prop: c });
-    if (c.type === "created" || c.type === "edited") return;
+    // 自動の日時と数式は、ここでは変えない（数式は列の見出しの「式の設定」から）
+    if (c.type === "created" || c.type === "edited" || c.type === "formula" || c.type === "serial") return;
     setCellAt({ page: p, prop: c });
     cell.open(e);
   };
@@ -160,13 +172,14 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
     );
 
   const openLink = (p: DbPage) => (
-    <Link
-      href={pageHref(database, p.id)}
+    <PeekLink
+      database={database}
+      pageId={p.id}
       className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-1 rounded-[6px] border border-line bg-card px-1.5 py-0.5 text-xs text-muted opacity-0 group-hover:opacity-100 hover:text-ink focus:opacity-100 max-md:opacity-70"
     >
       <Icon name="open" size={12} />
       開く
-    </Link>
+    </PeekLink>
   );
 
   /** 項目の見出し（押すとメニュー） */
@@ -181,7 +194,10 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
       <span data-fit={fitKey} className="flex min-w-0 items-center gap-1.5">
         <PropIcon type={p.type} />
         <span className="truncate">{p.name}</span>
-        {view.sort?.prop === p.id && <Icon name={view.sort.dir === "asc" ? "up" : "dn"} size={14} />}
+        {(() => {
+          const s = sortsOf(view).find((x) => x.prop === p.id);
+          return s && <Icon name={s.dir === "asc" ? "up" : "dn"} size={14} />;
+        })()}
       </span>
     </button>
   );
@@ -190,10 +206,11 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
   const valueCell = (p: DbPage, c: Property, fitKey: string) => (
     <button
       onClick={(e) => openCell(e, p, c)}
-      className="flex min-h-[34px] w-full items-center overflow-hidden px-2 py-1 text-left whitespace-nowrap hover:bg-tint"
+      // 折り返すときは、セルの右端で次の行へ（行の高さは中身に合わせる）
+      className={`flex min-h-[34px] w-full overflow-hidden px-2 py-1 text-left hover:bg-tint ${wrap ? "items-start break-words whitespace-normal" : "items-center whitespace-nowrap"}`}
       aria-label={`${p.title || "無題"}の${c.name}`}
     >
-      <span data-fit={fitKey} className="flex min-w-0 items-center">
+      <span data-fit={fitKey} className={wrap ? "min-w-0 [&_*]:whitespace-normal" : "flex min-w-0 items-center"}>
         <PropValue prop={c} value={valueOf(p, c.id)} members={members} page={p} />
       </span>
     </button>
@@ -332,6 +349,34 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
     </th>
   );
 
+  /** ページ1行。色分けしていれば、行の左の端に色の線 */
+  const row = (p: DbPage) => {
+    const hue = colorHueOf(database, view, p);
+    return (
+      <tr key={p.id} className="group border-b border-line">
+        <td className="relative border-r border-line p-0" style={hue ? { boxShadow: `inset 3px 0 0 ${hue}` } : undefined}>
+          {titleCell(p, titleProp.id)}
+          {openLink(p)}
+        </td>
+        {cols.map((c) => (
+          <td key={c.id} className={`border-r border-line p-0 ${wrap ? "align-top" : ""}`}>
+            {valueCell(p, c, c.id)}
+          </td>
+        ))}
+        <td />
+      </tr>
+    );
+  };
+  const groups = group ? groupPages(group, pages, view, members) : null;
+  /** グループの下の「新規」で入れる値（そのグループの値。入れられない項目なら undefined） */
+  const groupValue = (key: string): unknown => {
+    if (!group || key === "") return undefined;
+    if (group.type === "checkbox") return key === "true";
+    if (group.type === "multiselect") return [key];
+    if (group.type === "select" || group.type === "status" || group.type === "user") return key;
+    return undefined;
+  };
+
   return (
     <div ref={box} className="overflow-x-auto rounded-[12px] border border-line bg-card">
       <table className="table-fixed border-collapse text-sm" style={{ width: total }}>
@@ -347,36 +392,51 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
             {headerCell(titleProp)}
             {cols.map(headerCell)}
             <th className="p-0">
-              <button
-                aria-label="項目を追加"
-                title="項目を追加"
-                onClick={(e) => {
-                  setHeaderProp("add");
-                  header.open(e);
-                }}
-                className="grid h-8 w-full place-items-center text-muted hover:bg-tint"
-              >
-                <Icon name="add" size={16} />
-              </button>
+              {/* 固定したビューでは、項目を足さない（足した項目をこのビューに出せないため） */}
+              {!locked && (
+                <button
+                  aria-label="項目を追加"
+                  title="項目を追加"
+                  onClick={(e) => {
+                    setHeaderProp("add");
+                    header.open(e);
+                  }}
+                  className="grid h-8 w-full place-items-center text-muted hover:bg-tint"
+                >
+                  <Icon name="add" size={16} />
+                </button>
+              )}
             </th>
           </tr>
         </thead>
-        <tbody>
-          {pages.map((p) => (
-            <tr key={p.id} className="group border-b border-line">
-              <td className="relative border-r border-line p-0">
-                {titleCell(p, titleProp.id)}
-                {openLink(p)}
-              </td>
-              {cols.map((c) => (
-                <td key={c.id} className="border-r border-line p-0">
-                  {valueCell(p, c, c.id)}
+        {/* グループ分けしていれば、グループごとに見出しの行を付けて分ける（たためる。グループの下の「新規」はそのグループの値で作る） */}
+        {groups ? (
+          groups.map((g) => (
+            <tbody key={g.key || "__none"}>
+              <tr className="border-b border-line bg-bg/40">
+                <td colSpan={cols.length + 2} className="px-1 py-0.5">
+                  <GroupHead group={g} sum={groupSumText(database, view, g.pages)} collapsed={collapsed.isClosed(g.key)} onToggle={() => collapsed.toggle(g.key)} />
                 </td>
-              ))}
-              <td />
-            </tr>
-          ))}
-        </tbody>
+              </tr>
+              {!collapsed.isClosed(g.key) && g.pages.map(row)}
+              {!collapsed.isClosed(g.key) && groupValue(g.key) !== undefined && (
+                <tr className="border-b border-line">
+                  <td colSpan={cols.length + 2} className="p-0">
+                    <button
+                      onClick={async () => setEditingTitle((await createBlankPage(database, userId, { [group!.id]: groupValue(g.key) })).id)}
+                      className="flex w-full items-center gap-1.5 px-2 py-1 pl-7 text-left text-sm text-muted hover:bg-tint"
+                    >
+                      <Icon name="add" size={14} />
+                      新規
+                    </button>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          ))
+        ) : (
+          <tbody>{pages.map(row)}</tbody>
+        )}
         <tfoot>
           <tr className="border-b border-line">
             <td colSpan={cols.length + 2} className="p-0">
@@ -401,7 +461,7 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
                     }}
                     className="w-full truncate px-2 py-1 text-right opacity-60 hover:bg-tint hover:opacity-100"
                   >
-                    {type === "none" ? "計算" : `${calcLabel(c, type)}　${calculate(c, pages, type)}`}
+                    {type === "none" ? "計算" : `${calcLabel(asValueProp(database, c), type)}　${calculate(asValueProp(database, c), pages, type)}`}
                   </button>
                 </td>
               );
@@ -415,7 +475,7 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
       {popovers}
       {calc.anchor && calcProp && (
         <Popover anchor={calc.anchor} onClose={calc.close} width={200} label={`「${calcProp.name}」の計算`}>
-          {calcsFor(calcProp.type).map((t) => (
+          {calcsFor(valueTypeOf(database, calcProp)).map((t) => (
             <MenuItem
               key={t}
               active={(view.options.calc?.[calcProp.id] ?? "none") === t}

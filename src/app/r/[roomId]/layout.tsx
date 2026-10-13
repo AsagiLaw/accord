@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { useState } from "react";
+import { FormulaSettingsHost } from "@/components/db/FormulaSettings";
+import { PagePeekProvider } from "@/components/db/PagePeek";
 import { TopBarSlot } from "@/components/TopBarSlot";
 import { useMembers, useMyRooms, useRoom } from "@/lib/local/rooms";
 import { useCurrentUser } from "@/lib/local/session";
@@ -74,7 +76,10 @@ export default function RoomLayout({ children }: { children: React.ReactNode }) 
           <div className="flex min-h-0 flex-1">
             {/* スクロールバーの場所はいつも空けておく（出たり消えたりで幅が変わり、画像の大きさが揺れ続けないように） */}
             <div data-name="メイン画面の中身" className="min-h-0 min-w-0 flex-1 overflow-auto px-[clamp(16px,4vw,40px)] pt-4 pb-7 [scrollbar-gutter:stable]">
-              {children}
+              {/* ビューからページを押すと、ポップアップで開く（ページのポップアップ） */}
+              <PagePeekProvider>{children}</PagePeekProvider>
+              {/* 数式の項目の設定（項目のメニューなどから開く） */}
+              <FormulaSettingsHost />
             </div>
             <MemberList members={members} meId={me.id} desktopOpen={desktopMembers} mobileOpen={mobileMembers} onCloseMobile={() => setMobileMembersAt(null)} />
           </div>

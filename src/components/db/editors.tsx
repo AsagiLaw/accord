@@ -3,15 +3,18 @@
 import { useState } from "react";
 import { Icon } from "@/components/Icon";
 import { MenuDivider, MenuItem, MenuLabel } from "@/components/ui/Popover";
-import { ChoiceScreen, NavRow } from "@/components/ui/SettingsMenu";
+import { BackHead, ChoiceScreen, NavRow, OptionRow, SectionHead, TextField } from "@/components/ui/SettingsMenu";
 import { useSaveView } from "./viewSave";
 import { confirmAction } from "@/components/ui/overlay";
 import type { CalcType, Database, DbPage, DbView, Filter, FilterOp, PropType, Property } from "@/lib/local/db";
-import { addProperty, canDeleteProp, countPropMessages, deleteProperty, isLocked, saveView, updateProperty } from "@/lib/local/requests";
+import { addProperty, canDeleteProp, countPropMessages, deleteProperty, isLocked, saveView, updateProperty, useDatabase } from "@/lib/local/requests";
 import { P } from "@/lib/requests/defaults";
-import { FILTER_OPS, formatValue, valueOf } from "@/lib/requests/logic";
-import type { MemberWithProfile } from "@/lib/local/rooms";
+import { FILTER_OPS, formatValue, serialText, sortsOf, valueOf, withSorts } from "@/lib/requests/logic";
+import { canHaveDefault } from "@/lib/requests/props";
+import { useMembers, type MemberWithProfile } from "@/lib/local/rooms";
+import { openFormulaSettings } from "./FormulaSettings";
 import { PROP_TYPES, PropIcon, Tag, colorOf } from "./meta";
+import { valueTypeOf } from "@/lib/requests/formula";
 
 // ---- ビューで表示する項目 ----
 
@@ -51,6 +54,10 @@ export function opsFor(type: PropType | undefined): FilterOp[] {
     case "created":
     case "edited":
       return ["gt", "lt", "is", "empty", "notEmpty"];
+    case "formula":
+      return ["is", "isNot", "contains", "gt", "lt", "empty", "notEmpty"];
+    case "serial":
+      return ["is", "gt", "lt"];
     default:
       return ["contains", "is", "empty", "notEmpty"];
   }
@@ -122,15 +129,104 @@ const NUMBER_FORMATS = [
   { id: "", label: "数値（1,234）" },
   { id: "yen", label: "円（¥1,234）" },
   { id: "percent", label: "パーセント（12%）" },
+  { id: "plain", label: "区切りなし（1234）" },
 ];
 
-const ADDABLE: PropType[] = ["text", "number", "date", "select", "multiselect", "status", "stage", "user", "media", "checkbox", "url", "email", "phone", "created", "edited"];
+const ADDABLE: PropType[] = ["text", "number", "date", "select", "multiselect", "status", "stage", "formula", "serial", "user", "media", "checkbox", "url", "email", "phone", "created", "edited"];
+
+const DIGITS = [
+  { id: "0", label: "そのまま（1, 12, 123）" },
+  { id: "2", label: "2桁（01）" },
+  { id: "3", label: "3桁（001）" },
+  { id: "4", label: "4桁（0001）" },
+];
+
+/** はじめから入る値を、人が読める言葉にする */
+function defaultLabel(prop: Property, members: MemberWithProfile[]) {
+  const v = prop.defaultValue;
+  if (v === undefined || v === null || v === "" || (Array.isArray(v) && !v.length)) return "なし";
+  if (v === "@me") return "自分";
+  if (v === "@today") return "今日";
+  if (prop.type === "checkbox") return v ? "チェックあり" : "なし";
+  if (prop.type === "user") return members.find((m) => m.userId === v)?.displayName ?? "退出した人";
+  if (Array.isArray(v)) return v.join("、");
+  return formatValue(prop, v);
+}
+
+/** はじめから入る値を決める画面（項目の種類ごとに選びやすい形）。決めたらすぐ保存する */
+function DefaultValueScreen({ database, prop, onBack }: { database: Database; prop: Property; onBack: () => void }) {
+  const members = useMembers(database.roomId) ?? [];
+  const set = (v: unknown) => updateProperty(database.id, prop.id, { defaultValue: v === "" || (Array.isArray(v) && !v.length) ? undefined : v });
+  const cur = prop.defaultValue;
+  const choice = (id: string, label: React.ReactNode, on: boolean, onClick: () => void) => (
+    <OptionRow key={id} selected={on} onClick={onClick}>
+      {label}
+    </OptionRow>
+  );
+  let body: React.ReactNode;
+  if (prop.type === "select" || prop.type === "status")
+    body = [choice("", "なし", cur === undefined, () => void set(undefined)), ...(prop.options ?? []).map((o) => choice(o, <Tag color={colorOf(prop, o)}>{o}</Tag>, cur === o, () => void set(o)))];
+  else if (prop.type === "multiselect") {
+    const list = Array.isArray(cur) ? (cur as string[]) : [];
+    body = (prop.options ?? []).map((o) => choice(o, <Tag color={colorOf(prop, o)}>{o}</Tag>, list.includes(o), () => void set(list.includes(o) ? list.filter((x) => x !== o) : [...list, o])));
+  } else if (prop.type === "user")
+    body = [choice("", "なし", cur === undefined, () => void set(undefined)), choice("@me", "自分（作った人）", cur === "@me", () => void set("@me")), ...members.map((m) => choice(m.userId, m.displayName, cur === m.userId, () => void set(m.userId)))];
+  else if (prop.type === "checkbox") body = [choice("", "なし", !cur, () => void set(undefined)), choice("on", "チェックあり", !!cur, () => void set(true))];
+  else if (prop.type === "date")
+    body = (
+      <>
+        {choice("", "なし", cur === undefined, () => void set(undefined))}
+        {choice("@today", "今日（作った日）", cur === "@today", () => void set("@today"))}
+        <div className="px-2 py-1">
+          <input type="date" value={typeof cur === "string" && cur !== "@today" ? cur : ""} onChange={(e) => void set(e.target.value)} className="field py-1" aria-label="決まった日付" />
+        </div>
+      </>
+    );
+  else
+    body = (
+      <div className="px-1 pb-1">
+        <input
+          autoFocus
+          type={prop.type === "number" ? "number" : "text"}
+          defaultValue={cur === undefined ? "" : String(cur)}
+          onBlur={(e) => void set(prop.type === "number" ? (e.target.value === "" ? undefined : Number(e.target.value)) : e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (e.target as HTMLInputElement).blur()}
+          placeholder="なし"
+          className="field py-1"
+          aria-label="はじめから入る値"
+        />
+      </div>
+    );
+  return (
+    <div>
+      <BackHead title="はじめの値" onBack={onBack} />
+      {body}
+    </div>
+  );
+}
+
+/** 通し番号の形：頭に付ける文字と桁数 */
+function SerialScreen({ database, prop, onBack }: { database: Database; prop: Property; onBack: () => void }) {
+  return (
+    <div>
+      <BackHead title="番号の形" onBack={onBack} />
+      <TextField label="頭に付ける文字" defaultValue={prop.prefix ?? ""} placeholder="例：#" onChange={(v) => void updateProperty(database.id, prop.id, { prefix: v || undefined })} />
+      <SectionHead label="桁数" />
+      {DIGITS.map((d) => (
+        <OptionRow key={d.id} selected={String(prop.digits ?? 0) === d.id} onClick={() => void updateProperty(database.id, prop.id, { digits: Number(d.id) || undefined })}>
+          {d.label}
+        </OptionRow>
+      ))}
+      <p className="px-2 pt-1 text-xs text-muted">例：{serialText(prop, 12)}</p>
+    </div>
+  );
+}
 
 /** テーブルの列の見出しを押したときのメニュー */
 export function PropertyMenu({
-  database,
+  database: givenDb,
   view,
-  prop,
+  prop: givenProp,
   onDone,
   onStageSettings,
 }: {
@@ -140,10 +236,14 @@ export function PropertyMenu({
   onDone: () => void;
   onStageSettings?: (prop: Property) => void;
 }) {
+  // 開いている間に設定を変えたら、すぐ出るように、いつも保存されている最新の項目を使う（渡された項目は開いたときのもの）
+  const database = useDatabase(givenDb.id) ?? givenDb;
+  const prop = database.props.find((p) => p.id === givenProp.id) ?? givenProp;
   const [name, setName] = useState(prop.name);
   const save = useSaveView();
   // 種類・表示は、プルダウンではなく中の画面の一覧から選ぶ
-  const [screen, setScreen] = useState<"top" | "type" | "format">("top");
+  const [screen, setScreen] = useState<"top" | "type" | "format" | "serial" | "default">("top");
+  const members = useMembers(database.roomId) ?? [];
   const locked = isLocked(database, prop.id);
   const isChat = prop.type === "chat" || prop.type === "imageChat";
   const saveName = () => name.trim() && name.trim() !== prop.name && updateProperty(database.id, prop.id, { name: name.trim() });
@@ -157,11 +257,15 @@ export function PropertyMenu({
         selected={prop.type}
         onPick={(t) => {
           void updateProperty(database.id, prop.id, { type: t, options: prop.options ?? [] });
+          // 数式にしたら、そのまま式の設定を開く
+          if (t === "formula") return (onDone(), openFormulaSettings(database.id, prop.id));
           setScreen("top");
         }}
         onBack={() => setScreen("top")}
       />
     );
+  if (screen === "serial") return <SerialScreen database={database} prop={prop} onBack={() => setScreen("top")} />;
+  if (screen === "default") return <DefaultValueScreen database={database} prop={prop} onBack={() => setScreen("top")} />;
   if (screen === "format")
     return (
       <ChoiceScreen
@@ -192,12 +296,19 @@ export function PropertyMenu({
       {!locked && prop.type !== "title" && <NavRow icon={PROP_TYPES[prop.type].icon} label="種類" value={PROP_TYPES[prop.type].label} onClick={() => setScreen("type")} />}
       {prop.type === "stage" && onStageSettings && (
         <MenuItem icon={<Icon name="timeline" size={16} />} onClick={() => (onStageSettings(prop), onDone())}>
-          工程の設定（プランごとの工程と％）
+          工程の設定（プランごとの工程と割合）
+        </MenuItem>
+      )}
+      {prop.type === "formula" && (
+        <MenuItem icon={<Icon name="formula" size={16} />} onClick={() => (onDone(), openFormulaSettings(database.id, prop.id))} right={<span className="max-w-32 truncate font-mono text-xs text-muted">{prop.formula}</span>}>
+          式の設定
         </MenuItem>
       )}
       {prop.type === "number" && (
         <NavRow icon="hash" label="数値の表示" value={NUMBER_FORMATS.find((f) => f.id === (prop.format ?? ""))?.label} onClick={() => setScreen("format")} />
       )}
+      {prop.type === "serial" && <NavRow icon="hash" label="番号の形" value={serialText(prop, 1)} onClick={() => setScreen("serial")} />}
+      {canHaveDefault(prop) && <NavRow icon="add" label="はじめの値" value={defaultLabel(prop, members)} onClick={() => setScreen("default")} />}
       {locked && (
         <p className="px-2 pb-1 text-xs text-muted">
           {prop.type === "title"
@@ -208,22 +319,31 @@ export function PropertyMenu({
         </p>
       )}
       <MenuDivider />
-      <MenuItem icon={<Icon name="up" size={16} />} onClick={() => (save({ ...view, sort: { prop: prop.id, dir: "asc" } }), onDone())}>
-        昇順で並べ替え
-      </MenuItem>
-      <MenuItem icon={<Icon name="dn" size={16} />} onClick={() => (save({ ...view, sort: { prop: prop.id, dir: "desc" } }), onDone())}>
-        降順で並べ替え
-      </MenuItem>
-      <MenuItem
-        icon={<Icon name="filter" size={16} />}
-        onClick={() => (save({ ...view, filters: [...view.filters, { prop: prop.id, op: opsFor(prop.type)[0], value: "" }] }), onDone())}
-      >
-        この項目で絞り込む
-      </MenuItem>
-      {prop.type !== "title" && (
-        <MenuItem icon={<Icon name="eyeoff" size={16} />} onClick={() => (setVisible(view, shown.filter((x) => x !== prop.id), save), onDone())}>
-          このビューで隠す
+      {/* 並べ替え・絞り込み・隠すは、このビューを変える操作。固定したビューでは出さない */}
+      {!view.options.locked && (
+        <>
+        {/* 並べ替え：この項目をいちばん先に比べる（ほかの並び替えはその後に残す） */}
+        {(["asc", "desc"] as const).map((dir) => (
+          <MenuItem
+            key={dir}
+            icon={<Icon name={dir === "asc" ? "up" : "dn"} size={16} />}
+            onClick={() => (save(withSorts(view, [{ prop: prop.id, dir }, ...sortsOf(view).filter((x) => x.prop !== prop.id)])), onDone())}
+          >
+            {dir === "asc" ? "昇順で並べ替え" : "降順で並べ替え"}
+          </MenuItem>
+        ))}
+        <MenuItem
+          icon={<Icon name="filter" size={16} />}
+          onClick={() => (save({ ...view, filters: [...view.filters, { prop: prop.id, op: opsFor(valueTypeOf(database, prop))[0], value: valueTypeOf(database, prop) === "checkbox" ? "true" : "" }] }), onDone())}
+        >
+          この項目で絞り込む
         </MenuItem>
+        {prop.type !== "title" && (
+          <MenuItem icon={<Icon name="eyeoff" size={16} />} onClick={() => (setVisible(view, shown.filter((x) => x !== prop.id), save), onDone())}>
+            このビューで隠す
+          </MenuItem>
+        )}
+        </>
       )}
       {canDeleteProp(database, prop.id) && (
         <>
@@ -267,6 +387,8 @@ export function AddPropertyMenu({ database, view, onDone }: { database: Database
             // ここから足した項目は、このビューにも出す（チャットの項目も、表に列で出る）
             await setVisible(view, [...visibleProps(database, view).map((p) => p.id), prop.id], save);
             onDone();
+            // 数式は、足したらすぐ式の設定を開く
+            if (t === "formula") openFormulaSettings(database.id, prop.id);
           }}
         >
           {PROP_TYPES[t].label}
@@ -297,8 +419,9 @@ export function calcLabel(prop: Property, t: CalcType) {
 }
 
 export function calcsFor(type: PropType): CalcType[] {
-  if (type === "number") return ["none", "count", "filled", "empty", "sum", "avg", "min", "max"];
+  if (type === "number" || type === "formula") return ["none", "count", "filled", "empty", "sum", "avg", "min", "max"];
   if (type === "date") return ["none", "count", "filled", "empty", "min", "max"];
+  if (type === "serial") return ["none", "count", "min", "max"];
   return ["none", "count", "filled", "empty"];
 }
 

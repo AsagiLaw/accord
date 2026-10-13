@@ -1,4 +1,4 @@
-import type { Database, DbPage, DbView, Filter, Property } from "@/lib/local/db";
+import type { Database, DbPage, DbView, Filter, Property, Sort } from "@/lib/local/db";
 import { DEFAULT_STAGES, P } from "./defaults";
 
 // 日付は「YYYY-MM-DD」の文字列で持つ（時差でずれないよう、計算は UTC の正午で行う）
@@ -82,7 +82,8 @@ function matches(page: DbPage, raw: Filter, prop: Property | undefined, me?: str
     case "gt":
     case "lt": {
       if (isEmpty(v) || !f.value) return false;
-      if (prop?.type === "number") return f.op === "gt" ? Number(v) > Number(f.value) : Number(v) < Number(f.value);
+      // 数（通し番号・数式で出た数も）は数で比べる
+      if (prop?.type === "number" || prop?.type === "serial" || (typeof v === "number" && Number.isFinite(Number(f.value)))) return f.op === "gt" ? Number(v) > Number(f.value) : Number(v) < Number(f.value);
       // 日付・日時は日付の部分で比べる（「今日より後」に今日の日時を含めない）
       const a = String(v).slice(0, 10);
       return f.op === "gt" ? a > f.value : a < f.value;
@@ -90,22 +91,47 @@ function matches(page: DbPage, raw: Filter, prop: Property | undefined, me?: str
   }
 }
 
+/** ビューの並び替え（上から順に比べる）。前の1つだけの並び替え（sort）にも対応する */
+export const sortsOf = (view: Pick<DbView, "sort" | "sorts">): Sort[] => view.sorts ?? (view.sort ? [view.sort] : []);
+
+/** 並び替えを保存するときの形（前の sort も合わせておく） */
+export const withSorts = <V extends Pick<DbView, "sort" | "sorts">>(view: V, sorts: Sort[]): V => ({ ...view, sorts, sort: sorts[0] ?? null });
+
 export function applyView(db: Database, pages: DbPage[], view: DbView, me?: string): DbPage[] {
-  const filtered = pages.filter((p) => view.filters.every((f) => matches(p, f, db.props.find((x) => x.id === f.prop), me)));
-  if (!view.sort) return filtered;
-  const { prop, dir } = view.sort;
-  const type = db.props.find((x) => x.id === prop)?.type;
-  const k = dir === "asc" ? 1 : -1;
+  // 条件は「すべてに合う」か「どれか1つに合う」（条件が無ければ全部）
+  const test = (p: DbPage, f: Filter) => matches(p, f, db.props.find((x) => x.id === f.prop), me);
+  const filtered = !view.filters.length ? pages : pages.filter((p) => (view.filterMode === "or" ? view.filters.some((f) => test(p, f)) : view.filters.every((f) => test(p, f))));
+  const sorts = sortsOf(view).filter((s) => s.prop === P.title || db.props.some((x) => x.id === s.prop));
+  if (!sorts.length) return filtered;
+  const one = ({ prop, dir }: Sort) => {
+    const type = db.props.find((x) => x.id === prop)?.type;
+    const k = dir === "asc" ? 1 : -1;
+    return (a: DbPage, b: DbPage) => {
+      const va = valueOf(a, prop);
+      const vb = valueOf(b, prop);
+      // 空のものは常に後ろ
+      if (isEmpty(va) && isEmpty(vb)) return 0;
+      if (isEmpty(va)) return 1;
+      if (isEmpty(vb)) return -1;
+      if (type === "number" || type === "serial" || (typeof va === "number" && typeof vb === "number")) return (Number(va) - Number(vb)) * k;
+      return String(va).localeCompare(String(vb), "ja", { numeric: true }) * k;
+    };
+  };
+  const cmps = sorts.map(one);
   return [...filtered].sort((a, b) => {
-    const va = valueOf(a, prop);
-    const vb = valueOf(b, prop);
-    // 空のものは常に後ろ
-    if (isEmpty(va) && isEmpty(vb)) return 0;
-    if (isEmpty(va)) return 1;
-    if (isEmpty(vb)) return -1;
-    if (type === "number") return (Number(va) - Number(vb)) * k;
-    return String(va).localeCompare(String(vb), "ja", { numeric: true }) * k;
+    for (const c of cmps) {
+      const r = c(a, b);
+      if (r) return r;
+    }
+    return 0;
   });
+}
+
+/** 通し番号を見せる形（頭の文字と桁数。例：#012） */
+export function serialText(prop: Pick<Property, "prefix" | "digits">, n: unknown): string {
+  const v = Number(n);
+  if (n === undefined || n === null || n === "" || !Number.isFinite(v)) return "";
+  return `${prop.prefix ?? ""}${String(v).padStart(prop.digits ?? 0, "0")}`;
 }
 
 export function formatValue(prop: Property, v: unknown, userName?: (id: string) => string): string {
@@ -119,6 +145,7 @@ export function formatValue(prop: Property, v: unknown, userName?: (id: string) 
       const n = Number(v);
       if (prop.format === "yen") return `¥${n.toLocaleString("ja-JP")}`;
       if (prop.format === "percent") return `${n}%`;
+      if (prop.format === "plain") return String(n);
       return n.toLocaleString("ja-JP");
     }
     case "date":
@@ -129,6 +156,14 @@ export function formatValue(prop: Property, v: unknown, userName?: (id: string) 
       return userName ? userName(String(v)) : String(v);
     case "media":
       return Array.isArray(v) ? `画像${v.length}枚` : "";
+    case "serial":
+      return serialText(prop, v);
+    case "formula": {
+      // 数式は、出た値の形で見せる（数は数値の表示の決まりで、日付は 2026/10/13、真偽は ✓）
+      if (typeof v === "boolean") return v ? "✓" : "";
+      if (typeof v === "number") return formatValue({ ...prop, type: "number" }, v);
+      return isDate(v) ? v.replaceAll("-", "/") : String(v);
+    }
     default:
       return String(v);
   }

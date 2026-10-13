@@ -7,6 +7,7 @@ import { ThumbImage } from "@/components/ThumbImage";
 import { Popover, usePopover } from "@/components/ui/Popover";
 import type { Database, DbPage, Property } from "@/lib/local/db";
 import type { MemberWithProfile } from "@/lib/local/rooms";
+import { formatValue } from "@/lib/requests/logic";
 import { PropValue, SelectEditor, StageEditor } from "./values";
 
 /** データベースの1項目を入力する。選択肢は「追加…」でその場で増やせる */
@@ -73,6 +74,9 @@ export function PropInput({
     case "created":
     case "edited":
       return <p className="py-2 text-sm text-muted">{value ? String(value).replaceAll("-", "/") : "—"}（自動で入ります）</p>;
+    case "formula":
+    case "serial":
+      return <p className="py-2 text-sm">{formatValue(prop, value) || <span className="text-muted">—</span>}</p>;
     case "user":
       return (
         <select id={id} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} className="field">

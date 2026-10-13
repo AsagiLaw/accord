@@ -2,6 +2,8 @@
 
 import { applyView, valueOf } from "@/lib/requests/logic";
 import { VIEW_TYPES } from "../meta";
+import { ViewOpenContext } from "../PageLink";
+import { ChartView } from "./ChartView";
 import { BoardView } from "./BoardView";
 import { CalendarView } from "./CalendarView";
 import type { ViewProps } from "./common";
@@ -11,6 +13,7 @@ import { ProgressView } from "./ProgressView";
 import { SummaryView } from "./SummaryView";
 import { TableView } from "./TableView";
 import { TimelineView } from "./TimelineView";
+import { WorkloadView } from "./WorkloadView";
 
 /** ビューの種類に合わせて表示する。絞り込み・並び替え・検索はここでかける */
 export function ViewRenderer(props: Omit<ViewProps, "pages"> & { search?: string }) {
@@ -28,7 +31,8 @@ export function ViewRenderer(props: Omit<ViewProps, "pages"> & { search?: string
   const p = { ...props, pages };
   return (
     <div data-name={`ビュー「${props.view.name}」（${VIEW_TYPES[props.view.type].label}）`} className={props.fit ? "flex min-h-0 grow flex-col" : undefined}>
-      {body(p)}
+      {/* ページの開き方（ポップアップ・右から出す・ページの画面）は、ビューの設定で決める */}
+      <ViewOpenContext.Provider value={props.view.options.openAs ?? "peek"}>{body(p)}</ViewOpenContext.Provider>
     </div>
   );
 }
@@ -51,5 +55,9 @@ function body(p: ViewProps) {
       return <CalendarView {...p} />;
     case "summary":
       return <SummaryView {...p} />;
+    case "workload":
+      return <WorkloadView {...p} />;
+    case "chart":
+      return <ChartView {...p} />;
   }
 }

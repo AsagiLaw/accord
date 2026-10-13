@@ -7,7 +7,8 @@ import { MenuDivider, MenuItem, MenuLabel, Popover, usePopover } from "@/compone
 import { confirmAction } from "@/components/ui/overlay";
 import type { Database, DbPage, Property, TagColor } from "@/lib/local/db";
 import { stageOf, stagesFor } from "@/lib/requests/stages";
-import { addOption, deleteOption, renameOption, setOptionColor } from "@/lib/local/requests";
+import { addOption, deleteOption, renameOption, setOptionColor, setOptionGroup, setOptionValue, useDatabase } from "@/lib/local/requests";
+import { STATUS_GROUPS, statusGroupOf } from "@/lib/requests/props";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 import { formatValue } from "@/lib/requests/logic";
 import { TAG_COLORS, Tag, colorOf } from "./meta";
@@ -102,8 +103,8 @@ export function PropValue({
  * 選択肢の「…」から名前・色・削除を変えられる。
  */
 export function SelectEditor({
-  database,
-  prop,
+  database: given,
+  prop: givenProp,
   value,
   onChange,
   onDone,
@@ -114,6 +115,9 @@ export function SelectEditor({
   onChange: (v: unknown) => void;
   onDone?: () => void;
 }) {
+  // 開いている間に色や名前を変えたら、すぐ出るように、いつも保存されている最新の項目を使う（渡された項目は開いたときのもの）
+  const database = useDatabase(given.id) ?? given;
+  const prop = database.props.find((p) => p.id === givenProp.id) ?? givenProp;
   const multi = prop.type === "multiselect";
   const selected = multi ? (Array.isArray(value) ? (value as string[]) : []) : value ? [String(value)] : [];
   const [query, setQuery] = useState("");
@@ -130,6 +134,26 @@ export function SelectEditor({
       onDone?.();
     }
   };
+  /** 選択肢1つの行（押すと選ぶ。右に付けた数と「…」） */
+  const row = (o: string) => (
+    <div key={o} className="group flex items-center">
+      <button onClick={() => pick(o)} className="flex min-h-[32px] min-w-0 flex-1 items-center gap-2 rounded-[8px] px-2 hover:bg-tint">
+        <Tag color={colorOf(prop, o)}>{o}</Tag>
+        {prop.optionValues?.[o] !== undefined && <span className="text-xs text-muted">{prop.optionValues[o]}</span>}
+        {selected.includes(o) && <Icon name="ok" size={14} className="ml-auto text-muted" />}
+      </button>
+      <button
+        aria-label={`「${o}」を編集`}
+        onClick={(e) => {
+          setEditing(o);
+          optionMenu.open(e);
+        }}
+        className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-muted opacity-0 group-hover:opacity-100 hover:bg-tint focus:opacity-100 max-md:opacity-60"
+      >
+        <Icon name="dots" size={14} />
+      </button>
+    </div>
+  );
   const create = async () => {
     const name = query.trim();
     if (!name) return;
@@ -162,24 +186,18 @@ export function SelectEditor({
         />
       </div>
       <MenuLabel>{multi ? "いくつでも選べます" : "1つ選んでください"}</MenuLabel>
-      {shown.map((o) => (
-        <div key={o} className="group flex items-center">
-          <button onClick={() => pick(o)} className="flex min-h-[32px] min-w-0 flex-1 items-center gap-2 rounded-[8px] px-2 hover:bg-tint">
-            <Tag color={colorOf(prop, o)}>{o}</Tag>
-            {selected.includes(o) && <Icon name="ok" size={14} className="ml-auto text-muted" />}
-          </button>
-          <button
-            aria-label={`「${o}」を編集`}
-            onClick={(e) => {
-              setEditing(o);
-              optionMenu.open(e);
-            }}
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-muted opacity-0 group-hover:opacity-100 hover:bg-tint focus:opacity-100 max-md:opacity-60"
-          >
-            <Icon name="dots" size={14} />
-          </button>
-        </div>
-      ))}
+      {/* ステータスは、グループ（未着手・進行中・完了）ごとに分けて並べる */}
+      {prop.type === "status"
+        ? STATUS_GROUPS.map((g) => {
+            const list = shown.filter((o) => statusGroupOf(prop, o) === g.id);
+            return list.length ? (
+              <div key={g.id}>
+                <p className="px-2 pt-1.5 text-[11px] text-muted">{g.label}</p>
+                {list.map(row)}
+              </div>
+            ) : null;
+          })
+        : shown.map(row)}
       {canCreate && (
         <button onClick={create} className="flex min-h-[32px] w-full items-center gap-2 rounded-[8px] px-2 hover:bg-tint">
           <span className="text-muted">作成</span>
@@ -188,8 +206,8 @@ export function SelectEditor({
       )}
       {!shown.length && !canCreate && <p className="px-2 py-1 text-muted">選択肢はまだありません</p>}
       {editing && optionMenu.anchor && (
-        <Popover anchor={optionMenu.anchor} onClose={() => (optionMenu.close(), setEditing(null))} width={220} label="選択肢の編集">
-          <OptionMenu database={database} prop={prop} option={editing} onDone={() => (optionMenu.close(), setEditing(null))} />
+        <Popover anchor={optionMenu.anchor} onClose={() => (optionMenu.close(), setEditing(null))} width={220} label="選択肢の編集" nested>
+          <OptionMenu key={editing} database={database} prop={prop} option={editing} onDone={() => (optionMenu.close(), setEditing(null))} />
         </Popover>
       )}
     </div>
@@ -199,6 +217,13 @@ export function SelectEditor({
 function OptionMenu({ database, prop, option, onDone }: { database: Database; prop: Property; option: string; onDone: () => void }) {
   const [name, setName] = useState(option);
   const current = colorOf(prop, option);
+  // 選択肢に付ける数（手数料の％など。数式の 数({項目}) で使う）。空にすると外す
+  const [num, setNum] = useState(prop.optionValues?.[option] === undefined ? "" : String(prop.optionValues[option]));
+  const saveNum = () => {
+    const v = num.trim() === "" ? undefined : Number(num);
+    if (v !== undefined && !Number.isFinite(v)) return;
+    if (v !== prop.optionValues?.[option]) void setOptionValue(database.id, prop.id, option, v);
+  };
   return (
     <div>
       <input
@@ -227,6 +252,31 @@ function OptionMenu({ database, prop, option, onDone }: { database: Database; pr
       >
         削除
       </MenuItem>
+      <label className="flex items-center gap-2 px-2 py-1" title="数式の 数({項目}) で使えます">
+        <span className="shrink-0 text-xs text-muted">数</span>
+        <input
+          type="number"
+          step="any"
+          value={num}
+          onChange={(e) => setNum(e.target.value)}
+          onBlur={saveNum}
+          onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && saveNum()}
+          placeholder="なし"
+          className="field min-w-0 py-1"
+          aria-label="選択肢に付ける数"
+        />
+      </label>
+      {prop.type === "status" && (
+        <>
+          <MenuDivider />
+          <MenuLabel>グループ</MenuLabel>
+          {STATUS_GROUPS.map((g) => (
+            <MenuItem key={g.id} active={statusGroupOf(prop, option) === g.id} onClick={() => setOptionGroup(database.id, prop.id, option, g.id)}>
+              {g.label}
+            </MenuItem>
+          ))}
+        </>
+      )}
       <MenuDivider />
       <MenuLabel>色</MenuLabel>
       {(Object.keys(TAG_COLORS) as TagColor[]).map((c) => (

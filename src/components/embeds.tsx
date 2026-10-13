@@ -31,6 +31,7 @@ import { useBlobUrl } from "@/lib/media/blob-url";
 import type { EmbedKind } from "@/components/blockKinds";
 import { DbChatBlock, PageBlockBody, PropChatView, seedUsers, StageButton, StagePills, stageDatesOf } from "@/components/pageBlocks";
 import { AddButtonView, TodoBlockView } from "@/components/toolBlocks";
+import { isDateLike } from "@/lib/requests/formula";
 
 // ノートのブロックとウィンドウの部品で共通に使う中身（エディタに依存しない）
 
@@ -377,7 +378,7 @@ function SingleViewMenu({ props, database, page, onChange }: { props: SingleProp
   const back = () => setScreen(from);
   const { pageId, propId, display } = props;
   const prop = database?.props.find((p) => p.id === propId);
-  const gaugeable = !!prop && (prop.type === "number" || prop.type === "stage");
+  const gaugeable = !!prop && (prop.type === "number" || prop.type === "stage" || prop.type === "formula");
   const isChat = !!prop && (prop.type === "chat" || prop.type === "imageChat");
   // ゲージにできるのは、数値と工程の項目だけ。それ以外は「値」（チャットの項目は「チャット」）
   const shownDisplay: SingleDisplay = gaugeable ? display : "value";
@@ -386,7 +387,8 @@ function SingleViewMenu({ props, database, page, onChange }: { props: SingleProp
   // レイアウトの設定のスイッチは、出している項目（メインと一緒に出す項目）ごとに並べる。プロパティを出し入れすると増えたり減ったりする
   const shownAll = [...(prop && !isChat ? [prop] : []), ...extras];
   const stageProps = shownAll.filter((p) => p.type === "stage");
-  const dateProps = shownAll.filter((p) => p.type === "date");
+  // 日付の項目と、日付を出す数式は、残りの日数で出せる
+  const dateProps = shownAll.filter((p) => !!database && isDateLike(database, p));
   const stagesOn = onIds(props.stages, stageProps);
   const countdownOn = onIds(props.countdown, dateProps);
   const flip = (list: string[], id: string, on: boolean) => JSON.stringify(on ? [...list.filter((x) => x !== id), id] : list.filter((x) => x !== id));
@@ -446,7 +448,6 @@ function SingleViewMenu({ props, database, page, onChange }: { props: SingleProp
         allowed={prop.allowed ?? []}
         onChange={(allowed) => void updateProperty(database.id, prop.id, { allowed })}
         onBack={() => setScreen("layout")}
-        note={`「${prop.name}」のすべてのページで同じです`}
       />
     );
   if (screen === "layout")
@@ -472,21 +473,18 @@ function SingleViewMenu({ props, database, page, onChange }: { props: SingleProp
             );
           })}
         </div>
-        <p className="px-2 pb-1 text-xs text-muted">
-          {gaugeable || !prop ? DISPLAY_TILE[shownDisplay].note : isChat ? "チャットの項目は、チャットそのものを出します" : "ゲージは、数値と工程の項目で選べます"}
-        </p>
         {/* レイアウトのボタンのすぐ下に、そのレイアウトの設定 */}
         <SectionHead label="レイアウトの設定" />
         <ToggleRow icon="text" label="見出しを出す" note="ページと項目の名前を上に出す" on={props.hideHead !== "1"} onChange={(on) => onChange({ hideHead: on ? "" : "1" })} />
         {stageProps.map((p) => {
-          // 開始日と納期が入っていないページでは、工程の期限の日付は出せない（工程の名前だけ並ぶ）
+          // 工程の設定の開始日と終了日が入っていないページでは、工程の期限の日付は出せない（工程の名前だけ並ぶ）
           const dated = page ? stageDatesOf(p, page).some((x) => x.date) : true;
           return (
             <ToggleRow
               key={`stage:${p.id}`}
               icon="timeline"
               label={`「${p.name}」の期限を出す`}
-              note={dated ? "工程ごとの期限を下に並べる（押すとその工程まで進める）" : "このページは開始日か納期が空なので、日付は出ず、工程の名前だけ並びます"}
+              note={dated ? "工程ごとの期限を下に並べる（押すとその工程まで進める）" : "このページは工程の設定の開始日か終了日が空なので、日付は出ず、工程の名前だけ並びます"}
               on={stagesOn.includes(p.id)}
               onChange={(on) => onChange({ stages: flip(stagesOn, p.id, on) })}
             />
@@ -548,7 +546,7 @@ function SingleExtras({ props, page, countdown }: { props: Property[]; page: DbP
   return (
     <>
       {props.map((p) => {
-        if (p.type === "date" && countdown.includes(p.id)) {
+        if (countdown.includes(p.id)) {
           const due = dueLabel(page.values[p.id]);
           // 日付が空でも消さずに「未入力」と出す（入れる場所が分かるように）
           if (!due)
@@ -588,7 +586,7 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
   const pages = usePages(database?.id) ?? [];
   const page = pages.find((p) => p.id === (thisPage ? ctx.page?.pageId : pageId));
   const prop = database?.props.find((p) => p.id === propId);
-  const gaugeable = prop && (prop.type === "number" || prop.type === "stage");
+  const gaugeable = prop && (prop.type === "number" || prop.type === "stage" || prop.type === "formula");
   const isChat = prop && (prop.type === "chat" || prop.type === "imageChat");
   const pct = database && page && prop ? percentOf(database, page, prop.id) : null;
   const extras = database ? extraProps(database, props) : [];
@@ -600,7 +598,7 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
   );
   const countdown = onIds(
     props.countdown,
-    shownAll.filter((p) => p.type === "date"),
+    shownAll.filter((p) => !!database && isDateLike(database, p)),
   );
   // 見出しを出さないときは、歯車だけを右上に重ねる（読むだけのときは何も出さない）
   const headed = props.hideHead !== "1";
@@ -703,7 +701,7 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
                 </div>
               ) : prop.type === "title" ? (
                 <span className="text-[1.6em] font-bold">{page.title || "無題"}</span>
-              ) : prop.type === "date" && countdown.includes(prop.id) ? (
+              ) : countdown.includes(prop.id) ? (
                 <SingleExtras props={[prop]} page={page} countdown={countdown} />
               ) : (
                 <span className="text-[1.3em]">
@@ -856,9 +854,11 @@ export function DbViewEmbed({
     order: 0,
   };
   const saveList = (next: BlockView[], activeId = cur.id) => onChange({ views: JSON.stringify(next), active: activeId });
-  // ビューを直したときは、このブロックのビューの並びに書き戻す
+  // ビューを直したときは、このブロックのビューの並びに書き戻す（固定したビューは、固定を外すときだけ）
   const save = (v: DbView) =>
-    saveList(
+    cur.options.locked && v.options.locked
+      ? undefined
+      : saveList(
       list.map((x) =>
         x.id === v.id
           ? {
@@ -866,7 +866,9 @@ export function DbViewEmbed({
               name: v.name,
               type: v.type,
               filters: v.filters,
+              filterMode: v.filterMode,
               sort: v.sort,
+              sorts: v.sorts,
               options: v.options,
             }
           : x,
@@ -1036,8 +1038,9 @@ export function DbViewEmbed({
                   )
                 }
               >
-                <span className="block">{VIEW_TYPES[t].label}</span>
-                <span className="block truncate text-xs text-muted">{VIEW_TYPES[t].note}</span>
+                <span className="block" title={VIEW_TYPES[t].note}>
+                  {VIEW_TYPES[t].label}
+                </span>
               </MenuItem>
             ))}
             {dbViews.length > 0 && (

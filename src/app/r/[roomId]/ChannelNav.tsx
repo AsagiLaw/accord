@@ -30,9 +30,11 @@ import type { Category, DbPage } from "@/lib/local/db";
 import { linkTemplate, useChannelTemplates, type TemplateKind } from "@/lib/local/channelTemplates";
 import { nameSuffixOf, useDatabase, usePages, useViews } from "@/lib/local/requests";
 import { setSidebarView } from "@/lib/local/templates";
-import { DONE, P } from "@/lib/requests/defaults";
+import { P } from "@/lib/requests/defaults";
 import { applyView } from "@/lib/requests/logic";
 import { badgeTone, useDoNotDisturb } from "@/lib/local/dnd";
+import { DueBadge } from "@/components/db/views/common";
+import { dueStatus, isPageDone } from "@/lib/requests/due";
 
 const KIND_ICON: Record<ChannelKind, IconName> = { db: "db", chat: "chat", note: "note", window: "window" };
 const DEFAULT_NAME: Record<ChannelKind, string> = { db: "新しいデータベース", chat: "新しいチャット", note: "新しいノート", window: "新しいウィンドウ" };
@@ -565,7 +567,7 @@ function DbPages({ dbId, roomId, userId }: { dbId: string; roomId: string; userI
   let active: DbPage[];
   if (view) active = applyView(database, pages, view, userId);
   else if (setting === undefined && database.kind === "request")
-    active = pages.filter((p) => p.values[P.status] !== DONE).sort((a, b) => String(a.values[P.due] ?? "9999").localeCompare(String(b.values[P.due] ?? "9999")));
+    active = pages.filter((p) => !isPageDone(database, p)).sort((a, b) => String(a.values[P.due] ?? "9999").localeCompare(String(b.values[P.due] ?? "9999")));
   else return null;
   const href = `/r/${roomId}/db/${dbId}`;
   return (
@@ -593,6 +595,10 @@ function DbPages({ dbId, roomId, userId }: { dbId: string; roomId: string; userI
               {p.title || <span className="text-muted">無題</span>}
               {p.title && nameSuffixOf(database)}
             </span>
+            {(() => {
+              const due = dueStatus(database, p);
+              return due && <DueBadge state={due} />;
+            })()}
             {n > 0 && !on && <UnreadBadge n={n} />}
           </Link>
         );

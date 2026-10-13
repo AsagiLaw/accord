@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { percentOf } from "@/lib/requests/stages";
 import { stageOf } from "@/lib/requests/stages";
-import { CircleGauge, Empty, Gauge, PageName, pageHref, type ViewProps } from "./common";
+import { CircleGauge, Empty, Gauge, PageName, type ViewProps } from "./common";
+import { PageLink as PeekLink } from "../PageLink";
 
 /** 割合ビュー：ページごとの進み具合（工程の％や数値）をゲージで並べる。上に平均と完了の数 */
 export function ProgressView({ database, view, pages, compact }: ViewProps) {
@@ -36,20 +36,20 @@ export function ProgressView({ database, view, pages, compact }: ViewProps) {
           const v = values[i];
           const stage = prop.type === "stage" ? stageOf(prop, p).current?.name : undefined;
           return circle ? (
-            <Link key={p.id} href={pageHref(database, p.id)} className="grid justify-items-center gap-1.5 rounded-[12px] border border-line bg-card p-3 text-center hover:bg-tint">
+            <PeekLink key={p.id} database={database} pageId={p.id} className="grid justify-items-center gap-1.5 rounded-[12px] border border-line bg-card p-3 text-center hover:bg-tint">
               <CircleGauge value={v} size={compact ? 64 : 80} />
               <PageName database={database} page={p} className="max-w-full text-sm font-bold" />
               {stage && <span className="text-xs text-muted">{stage}</span>}
-            </Link>
+            </PeekLink>
           ) : (
-            <Link key={p.id} href={pageHref(database, p.id)} className="flex items-center gap-3 rounded-[10px] border border-line bg-card px-3 py-2 hover:bg-tint">
+            <PeekLink key={p.id} database={database} pageId={p.id} className="flex items-center gap-3 rounded-[10px] border border-line bg-card px-3 py-2 hover:bg-tint">
               <PageName database={database} page={p} className="w-40 shrink-0 text-sm font-bold" />
               <Gauge value={v} />
               <span className="w-24 shrink-0 text-right text-xs text-muted">
                 {stage ? `${stage}・` : ""}
                 {v}%
               </span>
-            </Link>
+            </PeekLink>
           );
         })}
       </div>
