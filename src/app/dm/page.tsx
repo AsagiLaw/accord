@@ -9,8 +9,12 @@ import type { Profile } from "@/lib/local/db";
 import { openDm } from "@/lib/local/dm";
 import { acceptFriend, findProfilesByName, removeFriendship, requestFriend, useFriendships, type FriendRow } from "@/lib/local/friends";
 import { useAllProfiles } from "@/lib/local/rooms";
+import { useNow, useShownPresence, type ShownPresence } from "@/lib/local/presence";
+import { liveStatus } from "@/lib/status";
 import { useCurrentUser } from "@/lib/local/session";
-import { Avatar } from "./Avatar";
+import { UserCardButton } from "@/components/account/UserCard";
+import { Avatar } from "@/components/Avatar";
+import { badgeTone, useDoNotDisturb } from "@/lib/local/dnd";
 
 type Tab = "all" | "pending" | "add";
 
@@ -29,14 +33,18 @@ function Empty({ icon, title, body, children }: { icon: IconName; title: string;
 }
 
 /** 人の1行：左にアイコンと名前、右に操作 */
-function PersonRow({ name, note, children }: { name: string; note?: string; children: React.ReactNode }) {
+function PersonRow({ person, note, presence, children }: { person: Profile; note?: string; presence?: ShownPresence; children: React.ReactNode }) {
+  const name = person.displayName;
   return (
     <li data-name={`人（${name}）`} className="flex items-center gap-3 border-t border-line px-2 py-2 first:border-t-0">
-      <Avatar name={name} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate font-bold">{name}</span>
-        {note && <span className="block truncate text-xs text-muted">{note}</span>}
-      </span>
+      {/* フレンドには状態の印を付ける（オフライン表示の人は灰色＝オフラインに見える）。押すとプロフィールのカード */}
+      <UserCardButton userId={person.id} label={name} className="-my-1 -ml-1 flex min-w-0 flex-1 items-center gap-3 rounded-[10px] p-1 text-left hover:bg-tint">
+        <Avatar name={name} src={person.avatar} presence={presence} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-bold">{name}</span>
+          {note && <span className="block truncate text-xs text-muted">{note}</span>}
+        </span>
+      </UserCardButton>
       <span className="flex shrink-0 items-center gap-1">{children}</span>
     </li>
   );
@@ -176,6 +184,10 @@ export default function FriendsPage() {
   const me = useCurrentUser();
   const data = useFriendships(me?.id);
   const [tab, setTab] = useState<Tab>("all");
+  const quiet = useDoNotDisturb();
+  // フレンドの状態（サイトを開いていなければオフライン）
+  const shown = useShownPresence(me?.id);
+  const now = useNow();
 
   if (!me || !data) return <p className="text-muted">読み込み中…</p>;
   const { friends, incoming, outgoing } = data;
@@ -196,7 +208,7 @@ export default function FriendsPage() {
             className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-sm transition ${tab === t.id ? "bg-tint font-bold text-ink" : "text-muted hover:bg-tint hover:text-ink"}`}
           >
             {t.label}
-            {!!t.badge && <span className="rounded-full bg-warn px-1.5 text-xs leading-5 font-bold text-white">{t.badge}</span>}
+            {!!t.badge && <span className={`rounded-full px-1.5 text-xs leading-5 font-bold ${badgeTone(quiet)}`}>{t.badge}</span>}
           </button>
         ))}
         {/* Discord と同じく、追加だけは目立つ色。開いている間は色を抜いて文字だけ色を付ける */}
@@ -214,7 +226,7 @@ export default function FriendsPage() {
         (friends.length ? (
           <ul className="card p-1.5">
             {friends.map((row) => (
-              <PersonRow key={row.friendship.id} name={row.other.displayName}>
+              <PersonRow key={row.friendship.id} person={row.other} note={liveStatus(row.other, now)} presence={shown(row.other)}>
                 <FriendActions me={me} row={row} />
               </PersonRow>
             ))}
@@ -234,7 +246,7 @@ export default function FriendsPage() {
             {incoming.length ? (
               <ul className="card p-1.5">
                 {incoming.map((row) => (
-                  <PersonRow key={row.friendship.id} name={row.other.displayName} note={`${new Date(row.friendship.createdAt).toLocaleDateString("ja-JP")} に届きました`}>
+                  <PersonRow key={row.friendship.id} person={row.other} note={`${new Date(row.friendship.createdAt).toLocaleDateString("ja-JP")} に届きました`}>
                     <button
                       className="btn min-h-[34px] px-3 text-sm"
                       onClick={async () => {
@@ -260,7 +272,7 @@ export default function FriendsPage() {
             {outgoing.length ? (
               <ul className="card p-1.5">
                 {outgoing.map((row) => (
-                  <PersonRow key={row.friendship.id} name={row.other.displayName} note="承認を待っています">
+                  <PersonRow key={row.friendship.id} person={row.other} note="承認を待っています">
                     <button className="btn-sub min-h-[34px] px-3 text-sm" onClick={() => removeFriendship(row.friendship.id)}>
                       取り消す
                     </button>

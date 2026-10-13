@@ -14,6 +14,10 @@
   --sidebar-media: #d6eef0;
   --rail: #e4e4e4;
   --warn: #b3261e;
+  /* 人の状態の印：オンライン・退席中・取り込み中 */
+  --online: #1f8a4c;
+  --idle: #c98a00;
+  --dnd: #d23c3c;
   color-scheme: light;
 }
 
@@ -31,6 +35,9 @@
   --sidebar-media: #062b2e;
   --rail: #050505;
   --warn: #d6453d;
+  --online: #3fb26b;
+  --idle: #e0a526;
+  --dnd: #ef5b5b;
   color-scheme: dark;
 }
 
@@ -48,6 +55,9 @@
     --sidebar-media: #062b2e;
     --rail: #050505;
     --warn: #d6453d;
+    --online: #3fb26b;
+    --idle: #e0a526;
+    --dnd: #ef5b5b;
     color-scheme: dark;
   }
 }
@@ -65,6 +75,9 @@
   --color-sidebar-media: var(--sidebar-media);
   --color-rail: var(--rail);
   --color-warn: var(--warn);
+  --color-online: var(--online);
+  --color-idle: var(--idle);
+  --color-dnd: var(--dnd);
   --font-sans: var(--font-zen), system-ui, sans-serif;
 }
 

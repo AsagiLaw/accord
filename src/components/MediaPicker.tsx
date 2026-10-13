@@ -21,6 +21,7 @@ export function MediaPicker({
   onClose,
   single,
   pickLabel,
+  mineOnly,
 }: {
   /** 開いているルーム（DM など、ルームの外なら空） */
   roomId: string;
@@ -31,12 +32,14 @@ export function MediaPicker({
   single?: boolean;
   /** 決めるボタンの文字（無ければ「N枚を貼る」） */
   pickLabel?: string;
+  /** マイメディアだけから選ぶ（自分のアイコンなど）。ほかのボックスには切り替えられない */
+  mineOnly?: boolean;
 }) {
   const boxes = useMyBoxes(userId);
   const roomBox = useRoomBox(roomId);
   const [picked, setPicked] = useState<string | null>(null);
   const roomBoxId = roomBox && boxes?.access.has(roomBox.box.id) ? roomBox.box.id : undefined;
-  const boxId = picked ?? roomBoxId ?? boxes?.mine?.id ?? "";
+  const boxId = mineOnly ? (boxes?.mine?.id ?? "") : (picked ?? roomBoxId ?? boxes?.mine?.id ?? "");
   const canAdd = ["owner", "edit"].includes(boxes?.access.get(boxId) ?? "");
   const media = useMedia(boxId);
   const libs = useLibraries(boxId);
@@ -73,7 +76,7 @@ export function MediaPicker({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="メディアから選ぶ"
+        aria-label={mineOnly ? "マイメディアから選ぶ" : "メディアから選ぶ"}
         className="flex max-h-[88dvh] w-full max-w-3xl flex-col rounded-t-[20px] border border-line bg-card sm:rounded-[14px]"
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
@@ -84,7 +87,7 @@ export function MediaPicker({
         }}
       >
         <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
-          <h3 className="font-bold">メディアから選ぶ</h3>
+          <h3 className="font-bold">{mineOnly ? "マイメディアから選ぶ" : "メディアから選ぶ"}</h3>
           <div className="flex gap-2">
             <button className="btn-sub" onClick={onClose}>
               キャンセル
@@ -111,7 +114,7 @@ export function MediaPicker({
               }}
             />
           </label>
-          {boxes && (
+          {boxes && !mineOnly && (
             <select
               value={boxId}
               onChange={(e) => {

@@ -7,20 +7,7 @@ import { newMediaDraft, RoomMediaFields, toMediaChoice, type RoomMediaDraft } fr
 import { PopupDialog } from "@/components/ui/Dialog";
 import { toast } from "@/components/ui/overlay";
 import { createRoom, ROOM_TEMPLATES, type RoomTemplateId } from "@/lib/local/rooms";
-
-const ICON_MAX = 256;
-
-/** ルームのアイコンにする画像を、正方形に切り抜いて小さくする（data URL） */
-async function roomIconFrom(file: File) {
-  const bitmap = await createImageBitmap(file);
-  const side = Math.min(bitmap.width, bitmap.height);
-  const size = Math.min(ICON_MAX, side);
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  canvas.getContext("2d")!.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
-  bitmap.close();
-  return canvas.toDataURL("image/webp", 0.9);
-}
+import { squareIconFrom } from "@/lib/media/image";
 
 /** 名前の最初の1文字（絵文字も1文字として扱う） */
 const initial = (name: string) => Array.from(name.trim())[0] ?? "?";
@@ -158,7 +145,7 @@ export function CreateRoomDialog({ userId, onClose }: { userId: string; onClose:
               e.target.value = "";
               if (!file) return;
               try {
-                setIcon(await roomIconFrom(file));
+                setIcon(await squareIconFrom(file));
               } catch {
                 toast("この画像は読み込めませんでした");
               }

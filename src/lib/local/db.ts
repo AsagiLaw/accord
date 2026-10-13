@@ -11,7 +11,59 @@ export { newId };
 
 export type RoomRole = "host" | "member";
 
-export type Profile = { id: string; displayName: string; createdAt: number };
+/** 人の状態（Discord と同じ4つ）。オフライン表示は、ほかの人にはオフラインに見える */
+export type Presence = "online" | "idle" | "dnd" | "invisible";
+/**
+ * 今開いているタブ（ローカル版の「サイトを開いているか」の代わり）。タブごとに1行で、開いている間は数秒おきに beatAt を更新する。
+ * サーバー版では Supabase の Realtime Presence に置き換える
+ */
+/**
+ * ローカル版のアカウント（ログインの代わり。Supabase につなぐと Supabase Auth に替わる）。
+ * パスワードはそのまま保存せず、PBKDF2 でハッシュにしてから保存する（ブラウザの中なので、本当の守りにはならない）
+ */
+export type LocalAccount = {
+  /** プロフィールの ID と同じ */
+  userId: string;
+  /** 小文字にしたメールアドレス（同じものは登録できない） */
+  email: string;
+  passwordHash: string;
+  salt: string;
+  createdAt: number;
+};
+
+/** ローカル版で、メールの代わりに画面に出すリンクの印（パスワードの再設定） */
+export type AuthToken = { token: string; userId: string; kind: "reset"; expiresAt: number };
+
+export type PresenceTab = {
+  tabId: string;
+  userId: string;
+  /** 最後にタブが生きていると知らせた時刻 */
+  beatAt: number;
+  /** 最後にマウスやキーボードを操作した時刻（しばらく無ければ退席中） */
+  activeAt: number;
+};
+export type Profile = {
+  id: string;
+  displayName: string;
+  createdAt: number;
+  /** アイコン画像（正方形に切り抜いて小さくした data URL）。無ければ名前の最初の1文字 */
+  avatar?: string;
+  /** 名前の下に出すひとこと（ステータス） */
+  statusText?: string;
+  /** ひとことを自動で消す時刻（Discord と同じ）。無ければ消さない */
+  statusExpiresAt?: number;
+  /** 状態。無ければオンライン */
+  presence?: Presence;
+  /** 自己紹介（改行できる） */
+  bio?: string;
+  /** ポートフォリオや SNS などのリンク（http / https だけ） */
+  links?: ProfileLink[];
+  /** 依頼の受付状況。無ければ出さない */
+  workStatus?: WorkStatus;
+};
+export type ProfileLink = { label?: string; url: string };
+/** 依頼の受付状況：受付中・相談のみ・停止中 */
+export type WorkStatus = "open" | "consult" | "closed";
 export type Room = {
   id: string;
   name: string;
@@ -449,6 +501,9 @@ export const db = new Dexie("irai-note") as Dexie & {
   friendships: EntityTable<Friendship, "id">;
   mediaBoxes: EntityTable<MediaBox, "id">;
   boxShares: EntityTable<BoxShare, "id">;
+  presenceTabs: EntityTable<PresenceTab, "tabId">;
+  accounts: EntityTable<LocalAccount, "userId">;
+  authTokens: EntityTable<AuthToken, "token">;
 };
 
 db.version(1).stores({
@@ -1114,3 +1169,14 @@ db.version(27)
     libraries: "id, boxId, parentId",
   })
   .upgrade(moveMediaToBoxes);
+
+// 開いているタブ（オンラインかどうかを決める）
+db.version(28).stores({
+  presenceTabs: "tabId, userId",
+});
+
+// ローカル版のアカウント（メールとパスワード）と、パスワードの再設定のリンク
+db.version(29).stores({
+  accounts: "userId, &email",
+  authTokens: "token, userId",
+});

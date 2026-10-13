@@ -2,16 +2,16 @@
 
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { AccountPanel } from "@/components/account/AccountPanel";
 import { Icon } from "@/components/Icon";
 import type { Profile } from "@/lib/local/db";
-import { useAllProfiles } from "@/lib/local/rooms";
-import { setCurrentUser } from "@/lib/local/session";
 
 /**
  * ルームバーとサイドバーの入れ物。パソコンでは左に並べ、スマホでは左上のボタンで左から引き出す。
+ * いちばん下には、Discord のように、ルームバーとサイドバーをまたいで自分のアカウントの欄を置く。
  * ページを移動したら閉じる
  */
-export function SidebarShell({ children }: { children: React.ReactNode }) {
+export function SidebarShell({ me, children }: { me: Profile; children: React.ReactNode }) {
   const pathname = usePathname();
   // スマホで開いたときのページを覚えておき、ページを移動したら閉じた扱いにする
   const [openAt, setOpenAt] = useState<string | null>(null);
@@ -37,35 +37,18 @@ export function SidebarShell({ children }: { children: React.ReactNode }) {
 
       {/* スマホでは、ルームバーとサイドバーをまとめて左から出す */}
       <div
-        className={`fixed inset-y-0 left-0 z-20 flex w-[min(368px,92vw)] transition-transform md:static md:w-auto md:translate-x-0 ${open ? "translate-x-0" : "-translate-x-[104%]"}`}
+        className={`fixed inset-y-0 left-0 z-20 flex w-[min(368px,92vw)] flex-col transition-transform md:static md:w-auto md:translate-x-0 ${open ? "translate-x-0" : "-translate-x-[104%]"}`}
       >
-        {children}
+        <div className="flex min-h-0 flex-1">{children}</div>
+        {/* 下の欄の後ろも、左はルームバー、右はサイドバーの色にして、2つの列が下まで続いて見えるようにする */}
+        <div
+          data-name="アカウントの欄の台"
+          className="shrink-0 border-r border-line p-2 backdrop-blur-xl"
+          style={{ background: "linear-gradient(to right, var(--rail) 68px, var(--sidebar) 68px)" }}
+        >
+          <AccountPanel me={me} />
+        </div>
       </div>
     </>
-  );
-}
-
-/** ローカル版だけの機能：2人分の動きを1台で試すための利用者切り替え（サイドバーの下に置く） */
-export function UserSwitch({ me }: { me: Profile }) {
-  const profiles = useAllProfiles();
-  return (
-    <label
-      data-name="利用者の切り替え（ローカル版のみ）"
-      className="flex min-h-[38px] items-center gap-2 rounded-[10px] px-3"
-    >
-      <Icon name="ppl" />
-      <span className="shrink-0 text-sm text-muted">利用者</span>
-      <select
-        className="min-w-0 flex-1 bg-transparent font-bold"
-        value={me.id}
-        onChange={(e) => setCurrentUser(e.target.value)}
-      >
-        {profiles?.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.displayName}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }

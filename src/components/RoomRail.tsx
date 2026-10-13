@@ -7,6 +7,7 @@ import { Icon } from "@/components/Icon";
 import { useRoomUnreadTotals } from "@/lib/local/chat";
 import { useMyDms } from "@/lib/local/dm";
 import { useFriendships } from "@/lib/local/friends";
+import { badgeTone, useDoNotDisturb } from "@/lib/local/dnd";
 
 type Room = { id: string; name: string; icon?: string };
 
@@ -32,6 +33,7 @@ export function RoomRail({
     userId,
   );
   const [creating, setCreating] = useState(false);
+  const quiet = useDoNotDisturb();
   const inDm = currentId === null;
   // DM の未読と、届いたフレンドの申請の数
   const dms = useMyDms(userId);
@@ -63,7 +65,7 @@ export function RoomRail({
         >
           <Icon name="chat" size={24} />
           {dmCount > 0 && (
-            <span className="absolute -right-1 -bottom-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-rail bg-warn px-1 text-[11px] leading-none font-bold text-white">
+            <span className={`absolute -right-1 -bottom-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-rail px-1 text-[11px] leading-none font-bold ${badgeTone(quiet)}`}>
               {dmCount > 99 ? "99+" : dmCount}
             </span>
           )}
@@ -111,7 +113,7 @@ export function RoomRail({
                 initial(r.name)
               )}
               {n > 0 && (
-                <span className="absolute -right-1 -bottom-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-rail bg-warn px-1 text-[11px] leading-none font-bold text-white">
+                <span className={`absolute -right-1 -bottom-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-rail px-1 text-[11px] leading-none font-bold ${badgeTone(quiet)}`}>
                   {n > 99 ? "99+" : n}
                 </span>
               )}

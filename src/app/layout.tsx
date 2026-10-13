@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Zen_Kaku_Gothic_New } from "next/font/google";
+import { AuthGate } from "@/components/auth/AuthGate";
 import { NameInspector } from "@/components/NameInspector";
 import { OverlayHost } from "@/components/ui/overlay";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme-boot";
@@ -31,7 +32,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
       </head>
       <body className="min-h-full">
-        {children}
+        {/* ログインしていなければ、ログインの画面へ */}
+        <AuthGate>{children}</AuthGate>
         <OverlayHost />
         <NameInspector />
       </body>

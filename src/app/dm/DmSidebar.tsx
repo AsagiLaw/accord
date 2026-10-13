@@ -7,17 +7,22 @@ import { Icon, type IconName } from "@/components/Icon";
 import { BoxShareDialog } from "@/components/media/BoxShareDialog";
 import { MediaNav } from "@/components/media/MediaNav";
 import { RoomRail } from "@/components/RoomRail";
-import { SidebarShell, UserSwitch } from "@/components/SidebarShell";
+import { SidebarShell } from "@/components/SidebarShell";
 import { choose, toast } from "@/components/ui/overlay";
 import { useBox, useBoxAccess } from "@/lib/local/boxes";
 import type { Profile } from "@/lib/local/db";
 import { openDm, useMyDms } from "@/lib/local/dm";
 import { useFriendships } from "@/lib/local/friends";
-import { Avatar } from "./Avatar";
+import { Avatar } from "@/components/Avatar";
+import { badgeTone, useDoNotDisturb } from "@/lib/local/dnd";
 
 type Room = { id: string; name: string; icon?: string };
 
-const Badge = ({ n }: { n: number }) => <span className="rounded-full bg-warn px-2 text-xs text-white">{n > 99 ? "99+" : n}</span>;
+/** 未読の数。取り込み中は灰色で控えめにする */
+function Badge({ n }: { n: number }) {
+  const quiet = useDoNotDisturb();
+  return <span className={`rounded-full px-2 text-xs ${badgeTone(quiet)}`}>{n > 99 ? "99+" : n}</span>;
+}
 
 function NavLink({ href, icon, label, active, badge = 0 }: { href: string; icon: IconName; label: string; active: boolean; badge?: number }) {
   return (
@@ -59,7 +64,7 @@ export function DmSidebar({ rooms, me }: { rooms: Room[]; me: Profile }) {
   };
 
   return (
-    <SidebarShell>
+    <SidebarShell me={me}>
       <RoomRail rooms={rooms} currentId={null} userId={me.id} />
       <nav
         data-name="DM用サイドバー"
@@ -126,7 +131,7 @@ export function DmSidebar({ rooms, me }: { rooms: Room[]; me: Profile }) {
                       aria-label={`${name}さんとのDM${unread ? `（未読${unread}件）` : ""}`}
                       className={`flex min-h-[40px] items-center gap-2 rounded-[10px] px-2 py-1 transition ${active ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"} ${unread && !active ? "font-bold" : ""}`}
                     >
-                      <Avatar name={name} size={28} onAccent={active} />
+                      <Avatar name={name} src={other?.avatar} size={28} onAccent={active} />
                       <span className="min-w-0 flex-1 truncate">{name}</span>
                       {unread > 0 && !active && <Badge n={unread} />}
                     </Link>
@@ -138,10 +143,6 @@ export function DmSidebar({ rooms, me }: { rooms: Room[]; me: Profile }) {
             )}
           </div>
         )}
-
-        <div data-name="サイドバー下部" className="mt-auto space-y-0.5 border-t border-line pt-2">
-          <UserSwitch me={me} />
-        </div>
       </nav>
     </SidebarShell>
   );

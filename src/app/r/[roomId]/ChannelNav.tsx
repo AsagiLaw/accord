@@ -32,6 +32,7 @@ import { nameSuffixOf, useDatabase, usePages, useViews } from "@/lib/local/reque
 import { setSidebarView } from "@/lib/local/templates";
 import { DONE, P } from "@/lib/requests/defaults";
 import { applyView } from "@/lib/requests/logic";
+import { badgeTone, useDoNotDisturb } from "@/lib/local/dnd";
 
 const KIND_ICON: Record<ChannelKind, IconName> = { db: "db", chat: "chat", note: "note", window: "window" };
 const DEFAULT_NAME: Record<ChannelKind, string> = { db: "新しいデータベース", chat: "新しいチャット", note: "新しいノート", window: "新しいウィンドウ" };
@@ -66,10 +67,11 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
   });
   const total = [...(unread?.values() ?? [])].reduce((a, b) => a + b, 0);
 
-  // ブラウザのタブにも未読の数を出す
+  // ブラウザのタブにも未読の数を出す（取り込み中は出さない）
+  const quiet = useDoNotDisturb();
   useEffect(() => {
-    document.title = total ? `(${total}) 依頼ノート` : "依頼ノート";
-  }, [total]);
+    document.title = total && !quiet ? `(${total}) 依頼ノート` : "依頼ノート";
+  }, [total, quiet]);
 
   const toggle = (id: string) => {
     const next = collapsed.includes(id) ? collapsed.filter((x) => x !== id) : [...collapsed, id];
@@ -188,7 +190,7 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
             )}
           </Link>
           {ch.kind === "db" && <DbUnread dbId={ch.id} roomId={roomId} userId={userId} hide={active} />}
-          {n > 0 && !active && <span className="mr-1 rounded-full bg-warn px-2 text-xs text-white">{n}</span>}
+          {n > 0 && !active && <UnreadBadge n={n} className="mr-1" />}
           <button
             aria-label={`「${ch.name || "無題"}」のメニュー`}
             onClick={(e) => openMenu({ type: "channel", ch }, "main", e.currentTarget)}
@@ -499,13 +501,19 @@ function ChannelMenu({
   );
 }
 
+/** 未読の数。取り込み中は灰色で控えめにする */
+function UnreadBadge({ n, className = "" }: { n: number; className?: string }) {
+  const quiet = useDoNotDisturb();
+  return <span className={`rounded-full px-2 text-xs ${badgeTone(quiet)} ${className}`}>{n}</span>;
+}
+
 /** データベースのチャンネルの未読（中の依頼のチャットの未読の合計） */
 function DbUnread({ dbId, roomId, userId, hide }: { dbId: string; roomId: string; userId: string; hide: boolean }) {
   const pages = usePages(dbId) ?? [];
   const unread = useUnreadCounts(roomId, userId);
   const n = pages.reduce((a, p) => a + (p.chatId ? (unread?.get(p.chatId) ?? 0) : 0) + (p.reenactChatId ? (unread?.get(p.reenactChatId) ?? 0) : 0), 0);
   if (!n || hide) return null;
-  return <span className="mr-1 rounded-full bg-warn px-2 text-xs text-white">{n}</span>;
+  return <UnreadBadge n={n} className="mr-1" />;
 }
 
 /** サイドバーに出すページを、データベースのビューで選ぶ（そのビューのフィルター・並び順で出る） */
@@ -585,7 +593,7 @@ function DbPages({ dbId, roomId, userId }: { dbId: string; roomId: string; userI
               {p.title || <span className="text-muted">無題</span>}
               {p.title && nameSuffixOf(database)}
             </span>
-            {n > 0 && !on && <span className="rounded-full bg-warn px-2 text-xs text-white">{n}</span>}
+            {n > 0 && !on && <UnreadBadge n={n} />}
           </Link>
         );
       })}

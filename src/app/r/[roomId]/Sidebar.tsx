@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { RoomRail } from "@/components/RoomRail";
-import { SidebarShell, UserSwitch } from "@/components/SidebarShell";
+import { SidebarShell } from "@/components/SidebarShell";
 import { MenuItem, Popover, usePopover } from "@/components/ui/Popover";
 import type { Profile } from "@/lib/local/db";
 import { ChannelNav } from "./ChannelNav";
@@ -42,7 +42,7 @@ export function Sidebar({
   }, [inMedia, pathname]);
 
   return (
-    <SidebarShell>
+    <SidebarShell me={me}>
       <RoomRail rooms={rooms} currentId={room.id} userId={me.id} />
       <nav
         data-name={inMedia ? "メディア用サイドバー" : "サイドバー"}
@@ -146,13 +146,6 @@ export function Sidebar({
             <ChannelNav roomId={room.id} userId={me.id} />
           </div>
         )}
-
-        <div
-          data-name="サイドバー下部"
-          className="mt-auto space-y-0.5 border-t border-line pt-2"
-        >
-          <UserSwitch me={me} />
-        </div>
       </nav>
     </SidebarShell>
   );

@@ -6,11 +6,9 @@ import { Icon } from "@/components/Icon";
 import { confirmAction, promptText, toast } from "@/components/ui/overlay";
 import { deleteChannelTemplate, renameChannelTemplate, useChannelTemplates } from "@/lib/local/channelTemplates";
 import { useState } from "react";
-import { addMember, deleteRoom, renameProfile, renameRoom, useAllProfiles, useMembers, useRoom } from "@/lib/local/rooms";
+import { addMember, deleteRoom, renameRoom, useAllProfiles, useMembers, useRoom } from "@/lib/local/rooms";
 import { useCurrentUser } from "@/lib/local/session";
 import { RoomMediaSettings } from "@/components/media/RoomMediaSettings";
-import { setNameHints, useNameHints } from "@/lib/name-hints";
-import { setTheme, useTheme } from "@/lib/theme";
 
 function InlineEdit({ value, label, onSave }: { value: string; label: string; onSave: (v: string) => Promise<void> }) {
   const [draft, setDraft] = useState(value);
@@ -51,8 +49,6 @@ export default function SettingsPage() {
   const members = useMembers(roomId);
   const profiles = useAllProfiles();
   const [newName, setNewName] = useState("");
-  const theme = useTheme();
-  const nameHints = useNameHints();
   const router = useRouter();
 
   if (!me || !room || !members || !profiles) return null;
@@ -61,44 +57,9 @@ export default function SettingsPage() {
 
   return (
     <div data-name="設定画面" className="max-w-2xl space-y-4">
-      <h1 className="mb-5 text-[28px] font-bold">設定</h1>
-
-      <section className="card">
-        <h2 className="mb-1 font-bold">表示</h2>
-        <p className="mb-3 text-sm text-muted">この端末だけの設定です。</p>
-        <div className="grid grid-cols-3 gap-1 rounded-full bg-bg p-1" role="radiogroup" aria-label="表示モード">
-          {(
-            [
-              ["system", "端末に合わせる"],
-              ["light", "ホワイト"],
-              ["dark", "ダーク"],
-            ] as const
-          ).map(([v, label]) => (
-            <button
-              key={v}
-              role="radio"
-              aria-checked={theme === v}
-              onClick={() => setTheme(v)}
-              className={`min-h-[36px] rounded-full px-2 text-sm ${theme === v ? "bg-accent font-bold text-accent-ink" : "text-muted hover:text-ink"}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="card">
-        <h2 className="mb-1 font-bold">名称表示</h2>
-        <p className="mb-3 text-sm text-muted">
-          カーソルをしばらく置くと、その場所やボタンの名前を「サイドバー › チャット一覧 › リンク「雑談」」のように表示します。改善の指示を出すときに、名前を確かめるのに使えます。この端末だけの設定です。
-        </p>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={nameHints} onChange={(e) => setNameHints(e.target.checked)} className="h-5 w-5 accent-[var(--accent)]" />
-          名称を表示する
-        </label>
-      </section>
-
-      <h2 className="pt-4 text-lg font-bold">ルーム</h2>
+      <h1 className="text-[28px] font-bold">ルームの設定</h1>
+      {/* 自分の表示名・アイコンや、表示モードなどの端末の設定は、左下のアカウントの欄の歯車から開く */}
+      <p className="mb-5 text-sm text-muted">自分の表示名やアイコン、表示モードは、左下の歯車（アカウントの設定）で変えられます。</p>
 
       <TemplatesSection roomId={roomId} />
 
@@ -109,11 +70,6 @@ export default function SettingsPage() {
         ) : (
           <p>{room.name}</p>
         )}
-      </section>
-
-      <section className="card">
-        <h2 className="mb-3 font-bold">自分の表示名</h2>
-        <InlineEdit key={me.id} value={me.displayName} label="表示名" onSave={(v) => renameProfile(me.id, v)} />
       </section>
 
       <RoomMediaSettings roomId={roomId} room={room} me={me} />

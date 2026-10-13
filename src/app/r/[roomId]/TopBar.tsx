@@ -18,9 +18,20 @@ import { renameWindow, useWindowPage } from "@/lib/local/windows";
 /**
  * Discord のような、メイン画面の上の細いバー。今の画面のアイコンと名前を出す（データベースのページは「データベース › ページ」）。
  * 今開いている画面のアイコン・名前は、押すとその場で変えられる。
- * 右には、画面ごとの操作（TopBarActions で入れる）。スマホでは、左のメニューのボタンの分をあける
+ * 右には、画面ごとの操作（TopBarActions で入れる）と、いちばん右に Discord と同じメンバー一覧のボタン。
+ * スマホでは、左のメニューのボタンの分をあける
  */
-export function TopBar({ roomId, slotRef }: { roomId: string; slotRef: (el: HTMLElement | null) => void }) {
+export function TopBar({
+  roomId,
+  slotRef,
+  membersOpen,
+  onToggleMembers,
+}: {
+  roomId: string;
+  slotRef: (el: HTMLElement | null) => void;
+  membersOpen: boolean;
+  onToggleMembers: () => void;
+}) {
   const pathname = usePathname();
   const [kind, id, sub, subId] = pathname.slice(`/r/${roomId}`.length).split("/").filter(Boolean);
   return (
@@ -40,6 +51,18 @@ export function TopBar({ roomId, slotRef }: { roomId: string; slotRef: (el: HTML
         ) : null}
       </nav>
       <div ref={slotRef} data-name="上部バーの操作" className={`flex items-center gap-2 ${kind === "media" ? "min-w-0 flex-1" : "shrink-0"}`} />
+      {/* メンバー一覧の開け閉め。開いている間は色を濃くする */}
+      <button
+        type="button"
+        data-name="メンバー一覧"
+        aria-label="メンバー一覧"
+        aria-pressed={membersOpen}
+        title={membersOpen ? "メンバー一覧を閉じる" : "メンバー一覧を表示"}
+        onClick={onToggleMembers}
+        className={`grid h-10 w-10 shrink-0 place-items-center rounded-[8px] transition md:h-7 md:w-7 ${membersOpen ? "bg-tint text-ink" : "text-muted hover:bg-tint hover:text-ink"}`}
+      >
+        <Icon name="ppl" size={20} />
+      </button>
     </header>
   );
 }

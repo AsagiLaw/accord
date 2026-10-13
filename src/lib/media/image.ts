@@ -227,3 +227,17 @@ export function aspectRatio(w: number, h: number): string {
   const g = gcd(w, h);
   return w / g <= 32 && h / g <= 32 ? `${w / g} : ${h / g}` : `${(w / h).toFixed(2)} : 1`;
 }
+
+const ICON_MAX = 256;
+
+/** ルームや人のアイコンにする画像を、正方形に切り抜いて小さくする（data URL） */
+export async function squareIconFrom(file: Blob) {
+  const bitmap = await createImageBitmap(file);
+  const side = Math.min(bitmap.width, bitmap.height);
+  const size = Math.min(ICON_MAX, side);
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  canvas.getContext("2d")!.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
+  bitmap.close();
+  return canvas.toDataURL("image/webp", 0.9);
+}

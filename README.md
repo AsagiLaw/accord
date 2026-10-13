@@ -14,7 +14,42 @@ Discord・Notion・画像整理ソフトの3つを、このアプリ1つにま�
 npm run dev
 ```
 
-http://localhost:3000 を開く。初回は「マネージャー」「イラストレーター」の2人と、ルーム「依頼ノート」、チャット「雑談」が自動で作られる。サイドバー下の「利用者」で、どちらとして操作するかを切り替えられる。利用者はタブごとに覚えるので、2つのタブを別々の人にすればチャットのやり取りを試せる。
+http://localhost:3000 を開く。初回は「マネージャー」「イラストレーター」の2人と、ルーム「依頼ノート」、チャット「雑談」が自動で作られる。
+
+ログインの画面が出るので、新規登録するか、「試し用の利用者で入る」から2人のどちらかで入る（ローカル版だけ。パスワードなし）。ログインしたアカウントは、左下のカードの「アカウントを切り替え」で替えられる。どのアカウントで操作しているかはタブごとに覚えるので、2つのタブを別々の人にすればチャットのやり取りを試せる。
+
+## ログイン（ローカル版と Supabase 版）
+
+ログインまわりの画面（`/login`・`/signup`・`/forgot-password`・`/reset-password`）は1つで、`.env.local` の有無で動きが替わる。入口は `src/lib/auth/index.ts`。
+
+- **ローカル版**（`.env.local` が無いとき）：アカウントはブラウザの中（IndexedDB の `accounts`）に保存する。パスワードは PBKDF2 でハッシュにしてから保存するが、本当の守りにはならない。メールは送らず、パスワードの再設定のリンクは画面に出す。Google でのログインは使えない
+- **Supabase 版**（`.env.local` に URL とキーを入れたとき）：Supabase Auth を使う（メールとパスワード・Google）。メールのリンクと Google からは `/auth/callback` に戻る。`src/proxy.ts` がページを開くたびにログインの期限を延ばす。データはまだブラウザの中なので、ログインした人と同じ ID のプロフィールをブラウザの中に用意して、今までの画面をそのまま使う
+
+Supabase につなぐとき：
+
+1. Supabase でプロジェクトを作り、`.env.local.example` を `.env.local` にコピーして URL とキーを入れる
+2. `supabase/migrations/` の SQL を順に SQL Editor で実行する
+3. Authentication → URL Configuration：Site URL に `http://localhost:3000`、Redirect URLs に `http://localhost:3000/auth/callback` を足す（公開するときは、公開先の URL も）
+4. Google でログインするときは、Authentication → Providers → Google を有効にし、Google Cloud で作った OAuth クライアントの ID とシークレットを入れる
+5. `npm run dev` を起動し直す
+
+### ロボットよけ（Cloudflare Turnstile）
+
+ログイン・新規登録・パスワードの再設定の画面に、Cloudflare Turnstile の確認の欄を出す（`src/components/auth/Turnstile.tsx`）。キーを入れないときは、開発中（`npm run dev`）は Cloudflare の試し用のキー（いつも通る）で動き、公開したもの（`npm run build`）では出ない。
+
+- **ローカル版**：届いた token を、このアプリのサーバー（`/api/turnstile`）が Cloudflare に問い合わせて確かめてから、ログインなどに進む
+- **Supabase 版**：token を Supabase に渡し、Supabase が確かめる。Supabase の設定でロボットよけをオンにすると、設定の画面でパスワードを確かめるとき（メールアドレス・パスワードの変更、アカウントの削除）にも確認の欄が出る
+
+本物のキーにするとき：
+
+1. Cloudflare のダッシュボード → Turnstile → サイトを追加（ドメインに `localhost` と、公開先のドメインを入れる）
+2. 出てきたサイトキーを `.env.local` の `NEXT_PUBLIC_TURNSTILE_SITE_KEY` に入れる
+3. シークレットキーは、ローカル版なら `.env.local` の `TURNSTILE_SECRET_KEY`、Supabase 版なら Supabase の Authentication → Attack Protection（Bot and Abuse Protection）で CAPTCHA をオンにして、Turnstile を選んで入れる
+4. `npm run dev` を起動し直す
+
+Supabase でロボットよけをオンにしたのに、`.env.local` に本物のサイトキーが無い（試し用のキーのまま）と、ログインが通らなくなるので気をつける。
+
+アカウントの削除は、ホストになっているルームがあるとできない（ホストは引き継げないため。Supabase 版は `delete_my_account`（0008）で止める）。
 
 - データの出し入れは `src/lib/local/` にまとめてある。サーバー版に移るときは、ここを差し替える
 - サーバー版のデータベース設計は `supabase/migrations/`、接続部品は `src/lib/supabase/` に用意してある（今は使っていない）

@@ -1,17 +1,19 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { UserCardButton } from "@/components/account/UserCard";
+import { Avatar } from "@/components/Avatar";
 import { Icon } from "@/components/Icon";
 import { ImageViewer } from "@/components/ImageViewer";
 import { MediaPicker } from "@/components/MediaPicker";
 import { ThumbImage } from "@/components/ThumbImage";
 import { choose, confirmAction, promptText, toast } from "@/components/ui/overlay";
 import { addSpeaker, changeSpeaker, deleteMessage, editMessage, markRead, sendMessage, useMessages } from "@/lib/local/chat";
-import type { Chat, Media, Message, Profile } from "@/lib/local/db";
+import type { Chat, Media, Message, Profile, RoomRole } from "@/lib/local/db";
 import { ensureMyMedia } from "@/lib/local/boxes";
 import { ensureInBox, uploadToRoom, useMediaByIds } from "@/lib/local/media";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
-import type { MemberWithProfile } from "@/lib/local/rooms";
+import { useAllProfiles, type MemberWithProfile } from "@/lib/local/rooms";
 
 const WEEK = "日月火水木金土";
 const dayLabel = (t: number) => {
@@ -41,6 +43,12 @@ export function ChatView({
   const reenact = chat.kind === "reenact";
   const speakers = chat.speakers ?? ["依頼者", "自分"];
   const who = (m: Message) => (reenact ? (m.speaker ?? speakers[0]) : nameOf(m.authorId));
+  // 発言の横に出すアイコン（ルームのチャットではカードに役割も出す。DM と再現チャットでは出さない）
+  const profiles = useAllProfiles();
+  const authorOf = (m: Message): Author | undefined =>
+    reenact
+      ? undefined
+      : { id: m.authorId, avatar: profiles?.find((p) => p.id === m.authorId)?.avatar, role: chat.dm ? undefined : members.find((x) => x.userId === m.authorId)?.role };
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [viewer, setViewer] = useState<{ items: Media[]; start: number } | null>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -106,6 +114,7 @@ export function ChatView({
                 canEdit={reenact || m.authorId === me.id}
                 grouped={grouped}
                 authorName={who(m)}
+                author={authorOf(m)}
                 speakerTone={reenact ? speakers.indexOf(who(m)) : undefined}
                 onChangeSpeaker={
                   reenact
@@ -148,8 +157,12 @@ const SPEAKER_TONES = [
   "border-2 border-dashed border-pink-500/70 bg-pink-500/10",
 ];
 
+/** 発言した人（アイコンとプロフィールのカード用） */
+type Author = { id: string; avatar?: string; role?: RoomRole };
+
 function MessageItem({
   m,
+  author,
   mine,
   canEdit,
   grouped,
@@ -163,6 +176,7 @@ function MessageItem({
   onOpen,
 }: {
   m: Message;
+  author?: Author;
   mine: boolean;
   canEdit: boolean;
   grouped: boolean;
@@ -187,8 +201,18 @@ function MessageItem({
   };
 
   return (
-    <div data-name={`発言（${authorName}）`} className={`group flex ${mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-3"}`}>
-      <div className={`flex max-w-[min(560px,85%)] flex-col ${mine ? "items-end" : "items-start"}`}>
+    <div data-name={`発言（${authorName}）`} className={`group flex gap-2 ${mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-3"}`}>
+      {/* ほかの人の発言は、左にアイコン（続けて送った発言では空けておく）。押すとプロフィールのカード */}
+      {!mine && author && (
+        <div className="w-9 shrink-0">
+          {!grouped && (
+            <UserCardButton userId={author.id} role={author.role} label={authorName} className="mt-0.5 block rounded-full hover:opacity-85">
+              <Avatar name={authorName} src={author.avatar} size={36} />
+            </UserCardButton>
+          )}
+        </div>
+      )}
+      <div className={`flex max-w-[min(560px,85%)] min-w-0 flex-col ${mine ? "items-end" : "items-start"}`}>
         {!grouped && (
           <div className="mb-0.5 flex items-baseline gap-2 px-1 text-xs text-muted">
             {onChangeSpeaker ? (
@@ -196,7 +220,14 @@ function MessageItem({
                 {authorName}
               </button>
             ) : (
-              !mine && <b className="text-ink">{authorName}</b>
+              !mine &&
+              (author ? (
+                <UserCardButton userId={author.id} role={author.role} label={authorName} className="font-bold text-ink hover:underline">
+                  {authorName}
+                </UserCardButton>
+              ) : (
+                <b className="text-ink">{authorName}</b>
+              ))
             )}
             <span>{timeLabel(m.createdAt)}</span>
           </div>

@@ -6,7 +6,16 @@ import { requestDatabase } from "@/lib/requests/defaults";
 import { unlinkRoom } from "./boxes";
 import { db, defaultCategories, defaultChat, newId, newMyMediaBox, newRoomMediaBox, type Chat, type Profile, type RoomRole } from "./db";
 
-export type MemberWithProfile = { userId: string; role: RoomRole; displayName: string };
+export type MemberWithProfile = {
+  userId: string;
+  role: RoomRole;
+  displayName: string;
+  /** メンバー一覧に出す、アイコン画像・ひとこと・状態 */
+  avatar?: string;
+  statusText?: string;
+  statusExpiresAt?: number;
+  presence?: Profile["presence"];
+};
 
 /** その利用者が参加しているルーム（参加順） */
 export function useMyRooms(userId: string | undefined) {
@@ -28,7 +37,15 @@ export function useMembers(roomId: string) {
     const links = await db.roomMembers.where("roomId").equals(roomId).sortBy("joinedAt");
     const profiles = await db.profiles.bulkGet(links.map((l) => l.userId));
     return links.map(
-      (l, i): MemberWithProfile => ({ userId: l.userId, role: l.role, displayName: profiles[i]?.displayName ?? "" }),
+      (l, i): MemberWithProfile => ({
+        userId: l.userId,
+        role: l.role,
+        displayName: profiles[i]?.displayName ?? "",
+        avatar: profiles[i]?.avatar,
+        statusText: profiles[i]?.statusText,
+        statusExpiresAt: profiles[i]?.statusExpiresAt,
+        presence: profiles[i]?.presence,
+      }),
     );
   }, [roomId]);
 }
@@ -140,4 +157,9 @@ export async function addMember(roomId: string, who: { userId: string } | { disp
 
 export async function renameProfile(userId: string, displayName: string) {
   await db.profiles.update(userId, { displayName });
+}
+
+/** 自分のプロフィール（アイコン・ひとこと・状態）を変える。avatar・statusText を undefined にすると消す */
+export async function updateProfile(userId: string, patch: Partial<Pick<Profile, "displayName" | "avatar" | "statusText" | "statusExpiresAt" | "presence" | "bio" | "links" | "workStatus">>) {
+  await db.profiles.update(userId, patch);
 }
