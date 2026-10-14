@@ -100,7 +100,7 @@ export function ChatView({
           const newDay = !prev || !sameDay(prev.createdAt, m.createdAt);
           const grouped = !newDay && who(prev) === who(m) && prev.authorId === m.authorId && m.createdAt - prev.createdAt < 5 * 60_000 && !m.replyTo;
           return (
-            <div key={m.id}>
+            <div key={m.id} data-msg={m.id}>
               {newDay && (
                 <div className="my-4 flex items-center gap-3 text-xs text-muted">
                   <span className="h-px flex-1 bg-line" />

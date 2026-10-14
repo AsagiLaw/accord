@@ -8,8 +8,8 @@ import { PopupDialog } from "@/components/ui/Dialog";
 import type { Media } from "@/lib/local/db";
 import { useChatSentMedia } from "@/lib/local/media";
 
-/** チャットの上のバーに置くフォルダのボタン。押すと、そのチャットで送られた画像の一覧を出す */
-export function ChatImagesButton({ chatId, roomId }: { chatId: string; roomId: string }) {
+/** チャットの上のバー（とチャットのブロックの右上）に置くフォルダのボタン。押すと、そのチャットで送られた画像の一覧を出す。compact はブロックの見出しの大きさ */
+export function ChatImagesButton({ chatId, roomId, compact }: { chatId: string; roomId: string; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -19,9 +19,9 @@ export function ChatImagesButton({ chatId, roomId }: { chatId: string; roomId: s
         aria-label="このチャットで送られた画像"
         title="このチャットで送られた画像"
         onClick={() => setOpen(true)}
-        className="grid h-7 w-7 shrink-0 place-items-center rounded-[8px] text-muted hover:bg-tint hover:text-ink"
+        className={`grid shrink-0 place-items-center text-muted hover:bg-tint hover:text-ink ${compact ? "h-6 w-6 rounded-full" : "h-7 w-7 rounded-[8px]"}`}
       >
-        <Icon name="folder" size={18} />
+        <Icon name="folder" size={compact ? 15 : 18} />
       </button>
       {open && <ChatImagesDialog chatId={chatId} roomId={roomId} onClose={() => setOpen(false)} />}
     </>

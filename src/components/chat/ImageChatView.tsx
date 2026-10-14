@@ -74,8 +74,8 @@ export function ImageChatView({ chat, me, readOnlyNotice, fixedUsers = [] }: { c
           const right = !!speaker && m.speaker === speaker;
           const grouped = messages[i - 1]?.speaker === m.speaker;
           return (
+            <div key={m.id} data-msg={m.id}>
             <ImageMessage
-              key={m.id}
               m={m}
               user={u}
               users={users}
@@ -88,6 +88,7 @@ export function ImageChatView({ chat, me, readOnlyNotice, fixedUsers = [] }: { c
                 if (items.length) setViewer({ items, start: idx });
               }}
             />
+            </div>
           );
         })}
       </div>
@@ -291,8 +292,9 @@ function ImageComposer({ chat, me, users, speaker, onSpeaker }: { chat: Chat; me
             }
           }}
           rows={Math.min(5, text.split("\n").length)}
-          placeholder={speaker ? `${users.find((u) => u.id === speaker)?.name}として入力` : "上の「＋イメージユーザー」で話す人を作る"}
-          title="Enterで送信・Shift＋Enterで改行"
+          // ふつうのチャットと同じ文字。話す人は上の並びで分かる。話す人がまだいないときの案内は、カーソルを合わせたときに出す
+          placeholder="メッセージを入力"
+          title={speaker ? "Enterで送信・Shift＋Enterで改行" : "上の「＋イメージユーザー」で話す人を作ると書けます"}
           aria-label="メッセージ"
           disabled={!speaker}
           className="field min-h-[36px] flex-1 resize-none py-1.5 text-sm"

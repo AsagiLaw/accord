@@ -20,11 +20,11 @@ import { valueTypeOf } from "@/lib/requests/formula";
 
 /** ビューに出す項目（タイトル以外）。設定が無ければ、ビューの種類ごとの決まった数だけ */
 export function visibleProps(database: Database, view: DbView): Property[] {
-  // チャットの項目は、はじめは出さない（「プロパティの表示/非表示」で表示にすると、発言の数と最後の発言を出す）
+  // チャットの項目は、テーブルでははじめから出す（発言の数と最後の発言）。ボード・リストなどのカードには、はじめは出さない
   const all = database.props.filter((p) => p.type !== "title");
   const others = all.filter((p) => p.type !== "chat" && p.type !== "imageChat");
   if (view.options.visible) return view.options.visible.map((id) => all.find((p) => p.id === id)).filter((p): p is Property => !!p);
-  if (view.type === "table") return others;
+  if (view.type === "table") return all;
   if (view.type === "board" || view.type === "gallery") return others.filter((p) => p.type === "select" || p.type === "status" || p.type === "date").slice(0, 3);
   if (view.type === "list" && database.kind !== "request") return others.slice(0, 3);
   // 依頼のリストは、はじめはプランを出す（前は決め打ちで出していた）。ゲージ・期限はリストの設定で出す
@@ -222,6 +222,30 @@ function SerialScreen({ database, prop, onBack }: { database: Database; prop: Pr
   );
 }
 
+/** 「ページ」の項目のテンプレート：このデータベースのテンプレートから選ぶか、使わない（空のノート） */
+function SubTemplateScreen({ database, prop, onBack }: { database: Database; prop: Property; onBack: () => void }) {
+  return (
+    <ChoiceScreen
+      title="テンプレート"
+      section="別ページを作るときのテンプレート"
+      items={[
+        { id: "", label: "テンプレートを使わない", icon: "x" as const, note: "空のノート" },
+        ...(database.templates ?? []).map((t) => ({ id: t.id, label: t.name, icon: t.kind === "window" ? ("window" as const) : ("note" as const), emoji: t.icon, note: t.kind === "window" ? "ウィンドウ型（テンプレートと繋ぐ）" : "ノート型（中身をコピーして書ける）" })),
+      ]}
+      selected={prop.templateId ?? ""}
+      onPick={(id) => {
+        void updateProperty(database.id, prop.id, { templateId: id || undefined });
+        onBack();
+      }}
+      onBack={onBack}
+    />
+  );
+}
+
+/** 「ページ」の項目のテンプレートの短い説明 */
+const subTemplateText = (database: Database, prop: Property) =>
+  prop.templateId ? (database.templates?.find((t) => t.id === prop.templateId)?.name ?? "見つかりません") : "使わない";
+
 /** テーブルの列の見出しを押したときのメニュー */
 export function PropertyMenu({
   database: givenDb,
@@ -242,7 +266,7 @@ export function PropertyMenu({
   const [name, setName] = useState(prop.name);
   const save = useSaveView();
   // 種類・表示は、プルダウンではなく中の画面の一覧から選ぶ
-  const [screen, setScreen] = useState<"top" | "type" | "format" | "serial" | "default">("top");
+  const [screen, setScreen] = useState<"top" | "type" | "format" | "serial" | "default" | "subTemplate">("top");
   const members = useMembers(database.roomId) ?? [];
   const locked = isLocked(database, prop.id);
   const isChat = prop.type === "chat" || prop.type === "imageChat";
@@ -265,6 +289,7 @@ export function PropertyMenu({
       />
     );
   if (screen === "serial") return <SerialScreen database={database} prop={prop} onBack={() => setScreen("top")} />;
+  if (screen === "subTemplate") return <SubTemplateScreen database={database} prop={prop} onBack={() => setScreen("top")} />;
   if (screen === "default") return <DefaultValueScreen database={database} prop={prop} onBack={() => setScreen("top")} />;
   if (screen === "format")
     return (
@@ -308,6 +333,12 @@ export function PropertyMenu({
         <NavRow icon="hash" label="数値の表示" value={NUMBER_FORMATS.find((f) => f.id === (prop.format ?? ""))?.label} onClick={() => setScreen("format")} />
       )}
       {prop.type === "serial" && <NavRow icon="hash" label="番号の形" value={serialText(prop, 1)} onClick={() => setScreen("serial")} />}
+      {prop.type === "page" && (
+        <>
+          <NavRow icon="note" label="テンプレート" value={subTemplateText(database, prop)} onClick={() => setScreen("subTemplate")} />
+          <p className="px-2 pb-1 text-xs text-muted">別ページは、はじめて開いたときにこのテンプレートで作ります（作った別ページは、テンプレートを変えても変わりません）</p>
+        </>
+      )}
       {canHaveDefault(prop) && <NavRow icon="add" label="はじめの値" value={defaultLabel(prop, members)} onClick={() => setScreen("default")} />}
       {locked && (
         <p className="px-2 pb-1 text-xs text-muted">
@@ -315,7 +346,9 @@ export function PropertyMenu({
             ? "タイトルの項目です。"
             : isChat
               ? "チャットの項目です。会話と繋がっているので、種類は変えられません。"
-              : "依頼の計算（工程・収入）に使うので、種類の変更と削除はできません。"}
+              : prop.type === "page"
+                ? "ページの項目です。別ページと繋がっているので、種類は変えられません。"
+                : "依頼の計算（工程・収入）に使うので、種類の変更と削除はできません。"}
         </p>
       )}
       <MenuDivider />
@@ -354,7 +387,11 @@ export function PropertyMenu({
             onClick={async () => {
               // チャットの項目は、発言があれば、数を出して本当に消してよいかを確かめる（発言が1件も無ければ、そのまま消す）
               const said = isChat ? await countPropMessages(database.id, prop.id) : 0;
-              const body = isChat ? `すべてのページの「${prop.name}」の会話（発言${said}件）も消えます。元に戻せません。本当に削除しますか？` : "すべてのページから、この項目の値が消えます。";
+              const body = isChat
+                ? `すべてのページの「${prop.name}」の会話（発言${said}件）も消えます。元に戻せません。本当に削除しますか？`
+                : prop.type === "page"
+                  ? `すべてのページの「${prop.name}」の別ページ（中身も）が消えます。元に戻せません。本当に削除しますか？`
+                  : "すべてのページから、この項目の値が消えます。";
               if ((!isChat || said > 0) && !(await confirmAction(`項目「${prop.name}」を削除します`, "削除", body))) return;
               await deleteProperty(database.id, prop.id);
               onDone();
@@ -376,7 +413,7 @@ export function AddPropertyMenu({ database, view, onDone }: { database: Database
     <div>
       <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="項目の名前" className="field mb-1 py-1" aria-label="項目の名前" />
       <MenuLabel>種類を選ぶと追加されます</MenuLabel>
-      {[...ADDABLE, "chat" as const, "imageChat" as const].map((t) => (
+      {[...ADDABLE, "chat" as const, "imageChat" as const, "page" as const].map((t) => (
         <MenuItem
           key={t}
           icon={<PropIcon type={t} size={16} />}

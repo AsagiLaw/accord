@@ -2,9 +2,9 @@
 
 import { useLiveQuery } from "dexie-react-hooks";
 import type { IconName } from "@/components/Icon";
-import { requestDatabase } from "@/lib/requests/defaults";
+import roomPreset from "@/lib/requests/roomPreset.json";
 import { unlinkRoom } from "./boxes";
-import { db, defaultCategories, defaultChat, newId, newMyMediaBox, newRoomMediaBox, type Chat, type Profile, type RoomRole } from "./db";
+import { db, defaultCategories, defaultChat, newId, newMyMediaBox, newRoomMediaBox, type Category, type Chat, type Database, type DbView, type Profile, type RoomRole, type WindowPage } from "./db";
 
 export type MemberWithProfile = {
   userId: string;
@@ -65,19 +65,45 @@ export type RoomTemplateId = "original" | "request" | "chat" | "note";
 
 /** 「テンプレートから始める」で選べるもの */
 export const ROOM_TEMPLATES: { id: Exclude<RoomTemplateId, "original">; name: string; description: string; icon: IconName }[] = [
-  { id: "request", name: "依頼管理", description: "依頼のデータベースと、チャット「雑談」", icon: "db" },
+  { id: "request", name: "依頼管理", description: "依頼データベース（テンプレート・ビュー付き）、ウィンドウ「HOME」、チャット", icon: "db" },
   { id: "chat", name: "チャット中心", description: "チャット「雑談」「連絡」「資料」", icon: "chat" },
   { id: "note", name: "ノート中心", description: "ノート「はじめに」と、チャット「雑談」", icon: "note" },
 ];
+
+/**
+ * 「依頼管理」で作るルームの中身（roomPreset.json：見本のルームから写したもの）。ID は全部新しくして、中の繋がり（ブロックの dbId など）も付け替える。
+ * データのページ・チャットの会話・カレンダーの予定は入れない（カレンダーやチャットは、はじめて出したときに新しくできる）
+ */
+function presetRecords(roomId: string, now: number) {
+  type Preset = { categories: Category[]; databases: Database[]; views: DbView[]; chats: Chat[]; windows: WindowPage[] };
+  const src = roomPreset as unknown as Preset;
+  let text = JSON.stringify(src);
+  const ids = [
+    ...src.categories.map((x) => x.id),
+    ...src.databases.flatMap((d) => [d.id, ...(d.templates ?? []).map((t) => t.id)]),
+    ...src.views.map((x) => x.id),
+    ...src.chats.map((x) => x.id),
+    ...src.windows.map((x) => x.id),
+  ];
+  for (const old of ids) text = text.split(old).join(newId());
+  const out = JSON.parse(text) as Preset;
+  return {
+    categories: out.categories.map((c) => ({ ...c, roomId, createdAt: now })),
+    databases: out.databases.map((d) => ({ ...d, roomId, createdAt: now, templates: d.templates?.map((t) => ({ ...t, createdAt: now, updatedAt: undefined })) })),
+    views: out.views,
+    chats: out.chats.map((c) => ({ ...c, roomId, createdAt: now })),
+    windows: out.windows.map((w) => ({ ...w, roomId, createdAt: now, updatedAt: now, items: [] })),
+  };
+}
 
 export async function createRoom(name: string, userId: string, template: RoomTemplateId = "request", icon?: string, media?: RoomMediaChoice) {
   const id = newId();
   const now = Date.now();
   const categories = defaultCategories(id);
-  const [dbCat, chatCat, noteCat] = categories;
+  const [, chatCat, noteCat] = categories;
   const chat = (name: string, order: number): Chat => ({ ...defaultChat(id), name, order, categoryId: chatCat.id, navOrder: order });
   const chats = template === "chat" ? [chat("雑談", 1), chat("連絡", 2), chat("資料", 3)] : [chat("雑談", 1)];
-  const request = template === "request" ? requestDatabase(id) : null;
+  const preset = template === "request" ? presetRecords(id, now) : null;
   // ルームのメディア：決めていなければ、作った人のボックスを新しく作って紐づける（メンバーは編集もできる）
   const choice: RoomMediaChoice = media ?? { kind: "new", name: `${name}のメディア`, canEdit: true };
   const fresh = choice.kind === "new" ? newRoomMediaBox({ id, name, createdBy: userId }, now) : null;
@@ -88,7 +114,7 @@ export async function createRoom(name: string, userId: string, template: RoomTem
   // 自分のボックスを紐づけるときは、自分で作ったボックスか確かめる（マイメディアは紐づけられない）
   const existing = choice.kind === "box" ? await db.mediaBoxes.get(choice.boxId) : undefined;
   const linkExisting = choice.kind === "box" && existing?.ownerId === userId && existing.kind === "box";
-  await db.transaction("rw", [db.rooms, db.roomMembers, db.chats, db.databases, db.dbViews, db.categories, db.notes, db.mediaBoxes, db.boxShares], async () => {
+  await db.transaction("rw", [db.rooms, db.roomMembers, db.chats, db.databases, db.dbViews, db.categories, db.notes, db.windows, db.mediaBoxes, db.boxShares], async () => {
     await db.rooms.add({ id, name, ...(icon ? { icon } : {}), createdBy: userId, createdAt: now });
     if (fresh) {
       await db.mediaBoxes.add(fresh.box);
@@ -98,11 +124,16 @@ export async function createRoom(name: string, userId: string, template: RoomTem
       await db.boxShares.add({ id: newId(), boxId: choice.boxId, roomId: id, canEdit: choice.canEdit, createdAt: now });
     }
     await db.roomMembers.add({ roomId: id, userId, role: "host", joinedAt: now });
-    await db.categories.bulkAdd(categories);
-    await db.chats.bulkAdd(chats);
-    if (request) {
-      await db.databases.add({ ...request.database, categoryId: dbCat.id, navOrder: 1 });
-      await db.dbViews.bulkAdd(request.views);
+    if (preset) {
+      // 依頼管理：見本のルームと同じカテゴリー・データベース（ビュー・テンプレート）・ウィンドウ・チャット
+      await db.categories.bulkAdd(preset.categories);
+      await db.databases.bulkAdd(preset.databases);
+      await db.dbViews.bulkAdd(preset.views);
+      await db.chats.bulkAdd(preset.chats);
+      await db.windows.bulkAdd(preset.windows);
+    } else {
+      await db.categories.bulkAdd(categories);
+      await db.chats.bulkAdd(chats);
     }
     if (template === "note") {
       await db.notes.add({ id: newId(), roomId: id, title: "はじめに", blocks: [], pageId: null, order: 1, createdAt: now, updatedAt: now, updatedBy: userId, categoryId: noteCat.id, navOrder: 1 });

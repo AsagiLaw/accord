@@ -50,7 +50,7 @@ export const BLOCK_KINDS: Record<BlockKind, { label: string; short: string; note
   todoBlock: {
     label: "ToDo",
     short: "ToDo",
-    note: "ルームのやることリスト（追加・チェック・削除）",
+    note: "やることリスト（追加・チェック・削除）。ソースでカレンダーを選ぶと、今日の予定を並べる",
     icon: "checkbox",
     group: "道具",
     aliases: ["todo", "task", "やること", "タスク", "とぅーどぅー"],
@@ -62,6 +62,22 @@ export const BLOCK_KINDS: Record<BlockKind, { label: string; short: string; note
     icon: "add",
     group: "道具",
     aliases: ["button", "add", "botan", "ボタン", "追加", "依頼"],
+  },
+  linkButton: {
+    label: "ボタン",
+    short: "ボタン",
+    note: "押すと、ボタンの中のノート・ウィンドウか、データベースの「ページ」の項目の別ページをポップアップで出す",
+    icon: "open",
+    group: "道具",
+    aliases: ["button", "link", "popup", "botan", "ぼたん", "ボタン", "リンク", "ポップアップ"],
+  },
+  calendarBlock: {
+    label: "カレンダー",
+    short: "カレンダー",
+    note: "予定を組めるカレンダー（データベースの日付やルームの予定も一緒に出せる）",
+    icon: "calendar",
+    group: "道具",
+    aliases: ["calendar", "karenda", "かれんだー", "カレンダー", "予定", "スケジュール", "schedule"],
   },
   pageTitle: { label: "ページのタイトル", short: "タイトル", note: "このページのアイコンと名前（後ろに「様の依頼」など）", icon: "text", group: "ページ", aliases: ["title", "taitoru", "タイトル", "名前"] },
   pageProps: {
@@ -76,10 +92,10 @@ export const BLOCK_KINDS: Record<BlockKind, { label: string; short: string; note
 };
 
 /** 文章以外の、ノートでは1つのブロックになる種類 */
-export const EMBED_KINDS = ["mediaImage", "dbView", "singleView", "chatBlock", "imageChatBlock", "todoBlock", "addButton", "pageTitle", "pageProps", "pageChat"] as const;
+export const EMBED_KINDS = ["mediaImage", "dbView", "singleView", "chatBlock", "imageChatBlock", "todoBlock", "addButton", "linkButton", "calendarBlock", "pageTitle", "pageProps", "pageChat"] as const;
 export type EmbedKind = (typeof EMBED_KINDS)[number];
 
 /** 「/」「＋」「部品を追加」のメニューに出す種類（ページのタイトルは「⋮⋮」の「データベースと繋ぐ」、ページのチャットはシングルビューで作る） */
-export const MENU_KINDS = ["mediaImage", "dbView", "singleView", "chatBlock", "imageChatBlock", "todoBlock", "addButton", "pageProps"] as const;
+export const MENU_KINDS = ["mediaImage", "dbView", "singleView", "chatBlock", "imageChatBlock", "todoBlock", "addButton", "linkButton", "calendarBlock", "pageProps"] as const;
 
 export const isChatKind = (k: BlockKind) => k === "chatBlock" || k === "imageChatBlock";

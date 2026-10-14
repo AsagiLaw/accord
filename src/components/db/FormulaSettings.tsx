@@ -192,7 +192,7 @@ function FormulaEditor({ database, prop }: { database: Database; prop: Property 
                 <p className="mb-1 text-xs text-muted">項目</p>
                 <div className="flex flex-wrap gap-1">
                   {database.props
-                    .filter((p) => p.id !== prop.id && p.type !== "chat" && p.type !== "imageChat")
+                    .filter((p) => p.id !== prop.id && p.type !== "chat" && p.type !== "imageChat" && p.type !== "page")
                     .map((p) => (
                       <button key={p.id} onClick={() => insert(`{${p.name}}`)} className="flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-xs hover:bg-tint">
                         <PropIcon type={p.type} size={12} />

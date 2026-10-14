@@ -18,6 +18,7 @@ export function BlockEditor({
   userId,
   editable,
   onSave,
+  onEdit,
   mode = "note",
 }: {
   id: string;
@@ -26,6 +27,8 @@ export function BlockEditor({
   userId: string;
   editable: boolean;
   onSave: (blocks: unknown[]) => void;
+  /** 直すたびにすぐ呼ぶ（保存を待たずに、今の中身を知りたいとき。テンプレートの「保存」など） */
+  onEdit?: (blocks: unknown[]) => void;
   mode?: "note" | "window";
 }) {
   const isDark = useIsDark();
@@ -59,6 +62,7 @@ export function BlockEditor({
         slashMenu={false}
         sideMenu={false}
         onChange={() => {
+          onEdit?.(editor.document);
           if (timer.current) clearTimeout(timer.current);
           timer.current = setTimeout(() => {
             timer.current = null;

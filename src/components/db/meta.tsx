@@ -29,6 +29,7 @@ export const PROP_TYPES: Record<PropType, { label: string; icon: IconName; note:
   imageChat: { label: "イメージチャット", icon: "ppl", note: "ページごとのやり取り再現" },
   formula: { label: "数式", icon: "formula", note: "ほかの項目から計算する" },
   serial: { label: "通し番号", icon: "hash", note: "作った順に #001 と自動で入る" },
+  page: { label: "ページ", icon: "note", note: "ページごとの別ページ（テンプレートを選べる）" },
 };
 
 /** チャットの項目（表やボード、詳細の入力欄には出さない） */

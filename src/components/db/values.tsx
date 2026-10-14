@@ -12,6 +12,7 @@ import { STATUS_GROUPS, statusGroupOf } from "@/lib/requests/props";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 import { formatValue } from "@/lib/requests/logic";
 import { TAG_COLORS, Tag, colorOf } from "./meta";
+import { SubPageChip, subTargetOf } from "./PageLink";
 import { ChatSummary } from "./PropChat";
 
 /** 値を見せる（選択肢は色付きのタグ、ユーザーは名前、メディアは小さな画像） */
@@ -26,9 +27,11 @@ export function PropValue({
   value: unknown;
   members: MemberWithProfile[];
   empty?: React.ReactNode;
-  /** 工程の％を出すのに使う */
-  page?: Pick<DbPage, "values">;
+  /** 工程の％を出すのに使う（「ページ」の項目は、ID などで別ページを開く） */
+  page?: Pick<DbPage, "values"> & Partial<Pick<DbPage, "id" | "dbId" | "roomId">>;
 }) {
+  // 「ページ」の項目は、押すと別ページを開くボタン
+  if (prop.type === "page") return <SubPageChip target={subTargetOf(page, prop.id)} name={prop.name} inline />;
   // チャットの項目は、発言の数と最後の発言（会話そのものは、表のセルを押すとポップアップで開く）
   if (prop.type === "chat" || prop.type === "imageChat") return <ChatSummary chatId={typeof value === "string" ? value : ""} />;
   if (prop.type === "checkbox") {

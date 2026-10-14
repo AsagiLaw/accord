@@ -1,6 +1,7 @@
 "use client";
 
 import { db, newId, type Database, type DbPage, type PageTemplate, type WinNode } from "./db";
+import { unlinkSubPagesOf } from "./subPages";
 import { mapTabs } from "./windowLayout";
 
 // データベースのページのテンプレート（ノート型・ウィンドウ型）と、サイドバーに出すページの設定
@@ -44,6 +45,8 @@ export async function deleteTemplate(dbId: string, id: string) {
   const d0 = await db.databases.get(dbId);
   const linked = await db.dbPages.where("dbId").equals(dbId).filter((p) => p.sourceId === id).toArray();
   if (d0) for (const p of linked) await unlinkPageTemplate(d0, p);
+  // 「ページ」の項目の別ページも同じく切り離す
+  if (d0) await unlinkSubPagesOf(d0, id);
   await setTemplates(dbId, (list) => list.filter((t) => t.id !== id));
   const d = await db.databases.get(dbId);
   if (d?.defaultTemplateId === id) await db.databases.update(dbId, { defaultTemplateId: null });
@@ -61,9 +64,14 @@ export async function setDefaultTemplate(dbId: string, id: string | null) {
   await db.databases.update(dbId, { defaultTemplateId: id });
 }
 
-/** サイドバーでデータベースの下に出すページを、ビューで決める（null は出さない、undefined ははじめの設定） */
+/** サイドバーでデータベースの下に出すページを、ビューで決める（null は出さない、undefined ははじめの設定、"@filter" は sidebarFilter で決める） */
 export async function setSidebarView(dbId: string, viewId: string | null | undefined) {
   await db.databases.update(dbId, { sidebarViewId: viewId });
+}
+
+/** サイドバーに出すページを、ビューを使わずに決めるときのフィルターと並び替え */
+export async function setSidebarFilter(dbId: string, filter: NonNullable<Database["sidebarFilter"]>) {
+  await db.databases.update(dbId, { sidebarFilter: filter });
 }
 
 // ---- ページのソース（テンプレートと繋ぐ） ----
@@ -71,7 +79,8 @@ export async function setSidebarView(dbId: string, viewId: string | null | undef
 /** ページがソースにしているテンプレート */
 export const templateOf = (database: Database, page: Pick<DbPage, "sourceId">) => (page.sourceId ? database.templates?.find((t) => t.id === page.sourceId) : undefined);
 
-const bodyNote = (pageId: string) => db.notes.where("pageId").equals(pageId).first();
+/** ページの本文のノート（「ページ」の項目の別ページは除く） */
+const bodyNote = (pageId: string) => db.notes.where("pageId").equals(pageId).filter((n) => !n.sub).first();
 
 /** テンプレートと繋ぐ。本文はテンプレートの中身を出す（このページの本文は消える。項目の値・チャットはそのまま） */
 export async function linkPageTemplate(page: DbPage, template: PageTemplate) {

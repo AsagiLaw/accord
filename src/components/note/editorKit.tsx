@@ -1,6 +1,6 @@
 "use client";
 
-import { combineByGroup, filterSuggestionItems, insertOrUpdateBlockForSlashMenu, type PartialBlock } from "@blocknote/core";
+import { combineByGroup, filterSuggestionItems, fragmentToBlocks, insertOrUpdateBlockForSlashMenu, type DropCursorHooks, type PartialBlock } from "@blocknote/core";
 import { SideMenuExtension } from "@blocknote/core/extensions";
 import { ja } from "@blocknote/core/locales";
 import {
@@ -187,7 +187,8 @@ function DuplicateItem() {
   if (!block) return null;
   type Loose = { id?: string; props?: Record<string, unknown>; children?: Loose[] };
   const copy = (b: Loose): Loose => {
-    const props = b.props && "chatId" in b.props ? { ...b.props, chatId: "" } : b.props;
+    // ボタンの中のページ（noteId）も引き継がず、押したときに新しく作る
+    const props = b.props && ("chatId" in b.props || "noteId" in b.props) ? { ...b.props, ...("chatId" in b.props ? { chatId: "" } : {}), ...("noteId" in b.props ? { noteId: "" } : {}) } : b.props;
     // id を外すと、新しい id が付く
     return { ...b, id: undefined, ...(props ? { props } : {}), children: (b.children ?? []).map(copy) };
   };
@@ -359,9 +360,81 @@ function columnBackspace(editor: Editor, e: KeyboardEvent) {
   });
 }
 
+/** 列のまとまりの上端・下端の帯の高さ。ここに落とすと、列の中ではなく、列のまとまりの上・下（1列）に置く */
+const COLUMN_EDGE = 28;
+
+type EditorView = NonNullable<Editor["prosemirrorView"]>;
+
+/** マウスが列のまとまりの上端・下端の帯にあれば、その列のまとまりと、上・下のどちらに置くか（置く位置）を返す */
+function columnListEdge(view: EditorView, x: number, y: number): { id: string; side: "before" | "after"; pos: number } | null {
+  const hit = document.elementsFromPoint(x, y).find((el) => view.dom.contains(el));
+  for (let list = hit?.closest<HTMLElement>(".bn-block-column-list"); list && view.dom.contains(list); list = list.parentElement?.closest<HTMLElement>(".bn-block-column-list")) {
+    const r = list.getBoundingClientRect();
+    const band = Math.min(COLUMN_EDGE, r.height / 4);
+    const side = y <= r.top + band ? "before" : y >= r.bottom - band ? "after" : null;
+    if (!side || !list.dataset.id) continue;
+    const before = view.posAtDOM(list, 0) - 1;
+    const node = view.state.doc.nodeAt(before);
+    if (node?.type.name !== "columnList") continue;
+    return { id: list.dataset.id, side, pos: side === "before" ? before : before + node.nodeSize };
+  }
+  return null;
+}
+
+/** 落とす位置の線：列のまとまりの上端・下端では、列のまとまりの上・下に横線を出す。ほかは列の機能のまま（左右の端なら列を足す） */
+const dropCursor: { hooks: DropCursorHooks } = {
+  hooks: {
+    computeDropPosition: (ctx) => {
+      const edge = columnListEdge(ctx.view, ctx.event.clientX, ctx.event.clientY);
+      if (edge) return { pos: edge.pos, orientation: "block-horizontal" };
+      return multiColumnDropCursor.hooks.computeDropPosition?.(ctx) ?? ctx.defaultPosition;
+    },
+  },
+};
+
+/**
+ * ブロックを列のまとまりの上端・下端に落としたとき、列の中ではなく、列のまとまりの上・下に置く
+ * （BlockNote のままだと、列が画面いっぱいに広がっていると、列の外に置ける場所が無い）
+ */
+function useDropBesideColumns(editor: Editor) {
+  useEffect(() => {
+    const dom = editor.domElement;
+    if (!dom) return;
+    type Loose = { id: string; children: Loose[] };
+    const onDrop = (e: DragEvent) => {
+      const view = editor.prosemirrorView;
+      const slice = view?.dragging?.slice;
+      if (!view || !slice) return;
+      const edge = columnListEdge(view, e.clientX, e.clientY);
+      if (!edge) return;
+      const dragged = fragmentToBlocks(slice.content) as unknown as Loose[];
+      if (!dragged.length) return;
+      e.preventDefault();
+      e.stopPropagation();
+      view.dragging = null;
+      const ids = new Set(dragged.map((b) => b.id));
+      // 列のまとまりそのものを動かしているときは、そのまま
+      if (ids.has(edge.id)) return;
+      // 取り除いて列が1つになると、列のまとまりが外れて中身だけが残る。そのときは残る中身の最初・最後を目印にする
+      const list = editor.getBlock(edge.id) as unknown as Loose | undefined;
+      const rest = (list?.children ?? []).flatMap((c) => c.children).filter((b) => !ids.has(b.id));
+      const anchor = edge.side === "before" ? rest[0] : rest[rest.length - 1];
+      editor.transact(() => {
+        const existing = dragged.filter((b) => editor.getBlock(b.id));
+        if (existing.length) editor.removeBlocks(existing.map((b) => b.id));
+        const target = editor.getBlock(edge.id) ? edge.id : anchor?.id;
+        if (target) editor.insertBlocks(dragged as never, target, edge.side);
+      });
+    };
+    dom.addEventListener("drop", onDrop, true);
+    return () => dom.removeEventListener("drop", onDrop, true);
+  }, [editor]);
+}
+
 /** BlockNoteView の中に置くメニュー：「/」（全角の「／」でも開く）と、左の「＋」「⋮⋮」 */
 export function EditorMenus({ editor }: { editor: Editor }) {
   useSideMenuOnHover(editor);
+  useDropBesideColumns(editor);
   // キーは ProseMirror より先に受け取る（capture）
   useEffect(() => {
     const dom = editor.domElement;
@@ -369,7 +442,10 @@ export function EditorMenus({ editor }: { editor: Editor }) {
     // チャットなどのブロックを選んでいる（ブロックごと選択）ときに文字を打っても、ブロックが文字に置き換わって消えないようにする。
     // 消すのは Delete・Backspace か「⋮⋮」の「削除」で
     const blockSelected = () => "node" in editor.prosemirrorState.selection;
+    // ブロックの中の入力欄（チャット・ToDo・ビューの検索など）で打った文字は止めない
+    const inField = (e: Event) => e.target instanceof HTMLElement && e.target !== dom && !!e.target.closest("input, textarea, select");
     const onKey = (e: KeyboardEvent) => {
+      if (inField(e)) return;
       if (blockSelected() && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key.length === 1 || e.key === "Enter" || e.key === "Process")) {
         e.preventDefault();
         e.stopPropagation();
@@ -378,6 +454,7 @@ export function EditorMenus({ editor }: { editor: Editor }) {
       columnBackspace(editor, e);
     };
     const onInput = (e: InputEvent) => {
+      if (inField(e)) return;
       if (blockSelected() && (e.inputType.startsWith("insert") || e.inputType === "insertCompositionText")) {
         e.preventDefault();
         e.stopPropagation();
@@ -438,7 +515,7 @@ export function useBlockEditor(initial: unknown[], roomId: string, userId: strin
     {
       schema: noteSchema,
       dictionary: { ...ja, multi_column: multiColumnLocales.ja },
-      dropCursor: multiColumnDropCursor,
+      dropCursor,
       // チャットなど文字の入らないブロックの間に、横線のカーソル（ギャップカーソル）を置かない。そこで文字を打って行ができることも無くす
       disableExtensions: ["gapCursor"],
       initialContent: initial.length ? (initial as Blocks) : undefined,

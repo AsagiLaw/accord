@@ -8,6 +8,7 @@ import { Popover, usePopover } from "@/components/ui/Popover";
 import type { Database, DbPage, Property } from "@/lib/local/db";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 import { formatValue } from "@/lib/requests/logic";
+import { SubPageChip, subTargetOf } from "./PageLink";
 import { PropValue, SelectEditor, StageEditor } from "./values";
 
 /** データベースの1項目を入力する。選択肢は「追加…」でその場で増やせる */
@@ -29,7 +30,7 @@ export function PropInput({
   userId: string;
   id?: string;
   /** 工程の項目で、そのページのプランを知るのに使う */
-  page?: Pick<DbPage, "values">;
+  page?: Pick<DbPage, "values"> & Partial<Pick<DbPage, "id" | "dbId" | "roomId">>;
 }) {
   const [picking, setPicking] = useState(false);
 
@@ -37,6 +38,12 @@ export function PropInput({
     case "chat":
     case "imageChat":
       return <p className="text-xs text-muted">ページの本文に「シングルビュー」を置くと、ここのチャットが出ます</p>;
+    case "page":
+      return (
+        <div>
+          <SubPageChip target={subTargetOf(page, prop.id)} name={prop.name} />
+        </div>
+      );
     case "title":
     case "text":
       return <TextInput id={id} value={String(value ?? "")} onCommit={onChange} required={prop.type === "title"} />;

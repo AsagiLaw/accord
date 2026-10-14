@@ -225,6 +225,11 @@ body {
 /* 列や最後のブロックの下に自動で付く「押すとブロックを足せる」ところは、高さを取らない（チャットが縮まないように）。読むだけのときは出さない */
 .doc-window .bn-trailing-block { flex: 0 0 auto !important; height: 12px; min-height: 0; }
 .doc-window:not(.doc-editing) .bn-trailing-block { display: none; }
+/* チャットの検索で選んだ発言を、少しのあいだ光らせる */
+@keyframes msg-flash { 0%, 60% { background: color-mix(in srgb, var(--accent) 22%, transparent); } 100% { background: transparent; } }
+.msg-flash { animation: msg-flash 1.8s ease-out; border-radius: 8px; }
+/* 読むだけのウィンドウでは、本文の最後の空の行（編集中に文字を足すための行）を出さない。下に隙間ができないように */
+.doc-window:not(.doc-editing) .ProseMirror > .bn-block-group > .bn-block-outer:last-child:has(> .bn-block > .bn-block-content[data-content-type="paragraph"] > .bn-inline-content > br.ProseMirror-trailingBreak:only-child) { display: none; }
 
 /* ---- ブロック（ノート・ウィンドウ共通）：文字の大きさと、ブロックのあいだの余白を詰める ---- */
 /* ブロックの中の文字だけ少し小さく（サイドバーなどはそのまま） */
@@ -263,8 +268,12 @@ body {
 .doc-window .bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
 .doc-window .bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group > .bn-block-outer { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 .doc-window .bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group > .bn-block-outer > .bn-block { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
-/* タブを押したときに、タブのブロック全体が選ばれた青い枠を出さない（読むだけのウィンドウでは、どのブロックも出さない） */
+/* タブを押したときに、タブのブロック全体が選ばれた青い枠を出さない（読むだけのウィンドウでは、どのブロックも出さない）。
+   ビュー（オールビュー・シングルビュー）とカレンダーも、中を押したときに青い枠を出さない */
 .ProseMirror-selectednode.node-tabs > .bn-block-content > *::after,
+.ProseMirror-selectednode.node-dbView > .bn-block-content > *::after,
+.ProseMirror-selectednode.node-singleView > .bn-block-content > *::after,
+.ProseMirror-selectednode.node-calendarBlock > .bn-block-content > *::after,
 .doc-window:not(.doc-editing) .ProseMirror-selectednode > .bn-block-content > *::after { display: none; }
 
 /* 選んでいるタブ：上の角は丸く、下の両側は内側へ丸くして下の面とつなげる（Chrome のタブの形） */

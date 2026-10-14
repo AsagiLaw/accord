@@ -387,24 +387,27 @@ export function TimelineView({ database, pages, view, members, compact, fit }: V
                   </>
                 )}
                 {/* 名前と今の工程・％：帯の左に付く。横にずらして帯の左が見えなくなったら、画面の左の端で帯の上にかぶさって付いてくる（帯の終わりまで）。
-                    左の端から帯の終わりまでの入れ物の中で、帯の分の空きの左に置き、sticky で左の端に留める */}
-                <div className="pointer-events-none absolute inset-y-0 left-0 z-[1] flex justify-end" style={{ width: barEnd }}>
-                  <PeekLink
-                    database={database}
-                        pageId={p.id}
-                    className="pointer-events-auto sticky left-0 my-auto ml-auto flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] border border-line bg-card/85 px-2 text-sm whitespace-nowrap hover:underline"
-                    title={tip}
-                  >
-                    <PageName database={database} page={p} className="font-bold" />
-                    {pct !== null && (
-                      <span className="text-muted">
-                        {stageName ? `${stageName} ` : ""}
-                        {pct}%
-                      </span>
-                    )}
-                  </PeekLink>
-                  <span className="shrink-0" style={{ width: barEnd - barStart }} />
-                </div>
+                    左の端から帯の終わりまでの入れ物の中で、帯の分の空きの左に置き、sticky で左の端に留める。
+                    左に表を出しているときは、名前は表にあるので出さない */}
+                {!tableCols && (
+                  <div className="pointer-events-none absolute inset-y-0 left-0 z-[1] flex justify-end" style={{ width: barEnd }}>
+                    <PeekLink
+                      database={database}
+                      pageId={p.id}
+                      className="pointer-events-auto sticky left-0 my-auto ml-auto flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] border border-line bg-card/85 px-2 text-sm whitespace-nowrap hover:underline"
+                      title={tip}
+                    >
+                      <PageName database={database} page={p} className="font-bold" />
+                      {pct !== null && (
+                        <span className="text-muted">
+                          {stageName ? `${stageName} ` : ""}
+                          {pct}%
+                        </span>
+                      )}
+                    </PeekLink>
+                    <span className="shrink-0" style={{ width: barEnd - barStart }} />
+                  </div>
+                )}
               </div>
             );
           })}

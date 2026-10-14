@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { choose, confirmAction, promptText } from "@/components/ui/overlay";
-import { addEvent, createPage, deleteEvent, nameSuffixOf, newPageDefaults } from "@/lib/local/requests";
+import { addEvent, createBlankPage, deleteEvent, nameSuffixOf } from "@/lib/local/requests";
 import { P } from "@/lib/requests/defaults";
 import { addDays, isDate, stagesOf, today, valueOf } from "@/lib/requests/logic";
 import { stageDates, stageOf } from "@/lib/requests/stages";
@@ -198,7 +198,7 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
       if (dp && k === 0) {
         const title = await promptText(`${label}にページを追加`, "", "名前");
         if (!title) return;
-        const page = await createPage(database, userId, title, { ...newPageDefaults(database, userId), [dp.id]: date });
+        const page = await createBlankPage(database, userId, { [dp.id]: date }, title);
         peek(database, page.id);
         return;
       }

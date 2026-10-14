@@ -30,7 +30,7 @@ export function useChannels(roomId: string) {
     const [dbs, chats, notes, windows] = await Promise.all([
       db.databases.where("roomId").equals(roomId).toArray(),
       db.chats.where("roomId").equals(roomId).filter((c) => !c.pageId).toArray(),
-      db.notes.where("roomId").equals(roomId).filter((n) => !n.pageId && !n.template).toArray(),
+      db.notes.where("roomId").equals(roomId).filter((n) => !n.pageId && !n.template && !n.inner).toArray(),
       // ホームのウィンドウは、サイドバーの「ホーム」から開くので出さない。テンプレートも出さない
       db.windows.where("roomId").equals(roomId).filter((w) => !w.home && !w.template).toArray(),
     ]);

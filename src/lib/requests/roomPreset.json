@@ -1,0 +1,541 @@
+{
+  "categories": [
+    {
+      "id": "5c933323-c109-4310-b342-80e38bcd4fb9",
+      "name": "依頼",
+      "order": 1
+    }
+  ],
+  "databases": [
+    {
+      "id": "2bb35c0b-24fb-4858-9a10-e99072991253",
+      "name": "依頼データベース",
+      "kind": "generic",
+      "props": [
+        {
+          "id": "title",
+          "name": "名前",
+          "type": "title"
+        },
+        {
+          "id": "p_082896a6",
+          "name": "使用用途",
+          "type": "text"
+        },
+        {
+          "id": "p_58c8cf80",
+          "name": "プラン",
+          "type": "select",
+          "options": [
+            "ライトプラン",
+            "ベーシックプラン",
+            "プレミアムプラン"
+          ],
+          "colors": {
+            "ベーシックプラン": "blue",
+            "ライトプラン": "gray"
+          }
+        },
+        {
+          "id": "p_f857608e",
+          "name": "工程",
+          "type": "stage",
+          "stages": {
+            "ライトプラン": [
+              {
+                "name": "ラフ",
+                "weight": 2
+              },
+              {
+                "name": "清書",
+                "weight": 4
+              },
+              {
+                "name": "納品",
+                "weight": 1
+              }
+            ],
+            "ベーシックプラン": [
+              {
+                "name": "大ラフ",
+                "weight": 2
+              },
+              {
+                "name": "線画ラフ",
+                "weight": 2
+              },
+              {
+                "name": "カラーラフ",
+                "weight": 2
+              },
+              {
+                "name": "清書",
+                "weight": 2
+              },
+              {
+                "name": "納品",
+                "weight": 1
+              }
+            ],
+            "プレミアムプラン": [
+              {
+                "name": "大ラフ",
+                "weight": 2
+              },
+              {
+                "name": "線画ラフ",
+                "weight": 2
+              },
+              {
+                "name": "カラーラフ",
+                "weight": 2
+              },
+              {
+                "name": "清書",
+                "weight": 2
+              },
+              {
+                "name": "納品",
+                "weight": 1
+              }
+            ]
+          },
+          "basedOn": "p_58c8cf80",
+          "start": "p_210a17b2",
+          "end": "p_1ffac6dd"
+        },
+        {
+          "id": "p_797baf80",
+          "name": "受付日",
+          "type": "date"
+        },
+        {
+          "id": "p_210a17b2",
+          "name": "開始日",
+          "type": "date"
+        },
+        {
+          "id": "p_1ffac6dd",
+          "name": "納期",
+          "type": "date"
+        },
+        {
+          "id": "p_ada428fb",
+          "name": "終了日",
+          "type": "date"
+        },
+        {
+          "id": "p_fdd413c2",
+          "name": "進行チャット",
+          "type": "chat"
+        },
+        {
+          "id": "p_afc42374",
+          "name": "やり取りチャット",
+          "type": "imageChat"
+        },
+        {
+          "id": "p_a127c61e",
+          "name": "依頼内容",
+          "type": "page"
+        },
+        {
+          "id": "p_8e6ccb12",
+          "name": "料金",
+          "type": "number",
+          "format": "yen"
+        }
+      ],
+      "plans": {},
+      "order": 1,
+      "categoryId": "5c933323-c109-4310-b342-80e38bcd4fb9",
+      "navOrder": 1,
+      "templates": [
+        {
+          "id": "2113ffc1-2587-4fa1-97a3-d752e16ec556",
+          "name": "依頼進行テンプレート",
+          "kind": "window",
+          "values": {},
+          "blocks": [
+            {
+              "id": "f5825fa1-c6a5-4c82-93e9-d46e66da70f4",
+              "type": "columnList",
+              "props": {},
+              "children": [
+                {
+                  "id": "40a764d8-56cd-41b4-9e9c-a1dcf0710142",
+                  "type": "column",
+                  "props": {
+                    "width": 1.5
+                  },
+                  "children": [
+                    {
+                      "id": "bb09ac09-f509-495d-8467-8fd74aa0a3a4",
+                      "type": "field",
+                      "props": {
+                        "level": "1",
+                        "dbId": "",
+                        "pageId": "@this",
+                        "propId": "title",
+                        "suffix": "様の依頼",
+                        "icon": ""
+                      },
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "id": "373a3eeb-4daf-4648-b25e-d8fc939b618a",
+                  "type": "column",
+                  "props": {
+                    "width": 0.5
+                  },
+                  "children": [
+                    {
+                      "id": "a182ea4c-aaf0-4ec1-958a-c5ccea59c0d9",
+                      "type": "linkButton",
+                      "props": {
+                        "label": "",
+                        "kind": "",
+                        "noteId": "",
+                        "dbId": "",
+                        "pageId": "@this",
+                        "propId": "p_a127c61e",
+                        "align": "right"
+                      },
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "344e4f91-6247-47ff-9070-fd435c803c14",
+              "type": "columnList",
+              "props": {},
+              "children": [
+                {
+                  "id": "0ee5fa63-b8dd-4f98-a1b3-ebaee2d3c521",
+                  "type": "column",
+                  "props": {
+                    "width": 1.5
+                  },
+                  "children": [
+                    {
+                      "id": "27e2abff-cb24-45b4-a499-24da3aad95d9",
+                      "type": "singleView",
+                      "props": {
+                        "dbId": "",
+                        "pageId": "@this",
+                        "propId": "p_f857608e",
+                        "display": "line",
+                        "visible": "[\"p_58c8cf80\",\"p_8e6ccb12\"]",
+                        "stages": "[\"p_f857608e\"]",
+                        "countdown": "",
+                        "hideHead": "1"
+                      },
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "id": "ed878c4a-0970-4fc5-99d3-fb884e557a7c",
+                  "type": "column",
+                  "props": {
+                    "width": 0.5
+                  },
+                  "children": [
+                    {
+                      "id": "e76fffdd-c6f6-4405-806c-83ae66cd34fa",
+                      "type": "pageProps",
+                      "props": {
+                        "heading": "",
+                        "dbId": "",
+                        "pageId": "@this",
+                        "visible": "[\"p_ada428fb\"]"
+                      },
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "ddfe866e-978f-4c2f-aa7a-a57db0da4e8c",
+              "type": "columnList",
+              "props": {},
+              "children": [
+                {
+                  "id": "d906c59e-dd8a-4720-b863-76d06e7bd036",
+                  "type": "column",
+                  "props": {
+                    "width": 1
+                  },
+                  "children": [
+                    {
+                      "id": "e5606aa2-2324-4faa-af47-f43be09950a0",
+                      "type": "chatBlock",
+                      "props": {
+                        "chatId": "",
+                        "propId": "p_fdd413c2"
+                      },
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "id": "826bcfe9-56c9-4aca-aae2-1b18cd641db9",
+                  "type": "column",
+                  "props": {
+                    "width": 1
+                  },
+                  "children": [
+                    {
+                      "id": "89e562cc-98ec-48e6-8808-e4b25a794fe8",
+                      "type": "imageChatBlock",
+                      "props": {
+                        "chatId": "",
+                        "seed": "",
+                        "propId": "p_afc42374"
+                      },
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "2908e86c-4444-46a9-99d2-9e8ce8eea8c0",
+              "type": "paragraph",
+              "props": {
+                "backgroundColor": "default",
+                "textColor": "default",
+                "textAlignment": "left"
+              },
+              "content": [],
+              "children": []
+            }
+          ],
+          "createdAt": 1791963875804,
+          "updatedAt": 1791966318339
+        },
+        {
+          "id": "90c4490f-6d82-40d0-a5ba-459302b6055e",
+          "name": "依頼内容確認テンプレート",
+          "kind": "note",
+          "values": {},
+          "blocks": [],
+          "createdAt": 1791967301721
+        }
+      ],
+      "sidebarViewId": "c5397f33-dafd-4842-822e-ef13e928f1ef"
+    }
+  ],
+  "views": [
+    {
+      "id": "453936a0-528e-473c-bea8-84cad7f1b9d8",
+      "dbId": "2bb35c0b-24fb-4858-9a10-e99072991253",
+      "name": "リスト",
+      "type": "list",
+      "filters": [],
+      "sort": null,
+      "options": {
+        "gauge": "p_f857608e",
+        "visible": [
+          "p_082896a6",
+          "p_58c8cf80",
+          "p_8e6ccb12"
+        ]
+      },
+      "order": 5
+    },
+    {
+      "id": "a9fc73eb-e1c9-4131-97b0-42d2fda44cbb",
+      "dbId": "2bb35c0b-24fb-4858-9a10-e99072991253",
+      "name": "タイムライン",
+      "type": "timeline",
+      "filters": [],
+      "sort": null,
+      "options": {
+        "stages": true,
+        "stage": "p_f857608e",
+        "start": "p_797baf80",
+        "end": "p_1ffac6dd",
+        "timelineTable": true
+      },
+      "order": 3
+    },
+    {
+      "id": "be8e5cae-836d-4688-bdb0-16447c8848e5",
+      "dbId": "2bb35c0b-24fb-4858-9a10-e99072991253",
+      "name": "カレンダー",
+      "type": "calendar",
+      "filters": [],
+      "sort": null,
+      "options": {
+        "stages": true,
+        "date": "p_f857608e"
+      },
+      "order": 2
+    },
+    {
+      "id": "c5397f33-dafd-4842-822e-ef13e928f1ef",
+      "dbId": "2bb35c0b-24fb-4858-9a10-e99072991253",
+      "name": "テーブル",
+      "type": "table",
+      "filters": [],
+      "sort": null,
+      "options": {
+        "visible": [
+          "p_082896a6",
+          "p_a127c61e",
+          "p_8e6ccb12",
+          "p_58c8cf80",
+          "p_f857608e",
+          "p_797baf80",
+          "p_210a17b2",
+          "p_1ffac6dd",
+          "p_ada428fb",
+          "p_fdd413c2",
+          "p_afc42374"
+        ],
+        "widths": {
+          "p_082896a6": 194,
+          "p_8e6ccb12": 108
+        }
+      },
+      "order": 1
+    }
+  ],
+  "chats": [
+    {
+      "id": "2bd56619-d19b-4406-b353-2473808c70b4",
+      "name": "チャット",
+      "kind": "normal",
+      "order": 2,
+      "categoryId": null,
+      "navOrder": 2
+    }
+  ],
+  "windows": [
+    {
+      "id": "ec59739d-8636-4f97-89cc-693af55cd4fa",
+      "name": "HOME",
+      "blocks": [
+        {
+          "id": "e3d6f8dc-80df-4fa5-b488-391027be31cb",
+          "type": "columnList",
+          "props": {},
+          "children": [
+            {
+              "id": "56b1afc9-5a9b-4367-8658-58cae10af667",
+              "type": "column",
+              "props": {
+                "width": 1
+              },
+              "children": [
+                {
+                  "id": "1585ca04-d607-4f0a-bc26-136425e35460",
+                  "type": "dbView",
+                  "props": {
+                    "dbId": "",
+                    "views": "[{\"id\":\"first\",\"name\":\"表\",\"type\":\"progress\",\"filters\":[],\"sort\":null,\"options\":{\"sum\":\"p_8e6ccb12\"}}]",
+                    "active": "first",
+                    "hideHead": "1"
+                  },
+                  "children": []
+                },
+                {
+                  "id": "23f54658-52a0-4ca1-8166-f6587f7cf938",
+                  "type": "dbView",
+                  "props": {
+                    "dbId": "",
+                    "views": "[{\"id\":\"first\",\"name\":\"表\",\"type\":\"summary\",\"filters\":[],\"sort\":null,\"options\":{\"sum\":\"p_8e6ccb12\",\"date\":\"p_ada428fb\"}}]",
+                    "active": "first",
+                    "hideHead": "1"
+                  },
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "f077128e-c70d-45c5-a12a-a40eaddcd355",
+              "type": "column",
+              "props": {
+                "width": 0.5
+              },
+              "children": [
+                {
+                  "id": "d6167889-a8d8-4be7-b2f1-ce4bef2297be",
+                  "type": "todoBlock",
+                  "props": {
+                    "source": "cal:a2dba096-d6bc-4180-8bc1-2ab5372fe4af"
+                  },
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "a7e8fed5-ac81-4a68-a421-47cccf89f3e9",
+          "type": "tabs",
+          "props": {
+            "active": "67af6533-d1da-4ac6-a80b-c7d77f2d187c",
+            "titles": "{}"
+          },
+          "children": [
+            {
+              "id": "67af6533-d1da-4ac6-a80b-c7d77f2d187c",
+              "type": "calendarBlock",
+              "props": {
+                "calendarId": "",
+                "own": "1",
+                "room": "",
+                "dbs": "[{\"dbId\":\"2bb35c0b-24fb-4858-9a10-e99072991253\",\"propId\":\"p_f857608e\"}]",
+                "range": "month",
+                "weekStart": "",
+                "wrap": ""
+              },
+              "children": []
+            },
+            {
+              "id": "b32963e8-f3bf-4d22-857b-764123362b73",
+              "type": "dbView",
+              "props": {
+                "dbId": "",
+                "views": "[{\"id\":\"first\",\"name\":\"表\",\"type\":\"timeline\",\"filters\":[],\"sort\":null,\"options\":{\"stages\":true,\"stage\":\"p_f857608e\",\"start\":\"p_797baf80\",\"end\":\"p_1ffac6dd\",\"timelineTable\":true}}]",
+                "active": "first",
+                "hideHead": "1"
+              },
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "af1ba311-cc62-422a-adfe-37c741f879e2",
+          "type": "paragraph",
+          "props": {
+            "backgroundColor": "default",
+            "textColor": "default",
+            "textAlignment": "left"
+          },
+          "content": [],
+          "children": []
+        }
+      ],
+      "order": 3,
+      "categoryId": null,
+      "navOrder": 1,
+      "icon": "icon:home",
+      "heights": {
+        "e3d6f8dc-80df-4fa5-b488-391027be31cb": 0.82,
+        "67af6533-d1da-4ac6-a80b-c7d77f2d187c": 1.59,
+        "b32963e8-f3bf-4d22-857b-764123362b73": 0.55,
+        "7498773a-a08f-43e2-85bd-bf9d421853a2": 1.04,
+        "1585ca04-d607-4f0a-bc26-136425e35460": 0.873,
+        "23f54658-52a0-4ca1-8166-f6587f7cf938": 1.127
+      }
+    }
+  ]
+}

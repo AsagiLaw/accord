@@ -5,7 +5,9 @@ import { useEffect, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { useDatabase, usePage } from "@/lib/local/requests";
 import { PageBody } from "./PageBody";
-import { PeekContext, type PeekMode } from "./PageLink";
+import { ButtonPagePeek } from "./ButtonPagePeek";
+import { InnerPeekContext, PeekContext, SubPeekContext, type InnerPageTarget, type PeekMode, type SubPageTarget } from "./PageLink";
+import { SubPagePeek } from "./SubPagePeek";
 import { PageName } from "./views/common";
 
 /** ルームの中に置く。開いているページは、ページを移ったら閉じる */
@@ -13,10 +15,22 @@ export function PagePeekProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState<{ roomId: string; dbId: string; pageId: string; mode: PeekMode; at: string } | null>(null);
   const current = open && open.at === pathname ? open : null;
+  // 「ページ」の項目の別ページ（ページのポップアップの上にも重ねて開ける）
+  const [sub, setSub] = useState<(SubPageTarget & { at: string }) | null>(null);
+  const subNow = sub && sub.at === pathname ? sub : null;
+  // ボタンのブロックの中のページ（ノート・ウィンドウ）
+  const [inner, setInner] = useState<(InnerPageTarget & { at: string }) | null>(null);
+  const innerNow = inner && inner.at === pathname ? inner : null;
   return (
     <PeekContext.Provider value={(database, pageId, mode = "peek") => setOpen({ roomId: database.roomId, dbId: database.id, pageId, mode, at: pathname })}>
-      {children}
-      {current && <PagePeek key={current.pageId} {...current} onClose={() => setOpen(null)} />}
+      <SubPeekContext.Provider value={(target) => setSub({ ...target, at: pathname })}>
+        <InnerPeekContext.Provider value={(target) => setInner({ ...target, at: pathname })}>
+          {children}
+          {current && <PagePeek key={current.pageId} {...current} onClose={() => setOpen(null)} />}
+          {subNow && <SubPagePeek key={`${subNow.pageId}:${subNow.propId}`} {...subNow} onClose={() => setSub(null)} />}
+          {innerNow && <ButtonPagePeek key={innerNow.noteId} {...innerNow} onClose={() => setInner(null)} />}
+        </InnerPeekContext.Provider>
+      </SubPeekContext.Provider>
     </PeekContext.Provider>
   );
 }

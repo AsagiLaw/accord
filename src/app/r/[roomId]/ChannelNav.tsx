@@ -3,8 +3,13 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { DEFAULT_PAGE_ICON, IconMark } from "@/components/IconMark";
+import { NewPageDialog } from "@/components/db/NewPageDialog";
 import { PageMenu } from "@/components/db/PageMenu";
+import { FilterScreens, SortScreens, sortText } from "@/components/db/ViewSettings";
+import { ViewSaveContext } from "@/components/db/viewSave";
+import { NavRow } from "@/components/ui/SettingsMenu";
 import { Icon, type IconName } from "@/components/Icon";
 import { MenuDivider, MenuItem, MenuLabel, Popover, usePopover, type Anchor } from "@/components/ui/Popover";
 import { confirmAction, promptText } from "@/components/ui/overlay";
@@ -26,10 +31,11 @@ import {
   type Channel,
   type ChannelKind,
 } from "@/lib/local/channels";
-import type { Category, DbPage } from "@/lib/local/db";
+import type { Category, Database, DbPage, DbView } from "@/lib/local/db";
 import { linkTemplate, useChannelTemplates, type TemplateKind } from "@/lib/local/channelTemplates";
 import { nameSuffixOf, useDatabase, usePages, useViews } from "@/lib/local/requests";
-import { setSidebarView } from "@/lib/local/templates";
+import { useMembers } from "@/lib/local/rooms";
+import { setSidebarFilter, setSidebarView } from "@/lib/local/templates";
 import { P } from "@/lib/requests/defaults";
 import { applyView } from "@/lib/requests/logic";
 import { badgeTone, useDoNotDisturb } from "@/lib/local/dnd";
@@ -40,7 +46,9 @@ const KIND_ICON: Record<ChannelKind, IconName> = { db: "db", chat: "chat", note:
 const DEFAULT_NAME: Record<ChannelKind, string> = { db: "新しいデータベース", chat: "新しいチャット", note: "新しいノート", window: "新しいウィンドウ" };
 
 type Target = { type: "empty" } | { type: "category"; cat: Category } | { type: "channel"; ch: Channel };
-type Step = "main" | "kinds" | "move" | "sidebar" | "source";
+type Step = "main" | "kinds" | "move" | "sidebar" | "source" | "addPage";
+/** サイドバーから足すページのテンプレート：既定のテンプレート・使わない・選んだテンプレート（ID） */
+type AddChoice = { dbId: string; template: "default" | "none" | string };
 type Drag = { type: "channel"; ch: Channel } | { type: "category"; id: string };
 type Drop = { type: "channel"; categoryId: string | null; index: number } | { type: "category"; index: number };
 
@@ -58,6 +66,7 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
   const menu = usePopover();
   const [target, setTarget] = useState<Target>({ type: "empty" });
   const [step, setStep] = useState<Step>("main");
+  const [adding, setAdding] = useState<AddChoice | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [drop, setDrop] = useState<Drop | null>(null);
   const [collapsed, setCollapsed] = useState<string[]>(() => {
@@ -283,7 +292,7 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
       {!channels.length && !categories.length && <p className="px-3 pt-3 text-xs text-muted">右クリックでカテゴリーやチャンネルを作れます</p>}
 
       {menu.anchor && (
-        <Popover anchor={menu.anchor} onClose={menu.close} width={240} label={target.type === "channel" ? "チャンネルのメニュー" : target.type === "category" ? "カテゴリーのメニュー" : "サイドバーのメニュー"}>
+        <Popover anchor={menu.anchor} onClose={menu.close} width={step === "sidebar" ? 300 : 240} label={target.type === "channel" ? "チャンネルのメニュー" : target.type === "category" ? "カテゴリーのメニュー" : "サイドバーのメニュー"}>
           <ChannelMenu
             target={target}
             step={step}
@@ -292,6 +301,7 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
             channels={channels}
             onNewChannel={newChannel}
             onNewCategory={newCategory}
+            onAddPage={setAdding}
             close={menu.close}
             roomId={roomId}
             router={router}
@@ -299,7 +309,61 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
           />
         </Popover>
       )}
+      {adding && <SidebarNewPage choice={adding} roomId={roomId} userId={userId} onClose={() => setAdding(null)} />}
     </div>
+  );
+}
+
+/** サイドバーの「⋯」から足すページの画面（データベースの「ページを追加」と同じ。作ったらそのページを開く）。サイドバーの中だと画面いっぱいに出ないので、body に出す */
+function SidebarNewPage({ choice, roomId, userId, onClose }: { choice: AddChoice; roomId: string; userId: string; onClose: () => void }) {
+  const database = useDatabase(choice.dbId);
+  const members = useMembers(roomId);
+  if (!database || !members) return null;
+  const id = choice.template === "default" ? database.defaultTemplateId : choice.template === "none" ? null : choice.template;
+  const template = id ? database.templates?.find((t) => t.id === id) : undefined;
+  return createPortal(<NewPageDialog database={database} members={members} userId={userId} template={template} onClose={onClose} />, document.body);
+}
+
+/** 「⋯」の「テンプレートを選んで追加」：テンプレートを使わないか、このデータベースのテンプレートから選ぶ */
+function AddPageMenu({ dbId, onAdd }: { dbId: string; onAdd: (template: AddChoice["template"]) => void }) {
+  const database = useDatabase(dbId);
+  if (!database) return null;
+  return (
+    <div>
+      <MenuLabel>「{database.name}」にページを追加</MenuLabel>
+      <MenuItem icon={<Icon name="x" size={16} />} onClick={() => onAdd("none")}>
+        テンプレートを使わない
+      </MenuItem>
+      {(database.templates ?? []).map((t) => (
+        <MenuItem
+          key={t.id}
+          icon={t.icon ? <IconMark icon={t.icon} /> : <Icon name={t.kind === "window" ? "window" : "note"} size={16} />}
+          right={t.id === database.defaultTemplateId ? <span className="text-xs text-muted">既定</span> : undefined}
+          onClick={() => onAdd(t.id)}
+        >
+          {t.name}
+        </MenuItem>
+      ))}
+    </div>
+  );
+}
+
+/** データベースの「⋯」のページを追加：既定のテンプレートで足す。テンプレートがあれば、選んで足す行も出す */
+function AddPageItems({ dbId, onAdd, onPick }: { dbId: string; onAdd: () => void; onPick: () => void }) {
+  const database = useDatabase(dbId);
+  const fallback = database?.templates?.find((t) => t.id === database.defaultTemplateId);
+  return (
+    <>
+      <MenuItem icon={<Icon name="add" size={16} />} onClick={onAdd} right={fallback ? <span className="max-w-24 truncate text-xs text-muted">{fallback.name}</span> : undefined}>
+        ページを追加
+      </MenuItem>
+      {!!database?.templates?.length && (
+        <MenuItem icon={<Icon name="copy" size={16} />} onClick={onPick}>
+          テンプレートを選んで追加
+        </MenuItem>
+      )}
+      <MenuDivider />
+    </>
   );
 }
 
@@ -311,6 +375,7 @@ function ChannelMenu({
   channels,
   onNewChannel,
   onNewCategory,
+  onAddPage,
   close,
   roomId,
   router,
@@ -323,6 +388,7 @@ function ChannelMenu({
   channels: Channel[];
   onNewChannel: (kind: ChannelKind, categoryId: string | null) => void;
   onNewCategory: (before?: string) => void;
+  onAddPage: (choice: AddChoice) => void;
   close: () => void;
   roomId: string;
   router: ReturnType<typeof useRouter>;
@@ -373,6 +439,10 @@ function ChannelMenu({
   }
 
   if (target.type === "channel" && step === "sidebar") return <SidebarViewMenu dbId={target.ch.id} close={close} />;
+  if (target.type === "channel" && step === "addPage") {
+    const dbId = target.ch.id;
+    return <AddPageMenu dbId={dbId} onAdd={(template) => (close(), onAddPage({ dbId, template }))} />;
+  }
   if (target.type === "channel" && step === "source") return <SourceMenu target={sourceOf(target.ch)} roomId={roomId} close={close} />;
 
   if (target.type === "channel") {
@@ -388,6 +458,8 @@ function ChannelMenu({
         <MenuLabel>
           {CHANNEL_KINDS[ch.kind].label}「{ch.name || "無題"}」
         </MenuLabel>
+        {/* データベースは、ここからもページを足せる（既定のテンプレートで。テンプレートを選んでも足せる） */}
+        {ch.kind === "db" && <AddPageItems dbId={ch.id} onAdd={() => (close(), onAddPage({ dbId: ch.id, template: "default" }))} onPick={() => setStep("addPage")} />}
         {/* ウィンドウは、ここから編集モードで開く（画面の右上には編集ボタンを置かない）。
             テンプレートと繋いだノートも、ここから（ふだんは読むだけ） */}
         {(ch.kind === "window" || (ch.kind === "note" && ch.sourceId)) && (
@@ -518,19 +590,51 @@ function DbUnread({ dbId, roomId, userId, hide }: { dbId: string; roomId: string
   return <UnreadBadge n={n} className="mr-1" />;
 }
 
-/** サイドバーに出すページを、データベースのビューで選ぶ（そのビューのフィルター・並び順で出る） */
+/** サイドバーに出すページを、ビューを使わずに決めるとき（sidebarViewId がこれ） */
+const SIDEBAR_FILTER = "@filter";
+
+/** サイドバーのフィルターと並び替えを、ビューの形にしたもの（ビューのフィルター・並び替えの画面と、ページの絞り込みにそのまま使う） */
+const sidebarFilterView = (database: Database): DbView => ({
+  id: SIDEBAR_FILTER,
+  dbId: database.id,
+  name: "サイドバー",
+  type: "list",
+  filters: [],
+  sort: null,
+  options: {},
+  order: 0,
+  ...database.sidebarFilter,
+});
+
+/**
+ * サイドバーに出すページを選ぶ：出さない・データベースのビュー（そのビューのフィルター・並び順で出る）・フィルターで決める。
+ * 「フィルターで決める」は、ビューを作らずに、ここだけのフィルターと並び替えを決める（画面はビューの設定と同じ）
+ */
 function SidebarViewMenu({ dbId, close }: { dbId: string; close: () => void }) {
   const database = useDatabase(dbId);
   const views = useViews(dbId) ?? [];
+  const members = useMembers(database?.roomId ?? "") ?? [];
+  const [screen, setScreen] = useState<"top" | "filters" | "sort">("top");
   if (!database) return null;
   const cur = database.sidebarViewId;
   const pick = async (id: string | null | undefined) => {
     close();
     await setSidebarView(dbId, id);
   };
+  const own = cur === SIDEBAR_FILTER;
+  const view = sidebarFilterView(database);
+  const top = () => setScreen("top");
+  // フィルター・並び替えの画面で直したものは、ビューではなく、このデータベースのサイドバーの設定に入れる
+  const save = (v: DbView) => setSidebarFilter(dbId, { filters: v.filters, filterMode: v.filterMode, sort: v.sort, sorts: v.sorts });
+  if (screen !== "top")
+    return (
+      <ViewSaveContext.Provider value={save}>
+        {screen === "filters" ? <FilterScreens database={database} view={view} members={members} start={{ kind: "list" }} onExit={top} /> : <SortScreens database={database} view={view} onBack={top} />}
+      </ViewSaveContext.Provider>
+    );
   return (
     <div>
-      <MenuLabel>サイドバーに出すページ（ビューのフィルター・並び順で出ます）</MenuLabel>
+      <MenuLabel>サイドバーに出すページ</MenuLabel>
       <MenuItem active={cur === null || (cur === undefined && database.kind !== "request")} onClick={() => pick(null)}>
         出さない
       </MenuItem>
@@ -539,6 +643,17 @@ function SidebarViewMenu({ dbId, close }: { dbId: string; close: () => void }) {
           終わっていない依頼（納期の近い順）
         </MenuItem>
       )}
+      {/* 選んでもメニューは閉じず、その下にフィルターと並び替えの行を出す */}
+      <MenuItem icon={<Icon name="filter" size={16} />} active={own} onClick={() => !own && void setSidebarView(dbId, SIDEBAR_FILTER)}>
+        フィルターで決める
+      </MenuItem>
+      {own && (
+        <div className="pl-3">
+          <NavRow icon="filter" label="フィルター" value={view.filters.length ? `${view.filters.length}個の条件` : "条件なし（すべて）"} onClick={() => setScreen("filters")} />
+          <NavRow icon="sort" label="並び替え" value={sortText(database, view)} onClick={() => setScreen("sort")} />
+        </div>
+      )}
+      {views.length > 0 && <MenuLabel>ビューのフィルター・並び順で出す</MenuLabel>}
       {views.map((v) => (
         <MenuItem key={v.id} active={cur === v.id} onClick={() => pick(v.id)}>
           ビュー「{v.name}」のページ
@@ -563,7 +678,7 @@ function DbPages({ dbId, roomId, userId }: { dbId: string; roomId: string; userI
   const [target, setTarget] = useState<DbPage | null>(null);
   if (!database) return null;
   const setting = database.sidebarViewId;
-  const view = setting ? views.find((v) => v.id === setting) : undefined;
+  const view = setting === SIDEBAR_FILTER ? sidebarFilterView(database) : setting ? views.find((v) => v.id === setting) : undefined;
   let active: DbPage[];
   if (view) active = applyView(database, pages, view, userId);
   else if (setting === undefined && database.kind === "request")

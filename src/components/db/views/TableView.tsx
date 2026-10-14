@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { DEFAULT_PAGE_ICON, IconMark } from "@/components/IconMark";
 import { IconPicker } from "@/components/IconPicker";
@@ -12,13 +12,13 @@ import type { CalcType, DbPage, Property } from "@/lib/local/db";
 import { createBlankPage, setPageIcon, updatePageTitle, updatePageValue } from "@/lib/local/requests";
 import { useSaveView } from "../viewSave";
 import { sortsOf, valueOf } from "@/lib/requests/logic";
-import { AddPropertyMenu, PropertyMenu, calcLabel, calcsFor, calculate, visibleProps } from "../editors";
+import { AddPropertyMenu, PropertyMenu, calcLabel, calcsFor, calculate, setVisible, visibleProps } from "../editors";
 import { PropIcon } from "../meta";
 import { PropInput } from "../PropInput";
 import { StageSettings } from "../StageSettings";
 import { PropValue, SelectEditor, StageEditor } from "../values";
 import { PageName, pageHref, type ViewProps } from "./common";
-import { PageLink as PeekLink } from "../PageLink";
+import { PageLink as PeekLink, SubPeekContext } from "../PageLink";
 import { asValueProp, valueTypeOf } from "@/lib/requests/formula";
 import { GroupHead, colorHueOf, groupPages, groupPropOf, groupSumText, useCollapsed } from "./groups";
 
@@ -29,6 +29,7 @@ const clampW = (w: number) => Math.round(Math.max(MIN_W, Math.min(MAX_W, w)));
 /**
  * Notion のような表。セルを押すとその場で編集、列の見出しからメニュー、下に新規と集計。
  * 列の見出しの右端をドラッグで幅を変え、ダブルクリックで中身にちょうどいい幅にする。
+ * 列の見出し（縦一列の表では項目の行の見出し）をドラッグすると、項目の並びを変えられる（名前の列は動かさない）。
  */
 export function TableView({ database, view, pages, members, userId }: ViewProps) {
   const titleProp = database.props.find((p) => p.type === "title")!;
@@ -118,10 +119,66 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
     />
   );
 
+  // ---- 項目の並べ替え：見出しを押したまま動かす（5px 動いたらドラッグ。動かさずに離したら、ふつうに押したことにしてメニューを開く） ----
+  // エディタ（オールビューのブロック）の中でも動くよう、ブラウザのドラッグは使わずポインターで動かす
+  const [moving, setMoving] = useState<{ id: string; to: number } | null>(null);
+  const startMove = (e: React.PointerEvent, id: string, axis: "x" | "y") => {
+    if (locked || e.button !== 0) return;
+    // 文字が選ばれたり、エディタがブロックを選んだりしないようにする（押したときの click はそのまま出る）
+    e.preventDefault();
+    const ids = cols.map((c) => c.id);
+    // 入れる場所は、この表の動かせる見出しの位置で決める
+    const table = e.currentTarget.closest("table");
+    const start = axis === "x" ? e.clientX : e.clientY;
+    let to: number | null = null;
+    const onMove = (ev: PointerEvent) => {
+      const pos = axis === "x" ? ev.clientX : ev.clientY;
+      if (to === null && Math.abs(pos - start) < 5) return;
+      // 何番目の項目の前に入れるか：見出しの真ん中より手前なら、その前
+      const heads = [...(table?.querySelectorAll<HTMLElement>("[data-col-move]") ?? [])];
+      const i = heads.findIndex((el) => {
+        const r = el.getBoundingClientRect();
+        return pos < (axis === "x" ? r.left + r.width / 2 : r.top + r.height / 2);
+      });
+      to = i < 0 ? heads.length : i;
+      setMoving({ id, to });
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      setMoving(null);
+      if (to === null) return;
+      // ドラッグしたあとは、続けて出る click（列のメニューを開く）を出さない
+      const swallow = (ce: MouseEvent) => (ce.stopPropagation(), ce.preventDefault());
+      window.addEventListener("click", swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+      const from = ids.indexOf(id);
+      const next = ids.filter((x) => x !== id);
+      next.splice(to > from ? to - 1 : to, 0, id);
+      if (next.join() !== ids.join()) void setVisible(view, next, saveView);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
+  /** 動かしている項目を入れる場所の線（axis：x は見出しの左右、y は上下）。i 番目の項目の前、最後なら最後の項目の後ろ */
+  const moveLine = (i: number, axis: "x" | "y") => {
+    if (!moving) return null;
+    const before = moving.to === i;
+    const after = i === cols.length - 1 && moving.to === cols.length;
+    if (!before && !after) return null;
+    const side = axis === "x" ? (before ? "-left-px" : "-right-px") : before ? "-top-px" : "-bottom-px";
+    return <span aria-hidden className={`pointer-events-none absolute z-[3] bg-accent ${side} ${axis === "x" ? "top-0 h-full w-0.5" : "left-0 h-0.5 w-full"}`} />;
+  };
+
   /** セルを押したとき：チェックボックスはその場で切り替え、自動の日時は変えられない、ほかは編集を開く */
   const [chatAt, setChatAt] = useState<{ page: DbPage; prop: Property } | null>(null);
+  const openSub = useContext(SubPeekContext);
   const openCell = (e: React.MouseEvent<HTMLElement>, p: DbPage, c: Property) => {
     if (c.type === "checkbox") return void updatePageValue(p.id, c.id, !valueOf(p, c.id));
+    // 「ページ」の項目は、別ページをポップアップで開く
+    if (c.type === "page") return openSub?.({ roomId: p.roomId, dbId: p.dbId, pageId: p.id, propId: c.id });
     // チャットの項目は、会話をポップアップで開く
     if (c.type === "chat" || c.type === "imageChat") return setChatAt({ page: p, prop: c });
     // 自動の日時と数式は、ここでは変えない（数式は列の見出しの「式の設定」から）
@@ -266,12 +323,23 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
     const labelW = widthOf(LABEL, 170);
     const pageW = (p: DbPage) => widthOf(p.id, 220);
     const total = labelW + pages.reduce((a, p) => a + pageW(p), 0) + 44;
-    const labelCell = (p: Property, isHeader = false) => (
-      <th scope="row" className={`sticky left-0 z-[1] border-r border-line bg-card p-0 text-left font-normal ${isHeader ? "relative" : ""}`}>
-        {propButton(p, LABEL)}
-        {isHeader && resizer(LABEL, 170, 24)}
-      </th>
-    );
+    const labelCell = (p: Property, isHeader = false, i = -1) => {
+      // 名前の行（見出し）は動かさない。項目の行は上下にドラッグで動かす（固定したビューでは動かさない）
+      const can = !isHeader && !locked;
+      return (
+        <th
+          scope="row"
+          className={`sticky left-0 z-[1] border-r border-line bg-card p-0 text-left font-normal ${isHeader ? "relative" : ""} ${moving?.id === p.id ? "opacity-50" : ""}`}
+          data-col-move={can ? "" : undefined}
+          onPointerDown={can ? (e) => startMove(e, p.id, "y") : undefined}
+          title={can ? "ドラッグで上下に動かす" : undefined}
+        >
+          {propButton(p, LABEL)}
+          {isHeader && resizer(LABEL, 170, 24)}
+          {!isHeader && moveLine(i, "y")}
+        </th>
+      );
+    };
     return (
       <div ref={box} className="overflow-x-auto rounded-[12px] border border-line bg-card">
         <table className="table-fixed border-collapse text-sm" style={{ width: total }}>
@@ -305,9 +373,9 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
             </tr>
           </thead>
           <tbody>
-            {cols.map((c) => (
+            {cols.map((c, i) => (
               <tr key={c.id} className="border-b border-line">
-                {labelCell(c)}
+                {labelCell(c, false, i)}
                 {pages.map((p) => (
                   <td key={p.id} className="border-r border-line p-0">
                     {valueCell(p, c, p.id)}
@@ -342,12 +410,23 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
   // ---- 横一列：ふつうの表 ----
   const colW = (p: Property) => widthOf(p.id, p.type === "title" ? 260 : 180);
   const total = colW(titleProp) + cols.reduce((a, c) => a + colW(c), 0) + 44;
-  const headerCell = (p: Property) => (
-    <th key={p.id} className="relative border-r border-line p-0 font-normal">
-      {propButton(p, p.id)}
-      {resizer(p.id, p.type === "title" ? 260 : 180, p.type === "title" ? 112 : 24)}
-    </th>
-  );
+  const headerCell = (p: Property, i = -1) => {
+    // 名前の列は動かさない。ほかの列は左右にドラッグで動かす（固定したビューでは動かさない）
+    const can = p.type !== "title" && !locked;
+    return (
+      <th
+        key={p.id}
+        className={`relative border-r border-line p-0 font-normal ${moving?.id === p.id ? "opacity-50" : ""}`}
+        data-col-move={can ? "" : undefined}
+        onPointerDown={can ? (e) => startMove(e, p.id, "x") : undefined}
+        title={can ? "ドラッグで左右に動かす" : undefined}
+      >
+        {propButton(p, p.id)}
+        {resizer(p.id, p.type === "title" ? 260 : 180, p.type === "title" ? 112 : 24)}
+        {p.type !== "title" && moveLine(i, "x")}
+      </th>
+    );
+  };
 
   /** ページ1行。色分けしていれば、行の左の端に色の線 */
   const row = (p: DbPage) => {
@@ -390,7 +469,7 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
         <thead>
           <tr className="border-b border-line">
             {headerCell(titleProp)}
-            {cols.map(headerCell)}
+            {cols.map((c, i) => headerCell(c, i))}
             <th className="p-0">
               {/* 固定したビューでは、項目を足さない（足した項目をこのビューに出せないため） */}
               {!locked && (

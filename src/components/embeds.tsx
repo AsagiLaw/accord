@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { CalendarBlockView } from "@/components/calendar/CalendarBlock";
+import { ChatImagesButton } from "@/components/chat/ChatImages";
+import { ChatSearchButton } from "@/components/chat/ChatSearch";
 import { ChatView } from "@/components/chat/ChatView";
 import { ImageChatView } from "@/components/chat/ImageChatView";
 import { PageSourceScreen, PropScreen, PropVisibilityScreen, sourceText, THIS_PAGE, WritersScreen, writersText } from "@/components/blockSettings";
@@ -30,7 +33,7 @@ import type { MemberWithProfile } from "@/lib/local/rooms";
 import { useBlobUrl } from "@/lib/media/blob-url";
 import type { EmbedKind } from "@/components/blockKinds";
 import { DbChatBlock, PageBlockBody, PropChatView, seedUsers, StageButton, StagePills, stageDatesOf } from "@/components/pageBlocks";
-import { AddButtonView, TodoBlockView } from "@/components/toolBlocks";
+import { AddButtonView, LinkButtonView, TodoBlockView } from "@/components/toolBlocks";
 import { isDateLike } from "@/lib/requests/formula";
 
 // ノートのブロックとウィンドウの部品で共通に使う中身（エディタに依存しない）
@@ -244,11 +247,16 @@ export function ChatBlockView({
             <span className="truncate">{writersText(members, allowed)}</span>
           </span>
         ) : null}
-        {!locked && (
-          <SettingsButton label={label}>
-            <ChatMenu title={label} kind={kind} chat={chat} seed={seed} onSeed={onSeed} />
-          </SettingsButton>
-        )}
+        {/* 右上：送られた画像（チャットのチャンネルと同じ）と、設定の歯車 */}
+        <span className="ml-auto flex shrink-0 items-center gap-0.5">
+          {chat && <ChatSearchButton chatId={chat.id} roomId={roomId} compact />}
+          {chat && <ChatImagesButton chatId={chat.id} roomId={roomId} compact />}
+          {!locked && (
+            <SettingsButton label={label}>
+              <ChatMenu title={label} kind={kind} chat={chat} seed={seed} onSeed={onSeed} />
+            </SettingsButton>
+          )}
+        </span>
       </div>
       <div className={fill ? "min-h-0 flex-1 p-3" : "h-[420px] p-3"}>
         {!chat ? (
@@ -603,6 +611,9 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
   // 見出しを出さないときは、歯車だけを右上に重ねる（読むだけのときは何も出さない）
   const headed = props.hideHead !== "1";
   const ready = !!(database && prop && (page || (thisPage && ctx.template)));
+  // チャットの項目のときの、そのページのチャット（送られた画像のボタンに使う）
+  const chatValue = isChat && page && prop ? page.values[prop.id] : undefined;
+  const chatId = typeof chatValue === "string" ? chatValue : "";
   const message = (
     <span>
       シングルビュー：
@@ -610,7 +621,7 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
     </span>
   );
 
-  const head = (headed || !locked) && (
+  const head = (headed || !locked || !!chatId) && (
     // 歯車はいつも同じ場所に置いて、見出しの出し入れで開いた設定が閉じないようにする
     <div
       className={headed ? "mb-2 flex shrink-0 flex-wrap items-center gap-1.5 text-xs text-muted" : "absolute top-1 right-1 z-[1] flex"}
@@ -643,11 +654,16 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
           <span className="truncate">{writersText(members, prop.allowed)}</span>
         </span>
       ) : null}
-      {!locked && (
-        <SettingsButton label="シングルビューの設定">
-          <SingleViewMenu props={props} database={database} page={page} onChange={onChange} />
-        </SettingsButton>
-      )}
+      {/* 右上：（チャットの項目は）送られた画像と、設定の歯車 */}
+      <span className="ml-auto flex shrink-0 items-center gap-0.5">
+        {chatId && <ChatSearchButton chatId={chatId} roomId={roomId} compact />}
+        {chatId && <ChatImagesButton chatId={chatId} roomId={roomId} compact />}
+        {!locked && (
+          <SettingsButton label="シングルビューの設定">
+            <SingleViewMenu props={props} database={database} page={page} onChange={onChange} />
+          </SettingsButton>
+        )}
+      </span>
     </div>
   );
 
@@ -1144,7 +1160,7 @@ export function BlockBody({
         />
       );
     case "todoBlock":
-      return <TodoBlockView fill={fill} />;
+      return <TodoBlockView fill={fill} source={props.source ?? ""} onChange={(p) => onChange(p as Record<string, string>)} />;
     case "addButton":
       return (
         <AddButtonView
@@ -1152,6 +1168,37 @@ export function BlockBody({
             dbId: props.dbId ?? "",
             templateId: props.templateId ?? "",
             label: props.label ?? "",
+            align: props.align ?? "",
+          }}
+          onChange={(p) => onChange(p as Record<string, string>)}
+        />
+      );
+    case "calendarBlock":
+      return (
+        <CalendarBlockView
+          props={{
+            calendarId: props.calendarId ?? "",
+            own: props.own ?? "1",
+            room: props.room ?? "",
+            dbs: props.dbs ?? "[]",
+            range: props.range ?? "month",
+            weekStart: props.weekStart ?? "",
+            wrap: props.wrap ?? "",
+          }}
+          onChange={(p) => onChange(p as Record<string, string>)}
+          fill={fill}
+        />
+      );
+    case "linkButton":
+      return (
+        <LinkButtonView
+          props={{
+            label: props.label ?? "",
+            kind: props.kind ?? "",
+            noteId: props.noteId ?? "",
+            dbId: props.dbId ?? "",
+            pageId: props.pageId ?? THIS_PAGE,
+            propId: props.propId ?? "",
             align: props.align ?? "",
           }}
           onChange={(p) => onChange(p as Record<string, string>)}

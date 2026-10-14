@@ -71,13 +71,35 @@ export const DbViewBlock = createReactBlockSpec(
 // ---- 道具のブロック（ToDo・追加ボタン） ----
 
 export const TodoBlock = createReactBlockSpec(
-  { type: "todoBlock", propSchema: {}, content: "none" },
+  // source：出すもの。"" はルームの ToDo、"room" はルームの今日の予定、"cal:ID" はそのカレンダーブロックの今日の予定
+  { type: "todoBlock", propSchema: { source: { default: "" } }, content: "none" },
   { render: ({ block, editor }) => <BlockBody type="todoBlock" props={block.props as Record<string, string>} onChange={(p) => editor.updateBlock(block, { props: p })} /> },
 );
 
 export const AddButtonBlock = createReactBlockSpec(
   { type: "addButton", propSchema: { dbId: { default: "" }, templateId: { default: "" }, label: { default: "" }, align: { default: "" } }, content: "none" },
   { render: ({ block, editor }) => <BlockBody type="addButton" props={block.props as Record<string, string>} onChange={(p) => editor.updateBlock(block, { props: p })} /> },
+);
+
+export const LinkButtonBlock = createReactBlockSpec(
+  // 開くもの：kind が "note"・"window" なら、ボタンの中のページ（noteId）。"" なら、どのページ（"@this" はこのページ）の、どの「ページ」の項目か
+  {
+    type: "linkButton",
+    propSchema: { label: { default: "" }, kind: { default: "" }, noteId: { default: "" }, dbId: { default: "" }, pageId: { default: "@this" }, propId: { default: "" }, align: { default: "" } },
+    content: "none",
+  },
+  { render: ({ block, editor }) => <BlockBody type="linkButton" props={block.props as Record<string, string>} onChange={(p) => editor.updateBlock(block, { props: p })} /> },
+);
+
+export const CalendarBlock = createReactBlockSpec(
+  // calendarId：このカレンダーの予定の持ち主／own・room：このカレンダーとルームの予定を出すか／dbs：出すデータベースの項目（JSON）／range・weekStart：はじめの期間と週の始まり
+  {
+    type: "calendarBlock",
+    // wrap："1" で予定の名前を右端で折り返す
+    propSchema: { calendarId: { default: "" }, own: { default: "1" }, room: { default: "" }, dbs: { default: "[]" }, range: { default: "month" }, weekStart: { default: "" }, wrap: { default: "" } },
+    content: "none",
+  },
+  { render: ({ block, editor }) => <BlockBody type="calendarBlock" props={block.props as Record<string, string>} onChange={(p) => editor.updateBlock(block, { props: p })} /> },
 );
 
 // ---- データベースのページのブロック（タイトル・進み具合・項目・チャット） ----
@@ -147,6 +169,8 @@ export const noteSchema = withMultiColumn(
     tabs: TabsBlock(),
     todoBlock: TodoBlock(),
     addButton: AddButtonBlock(),
+    linkButton: LinkButtonBlock(),
+    calendarBlock: CalendarBlock(),
   },
   }),
 );

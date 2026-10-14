@@ -233,7 +233,9 @@ export type PropType =
   /** 数式：ほかの項目から計算する（値は保存せず、読むたびに計算する。式は formula） */
   | "formula"
   /** 通し番号：ページを作ると 1, 2, 3… と自動で入る（値は数。見せるときは prefix と digits で「#001」） */
-  | "serial";
+  | "serial"
+  /** ページ：ページごとの別ページ（中身はノート。sub が付いたもの）。値は持たず、はじめて開いたときに、設定のテンプレートで作る */
+  | "page";
 
 /** ステータスのグループ（Notion と同じ）：未着手・進行中・完了 */
 export type StatusGroup = "todo" | "doing" | "done";
@@ -272,6 +274,8 @@ export type Property = {
   digits?: number;
   /** はじめから入る値（新しいページを作ったとき）。"@me" は作った人、"@today" は作った日 */
   defaultValue?: unknown;
+  /** ページの項目：別ページを作るときのテンプレート（このデータベースの templates）。無ければ空のノート */
+  templateId?: string;
 };
 /** 依頼プランの工程。ratio は開始日（0）から納期（1）までのどのあたりが期限か */
 export type Stage = { name: string; ratio: number };
@@ -297,8 +301,10 @@ export type Database = {
   /** 「追加」で使うテンプレート（無ければテンプレートなし） */
   defaultTemplateId?: string | null;
   /** サイドバーでこのデータベースの下に出すページ：ビューの ID（そのビューのフィルター・並び順で出す）。null は出さない。
-   * 無い（undefined）ときは、依頼なら終わっていない依頼を納期順、それ以外は出さない */
+   * "@filter" はビューを使わず sidebarFilter で決める。無い（undefined）ときは、依頼なら終わっていない依頼を納期順、それ以外は出さない */
   sidebarViewId?: string | null;
+  /** サイドバーに出すページを、ビューを使わずに決めるときのフィルターと並び替え（sidebarViewId が "@filter" のとき） */
+  sidebarFilter?: Pick<DbView, "filters" | "filterMode" | "sort" | "sorts">;
   /** ページの名前の後ろに付ける言葉（例：「様」）。無いときは、依頼は「様」、ほかは付けない */
   nameSuffix?: string;
   /** 納期のお知らせに使う日付の項目。undefined は名前（納期・締切・期限）から自動で選ぶ、null はお知らせしない */
@@ -439,7 +445,28 @@ export type DbView = {
 };
 
 /** カレンダーに自分で入れた予定（依頼工程を選んだときは pageId が付く） */
-export type CalEvent = { id: string; roomId: string; date: string; text: string; pageId: string | null; createdAt: number };
+export type CalEvent = {
+  id: string;
+  roomId: string;
+  /** 予定の日（何日かにわたる予定は、始まりの日） */
+  date: string;
+  /** 予定の名前 */
+  text: string;
+  pageId: string | null;
+  createdAt: number;
+  /** カレンダーブロックの予定のとき、そのカレンダー（ブロックの calendarId）。無いものはルームの予定（データベースのカレンダーにも出る） */
+  calendarId?: string;
+  /** 終わりの日（何日かにわたる予定）。無ければ date の1日だけ */
+  end?: string;
+  /** 始まりと終わりの時刻（"HH:mm"）。無ければ終日 */
+  time?: string;
+  endTime?: string;
+  /** 色（選択肢と同じ9色）。無ければ、カレンダーブロックの予定は青、ルームの予定は灰色 */
+  color?: TagColor;
+  memo?: string;
+  /** 済み（ToDo のブロックでチェックした予定）。カレンダーでは線で消して出す */
+  done?: boolean;
+};
 export type Todo = { id: string; roomId: string; text: string; done: boolean; createdAt: number };
 
 /** ノート（ブロック式のページ）。blocks はエディタ（BlockNote）の中身をそのまま保存する */
@@ -465,6 +492,13 @@ export type Note = {
   sourceId?: string | null;
   /** テンプレートの中のチャットのブロック（ID）→ このチャンネル用のチャット。チャットは使う先ごとに別 */
   chatMap?: Record<string, string>;
+  /**
+   * データベースの「ページ」の項目の別ページのとき（pageId は持ち主のページ）。kind はノート型・ウィンドウ型。
+   * sourceId はウィンドウ型で繋いでいるテンプレート（このデータベースの templates）。あれば、テンプレートの中身を出す
+   */
+  sub?: { propId: string; kind: "note" | "window"; sourceId: string | null };
+  /** ボタンのブロックの中のページのとき（ノート型・ウィンドウ型）。サイドバーには出さず、ボタンを押したポップアップで開く */
+  inner?: { kind: "note" | "window" };
 };
 
 /** サイドバーのカテゴリー（Discord のカテゴリーと同じ）。中にデータベース・チャット・ノートのチャンネルが入る */
@@ -495,6 +529,10 @@ export type BlockKind =
   // ホームなどで使う道具（ToDo・追加ボタン）
   | "todoBlock"
   | "addButton"
+  // 押すと、ボタンの中のノート・ウィンドウか、別ページ（データベースの「ページ」の項目）をポップアップで出すボタン
+  | "linkButton"
+  // 予定を組めるカレンダー（データベースの日付も一緒に出せる）
+  | "calendarBlock"
   // データベースのページの中で使う（そのページのタイトル・項目・チャット）
   | "pageTitle"
   | "pageProps"

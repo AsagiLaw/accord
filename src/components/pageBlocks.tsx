@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
+import { ChatImagesButton } from "@/components/chat/ChatImages";
+import { ChatSearchButton } from "@/components/chat/ChatSearch";
 import { ChatView } from "@/components/chat/ChatView";
 import { ImageChatView } from "@/components/chat/ImageChatView";
 import { PropInput } from "@/components/db/PropInput";
@@ -13,11 +15,11 @@ import { Icon } from "@/components/Icon";
 import { DEFAULT_PAGE_ICON, IconMark, mediaIconId } from "@/components/IconMark";
 import { IconPicker } from "@/components/IconPicker";
 import { MenuDivider, MenuItem, Popover, usePopover } from "@/components/ui/Popover";
-import { ChoiceScreen, MenuTitle, NavRow, TextField, ToggleRow } from "@/components/ui/SettingsMenu";
+import { BackHead, ChoiceScreen, EmptyNote, MenuTitle, NavRow, OptionRow, SectionHead, TextField, ToggleRow } from "@/components/ui/SettingsMenu";
 import { choose } from "@/components/ui/overlay";
 import { useChat } from "@/lib/local/chat";
 import type { Database, DbPage, ImageUser, Profile, Property } from "@/lib/local/db";
-import { addProperty, ensurePropChat, setPageIcon, updatePageTitle, updatePageValue, updateProperty, useDatabase, usePage } from "@/lib/local/requests";
+import { addProperty, ensurePropChat, setPageIcon, showPropInTables, updatePageTitle, updatePageValue, updateProperty, useDatabase, usePage } from "@/lib/local/requests";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 import { P } from "@/lib/requests/defaults";
 import { dueLabel, stagesOf, today, valueOf } from "@/lib/requests/logic";
@@ -525,10 +527,18 @@ export function DbChatBlock({ kind, propId, onChange, fill }: { kind: "normal" |
     // 読むだけのときは、ブロックを書き換えない（1つ目の項目を出すだけ）
     if (!database || linked || creating.current || ctx.locked) return;
     creating.current = true;
-    if (fallback) return void onChange({ propId: fallback.id });
-    void addProperty(database.id, base, type).then((created) => onChange({ propId: created.id }));
+    // 繋いだ項目（作った項目も）は、データベースの表に列として出す
+    const link = (propId: string) => {
+      onChange({ propId });
+      void showPropInTables(database.id, propId);
+    };
+    if (fallback) return link(fallback.id);
+    void addProperty(database.id, base, type).then((created) => link(created.id));
   }, [database, linked, fallback, ctx.locked, base, type, onChange]);
   const label = prop?.name ?? base;
+  // そのページのチャット（送られた画像のボタンに使う）
+  const chatValue = page && prop ? page.values[prop.id] : undefined;
+  const chatId = typeof chatValue === "string" ? chatValue : "";
 
   return (
     <div
@@ -549,11 +559,25 @@ export function DbChatBlock({ kind, propId, onChange, fill }: { kind: "normal" |
             <span className="truncate">{writersText(ctx.members, prop.allowed)}</span>
           </span>
         ) : null}
-        {!ctx.locked && database && (
-          <SettingsButton label={`${label}の設定`}>
-            <DbChatMenu database={database} kind={kind} prop={prop} onPick={(id) => onChange({ propId: id })} />
-          </SettingsButton>
-        )}
+        {/* 右上：送られた画像（チャットのチャンネルと同じ）と、設定の歯車 */}
+        <span className="ml-auto flex shrink-0 items-center gap-0.5">
+          {chatId && <ChatSearchButton chatId={chatId} roomId={ctx.roomId} compact />}
+          {chatId && <ChatImagesButton chatId={chatId} roomId={ctx.roomId} compact />}
+          {!ctx.locked && database && (
+            <SettingsButton label={`${label}の設定`}>
+              <DbChatMenu
+              database={database}
+              kind={kind}
+              prop={prop}
+              // 繋いだ項目（作った項目も）は、データベースの表に列として出す
+              onPick={(id) => {
+                onChange({ propId: id });
+                void showPropInTables(database.id, id);
+              }}
+            />
+            </SettingsButton>
+          )}
+        </span>
       </div>
       <div className={fill ? "min-h-0 flex-1 p-3" : "h-[420px] p-3"}>
         {page && database && prop ? (
@@ -578,27 +602,45 @@ function DbChatMenu({ database, kind, prop, onPick }: { database: Database; kind
   const type = kind === "image" ? "imageChat" : "chat";
   const base = kind === "image" ? "イメージチャット" : "チャット";
   const title = `${base}の設定`;
-  if (screen === "prop")
+  if (screen === "prop") {
+    const props = database.props.filter((p) => p.type === type);
+    // 上にデータベースの項目（選ぶと繋ぐ）、仕切りの下に新しく作る操作
     return (
-      <ChoiceScreen
-        title="繋ぐ項目"
-        items={[
-          ...database.props.filter((p) => p.type === type).map((p) => ({ id: p.id, label: p.name, icon: kind === "image" ? ("ppl" as const) : ("chat" as const) })),
-          { id: "@new", label: `新しい${base}の項目を作る`, icon: "add" as const },
-        ]}
-        selected={prop?.id ?? ""}
-        onPick={async (id) => {
-          setScreen("top");
-          if (id !== "@new") return onPick(id);
-          // 名前が重ならないように、後ろに番号を付ける
-          const names = new Set(database.props.map((p) => p.name));
-          let name = base;
-          for (let i = 2; names.has(name); i++) name = `${base}${i}`;
-          onPick((await addProperty(database.id, name, type)).id);
-        }}
-        onBack={() => setScreen("top")}
-      />
+      <div>
+        <BackHead title="繋ぐ項目" onBack={() => setScreen("top")} />
+        <SectionHead label={`「${database.name}」の項目`} />
+        {props.map((p) => (
+          <OptionRow
+            key={p.id}
+            icon={kind === "image" ? "ppl" : "chat"}
+            selected={p.id === prop?.id}
+            onClick={() => {
+              setScreen("top");
+              onPick(p.id);
+            }}
+          >
+            {p.name}
+          </OptionRow>
+        ))}
+        {!props.length && <EmptyNote>{base}の項目はまだありません</EmptyNote>}
+        <MenuDivider />
+        <SectionHead label="新しく作る" />
+        <MenuItem
+          icon={<Icon name="add" size={16} />}
+          onClick={async () => {
+            setScreen("top");
+            // 名前が重ならないように、後ろに番号を付ける
+            const names = new Set(database.props.map((p) => p.name));
+            let name = base;
+            for (let i = 2; names.has(name); i++) name = `${base}${i}`;
+            onPick((await addProperty(database.id, name, type)).id);
+          }}
+        >
+          新しい{base}の項目を作る
+        </MenuItem>
+      </div>
     );
+  }
   if (screen === "writers" && prop)
     return <WritersScreen members={members} allowed={prop.allowed ?? []} onChange={(allowed) => void updateProperty(database.id, prop.id, { allowed })} onBack={() => setScreen("top")} />;
   return (
@@ -628,7 +670,8 @@ function DbChatMenu({ database, kind, prop, onPick }: { database: Database; kind
 export type FieldProps = { level: string; dbId: string; pageId: string; propId: string; suffix: string; icon: string };
 
 // 見出しの大きさは、ノートの見出し（1.8・1.45・1.2倍）と同じ
-const LEVEL_CLASS: Record<string, string> = { "0": "text-[1em]", "1": "text-[1.8em] font-bold leading-tight", "2": "text-[1.45em] font-bold leading-snug", "3": "text-[1.2em] font-bold" };
+// 見出し1は標準の値なので data-level が付かず、ふつうの見出し1は BlockNote の 3em で出る。それに合わせる
+const LEVEL_CLASS: Record<string, string> = { "0": "text-[1em]", "1": "text-[3em] font-bold leading-tight", "2": "text-[1.45em] font-bold leading-snug", "3": "text-[1.2em] font-bold" };
 const LEVEL_LABEL: Record<string, string> = { "0": "本文", "1": "見出し1", "2": "見出し2", "3": "見出し3" };
 /** 文字で直せる項目（それ以外は値を出すだけ） */
 const TYPABLE = new Set(["title", "text", "url", "email", "phone"]);

@@ -7,6 +7,7 @@ import { defaultsOf } from "@/lib/requests/props";
 import { stamp, today } from "@/lib/requests/logic";
 import { stageOf } from "@/lib/requests/stages";
 import { deleteOwnedChats } from "./channels";
+import { copySubPages, deleteSubPages } from "./subPages";
 import { freshBlocks } from "./templates";
 import { db, newId, type CalEvent, type Database, type DbPage, type DbView, type PageTemplate, type Property, type StatusGroup, type TagColor, type Todo } from "./db";
 
@@ -52,8 +53,28 @@ export function useViews(dbId: string | undefined) {
   return useLiveQuery(async () => (dbId ? (await db.dbViews.where("dbId").equals(dbId).toArray()).sort((a, b) => a.order - b.order) : []), [dbId]);
 }
 
+/** ルームの予定（データベースのカレンダーに出る）。カレンダーブロックだけの予定は除く */
 export function useEvents(roomId: string) {
-  return useLiveQuery(() => db.events.where("roomId").equals(roomId).toArray(), [roomId]);
+  return useLiveQuery(async () => (await db.events.where("roomId").equals(roomId).toArray()).filter((e) => !e.calendarId), [roomId]);
+}
+
+/** カレンダーブロックに出す予定：そのカレンダーの予定（calendarId）と、room が true ならルームの予定 */
+export function useCalendarEvents(roomId: string, calendarId: string, room: boolean) {
+  return useLiveQuery(
+    async () => (await db.events.where("roomId").equals(roomId).toArray()).filter((e) => (calendarId && e.calendarId === calendarId) || (room && !e.calendarId)),
+    [roomId, calendarId, room],
+  );
+}
+
+/** いくつかのデータベースのページ（ゴミ箱のものは除く。数式の項目は計算した値を入れる）。カレンダーブロックで使う */
+export function usePagesOf(dbIds: string[]) {
+  const key = [...new Set(dbIds)].sort().join(",");
+  return useLiveQuery(async () => {
+    const ids = key ? key.split(",") : [];
+    if (!ids.length) return [];
+    const [databases, pages] = await Promise.all([db.databases.bulkGet(ids), db.dbPages.where("dbId").anyOf(ids).toArray()]);
+    return databases.flatMap((d) => (d ? withFormulas(d, pages.filter((p) => p.dbId === d.id && !p.deletedAt)) : []));
+  }, [key]);
 }
 
 export function useTodos(roomId: string) {
@@ -239,12 +260,14 @@ export async function duplicatePage(page: DbPage, userId: string) {
     bodyKind: page.bodyKind,
     sourceId: page.sourceId,
   };
-  const note = await db.notes.where("pageId").equals(page.id).first();
+  const note = await db.notes.where("pageId").equals(page.id).filter((n) => !n.sub).first();
   await db.transaction("rw", db.dbPages, db.notes, async () => {
     await db.dbPages.add(copy);
     // 本文：チャットのブロックはチャットを外して入れる（開いたときに新しく作る）
     if (note) await db.notes.add({ ...note, id: newId(), title: copy.title, blocks: freshBlocks(note.blocks), pageId: id, createdAt: now, updatedAt: now, updatedBy: userId });
   });
+  // 「ページ」の項目の別ページも写す
+  await copySubPages(page.id, id, userId);
   // チャットの項目は、空の会話を用意しておく
   for (const p of database.props.filter((x) => x.type === "chat" || x.type === "imageChat")) await ensurePropChat(id, p);
   return copy;
@@ -280,6 +303,21 @@ export async function createView(dbId: string, name: string, type: DbView["type"
   return view;
 }
 
+/**
+ * 項目を、そのデータベースのテーブルのビューに列として出す（チャットのブロックで項目を作ったとき・繋いだとき）。
+ * 出す項目を決めていないテーブルは、はじめからチャットの項目も出るので、そのまま。固定したビューは変えない
+ */
+export async function showPropInTables(dbId: string, propId: string) {
+  await db.dbViews
+    .where("dbId")
+    .equals(dbId)
+    .modify((v) => {
+      const visible = v.options.visible;
+      if (v.type !== "table" || v.options.locked || !visible || visible.includes(propId)) return;
+      v.options = { ...v.options, visible: [...visible, propId] };
+    });
+}
+
 export async function deleteView(viewId: string) {
   await db.dbViews.delete(viewId);
 }
@@ -293,6 +331,56 @@ export async function addEvent(roomId: string, date: string, text: string, pageI
 
 export async function deleteEvent(id: string) {
   await db.events.delete(id);
+}
+
+/** 予定を済みにする・戻す（ToDo のブロックのチェック） */
+export async function setEventDone(id: string, done: boolean) {
+  await db.events.update(id, { done: done || undefined });
+}
+
+/** ルームの中のカレンダーブロック（ノート・ウィンドウ・ページの本文に置いたもの）。ToDo のブロックのソースに選べる */
+export type RoomCalendar = { calendarId: string; label: string; own: boolean; room: boolean; dbs: string };
+
+export function useRoomCalendars(roomId: string) {
+  return useLiveQuery(async () => {
+    const [notes, windows, pages] = await Promise.all([db.notes.where("roomId").equals(roomId).toArray(), db.windows.where("roomId").equals(roomId).toArray(), db.dbPages.where("roomId").equals(roomId).toArray()]);
+    const out: RoomCalendar[] = [];
+    type B = { type?: string; props?: Record<string, string>; children?: B[] };
+    const walk = (where: string, blocks: unknown[] | undefined) => {
+      const found: B[] = [];
+      const go = (list: B[]) => list.forEach((b) => (b.type === "calendarBlock" && b.props?.calendarId ? found.push(b) : null, b.children && go(b.children)));
+      go((blocks ?? []) as B[]);
+      // 同じところに2つ以上あれば、番号を付けて分ける
+      found.forEach((b, i) =>
+        out.push({
+          calendarId: b.props!.calendarId,
+          label: `${where}のカレンダー${found.length > 1 ? i + 1 : ""}`,
+          own: b.props!.own !== "",
+          room: b.props!.room === "1",
+          dbs: b.props!.dbs ?? "[]",
+        }),
+      );
+    };
+    for (const n of notes) {
+      if (n.template || n.inner) continue;
+      // ページの本文・別ページは、そのページの名前で呼ぶ
+      const page = n.pageId ? pages.find((p) => p.id === n.pageId) : undefined;
+      if (n.pageId && (!page || page.deletedAt)) continue;
+      walk(page ? `ページ「${page.title || "無題"}」` : `ノート「${n.title || "無題"}」`, n.blocks);
+    }
+    for (const w of windows) if (!w.template) walk(w.home ? "ホーム" : `ウィンドウ「${w.name || "無題"}」`, w.blocks);
+    return out;
+  }, [roomId]);
+}
+
+/** 予定の中身（カレンダーブロックの予定の画面で直すもの） */
+export type EventFields = Pick<CalEvent, "date" | "text" | "end" | "time" | "endTime" | "color" | "memo" | "calendarId" | "done">;
+
+/** 予定を足す（id が無いとき）か直す。終わりの日が始まりの日と同じなら、1日だけの予定にする */
+export async function saveCalEvent(roomId: string, id: string | null, fields: EventFields) {
+  const clean: EventFields = { ...fields, end: fields.end && fields.end > fields.date ? fields.end : undefined };
+  if (id) await db.events.update(id, clean);
+  else await db.events.add({ id: newId(), roomId, pageId: null, createdAt: Date.now(), ...clean });
 }
 
 export async function addTodo(roomId: string, text: string) {
@@ -316,7 +404,7 @@ export const LOCKED_PROPS: string[] = [P.title, P.received, P.start, P.due, P.fe
 /** 種類の変更ができない項目：タイトル、チャットの項目（会話と繋がっている）、依頼の計算に使う項目 */
 export function isLocked(database: Database, propId: string) {
   const prop = database.props.find((p) => p.id === propId);
-  if (prop?.type === "chat" || prop?.type === "imageChat") return true;
+  if (prop?.type === "chat" || prop?.type === "imageChat" || prop?.type === "page") return true;
   return propId === P.title || prop?.type === "title" || (database.kind === "request" && LOCKED_PROPS.includes(propId));
 }
 
@@ -396,6 +484,8 @@ export async function deleteProperty(dbId: string, propId: string) {
   const database = await db.databases.get(dbId);
   if (!database || !canDeleteProp(database, propId)) return;
   const isChat = database.props.some((p) => p.id === propId && (p.type === "chat" || p.type === "imageChat"));
+  // 「ページ」の項目は、各ページの別ページを消す
+  if (database.props.some((p) => p.id === propId && p.type === "page")) await deleteSubPages(dbId, propId);
   await db.transaction("rw", [db.databases, db.dbPages, db.dbViews, db.chats, db.messages, db.chatReads], async () => {
     await patchProps(dbId, (props) => props.filter((p) => p.id !== propId));
     // チャットの項目は、各ページの会話（発言も）を消す
@@ -541,8 +631,13 @@ export async function duplicateView(view: DbView) {
 }
 
 /** 表のいちばん下の「＋ 新規」などから、名前なしで1件作る */
-export async function createBlankPage(database: Database, userId: string, values: Record<string, unknown> = {}) {
-  return createPage(database, userId, "", { ...newPageDefaults(database, userId), ...values });
+/**
+ * その場で作るページ（表の「新規」・ボードの「＋」・カレンダーの日付から）。「追加」と同じく、既定のテンプレートを使う
+ * （テンプレートの初期値と本文。渡した値はそれより優先）
+ */
+export async function createBlankPage(database: Database, userId: string, values: Record<string, unknown> = {}, title = "") {
+  const template = database.templates?.find((t) => t.id === database.defaultTemplateId);
+  return createPage(database, userId, title, { ...newPageDefaults(database, userId), ...template?.values, ...values }, template);
 }
 
 /** ページの本文（ウィンドウ型）の並べ方を保存する */

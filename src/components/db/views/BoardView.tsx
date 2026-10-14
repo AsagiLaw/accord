@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Icon } from "@/components/Icon";
 import { ThumbImage } from "@/components/ThumbImage";
 import { promptText } from "@/components/ui/overlay";
-import { createPage, newPageDefaults, updatePageValue } from "@/lib/local/requests";
+import { createBlankPage, updatePageValue } from "@/lib/local/requests";
 import { valueOf } from "@/lib/requests/logic";
 import { visibleProps } from "../editors";
 import { usePeek } from "../PageLink";
@@ -124,7 +124,7 @@ export function BoardView({ database, view, pages, members, userId, compact }: V
                 onClick={async () => {
                   const title = await promptText(`「${col.label}」に追加`, "", "名前");
                   if (!title) return;
-                  const page = await createPage(database, userId, title, { ...newPageDefaults(database, userId), [group.id]: group.type === "checkbox" ? col.key === "true" : col.key });
+                  const page = await createBlankPage(database, userId, { [group.id]: group.type === "checkbox" ? col.key === "true" : col.key }, title);
                   peek(database, page.id);
                 }}
                 className="flex items-center gap-1 rounded-[8px] px-2 py-1 text-sm text-muted hover:bg-tint"
