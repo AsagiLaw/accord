@@ -219,6 +219,7 @@ export function ChatBlockView({
   const me: Profile = {
     id: userId,
     displayName: members.find((m) => m.userId === userId)?.displayName ?? "",
+    username: "",
     createdAt: 0,
   };
   const allowed = chat?.allowed;

@@ -12,7 +12,7 @@ import { acceptFriend, requestFriend, useFriendships } from "@/lib/local/friends
 import { useNow, useShownPresence } from "@/lib/local/presence";
 import { liveStatus } from "@/lib/status";
 import { useCurrentUser } from "@/lib/local/session";
-import { ProfileExtras, WorkStatusChip } from "./ProfileExtras";
+import { ProfileExtras, UsernameLine, WorkStatusChip } from "./ProfileExtras";
 
 /** 左下のアカウントの欄に「アカウントの設定を開いて」と頼む（自分のカードの「プロフィールを編集」から） */
 export const OPEN_ACCOUNT_SETTINGS = "irai-note:open-account-settings";
@@ -81,6 +81,7 @@ function UserCard({ userId, role, onDone }: { userId: string; role?: RoomRole; o
           <Avatar name={person.displayName} src={person.avatar} size={76} presence={shown} />
         </span>
         <p className="mt-1 truncate text-lg font-bold">{person.displayName}</p>
+        <UsernameLine username={person.username} />
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">
           <span className="flex items-center gap-1">
             <span className={`h-2 w-2 rounded-full ${PRESENCE[shown].dot}`} />

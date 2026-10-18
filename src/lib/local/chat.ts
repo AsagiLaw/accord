@@ -77,7 +77,7 @@ export async function deleteChat(chatId: string) {
 export async function sendMessage(
   chat: Pick<Chat, "id" | "roomId">,
   authorId: string,
-  body: { text: string; mediaIds: string[]; replyTo: string | null; speaker?: string | null },
+  body: { text: string; mediaIds: string[]; replyTo: string | null; speaker?: string | null; inviteId?: string },
 ) {
   const now = Date.now();
   const message: Message = {
@@ -91,6 +91,7 @@ export async function sendMessage(
     replyTo: body.replyTo,
     createdAt: now,
     editedAt: null,
+    ...(body.inviteId ? { inviteId: body.inviteId } : {}),
   };
   await db.messages.add(message);
   // 自分の発言は既読にしておく
@@ -102,8 +103,14 @@ export async function editMessage(id: string, text: string) {
   await db.messages.update(id, { text, editedAt: Date.now() });
 }
 
+/** 発言を消す。ルームへの招待のカードなら、招待も取り消す（もう参加していれば、招待の記録は残す） */
 export async function deleteMessage(id: string) {
-  await db.messages.delete(id);
+  await db.transaction("rw", db.messages, db.roomInvites, async () => {
+    const m = await db.messages.get(id);
+    const invite = m?.inviteId ? await db.roomInvites.get(m.inviteId) : undefined;
+    if (invite && !invite.acceptedAt) await db.roomInvites.delete(invite.id);
+    await db.messages.delete(id);
+  });
 }
 
 // ---- やり取り再現チャット ----

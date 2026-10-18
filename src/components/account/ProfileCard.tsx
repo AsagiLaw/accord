@@ -7,7 +7,7 @@ import type { Presence, Profile } from "@/lib/local/db";
 import { updateProfile, useAllProfiles } from "@/lib/local/rooms";
 import { useNow, useShownPresence } from "@/lib/local/presence";
 import { expiryLabel, liveStatus } from "@/lib/status";
-import { ProfileExtras, WorkStatusChip } from "./ProfileExtras";
+import { ProfileExtras, UsernameLine, WorkStatusChip } from "./ProfileExtras";
 import { setCurrentUser, useSignedInIds } from "@/lib/local/session";
 import { authMode } from "@/lib/auth/mode";
 import { useRouter } from "next/navigation";
@@ -43,6 +43,7 @@ export function ProfileCard({ me, onEdit, onEditStatus, onDone }: { me: Profile;
           <Avatar name={me.displayName} src={me.avatar} size={76} presence={shown} />
         </span>
         <p className="mt-1 truncate text-lg font-bold">{me.displayName}</p>
+        <UsernameLine username={me.username} />
         {status ? (
           <p className="flex items-start gap-1 text-sm">
             <span className="min-w-0 flex-1 break-words">

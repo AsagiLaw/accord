@@ -11,6 +11,8 @@ import { ChannelNav } from "./ChannelNav";
 import { MediaNav } from "@/components/media/MediaNav";
 import { MediaSettingsDialog } from "@/components/media/MediaSettings";
 import { useBoxAccess, useRoomBox } from "@/lib/local/boxes";
+import { useCanInvite } from "@/lib/local/invites";
+import { InviteFriendsDialog } from "@/components/InviteFriendsDialog";
 
 type Room = { id: string; name: string };
 
@@ -29,6 +31,9 @@ export function Sidebar({
   // メディアのボタンを右クリックしたときのメニューと、そこから開くメディアの設定
   const mediaMenu = usePopover();
   const [mediaSettings, setMediaSettings] = useState(false);
+  // フレンドを招待（ホストと、ホストが許したときのメンバー）
+  const canInvite = useCanInvite(room.id, me.id);
+  const [inviting, setInviting] = useState(false);
   const base = `/r/${room.id}`;
   // ルームの「メディア」は、ルームに紐づいたボックス
   const roomBox = useRoomBox(room.id);
@@ -76,6 +81,18 @@ export function Sidebar({
             width={220}
             label="ルームのメニュー"
           >
+            {/* Discord と同じく、招待をいちばん上に */}
+            {canInvite && (
+              <MenuItem
+                icon={<Icon name="add" size={16} />}
+                onClick={() => {
+                  roomMenu.close();
+                  setInviting(true);
+                }}
+              >
+                フレンドを招待
+              </MenuItem>
+            )}
             <MenuItem
               icon={<Icon name="gear" size={16} />}
               onClick={() => {
@@ -86,6 +103,7 @@ export function Sidebar({
               ルームの設定
             </MenuItem>
           </Popover>
+          {inviting && <InviteFriendsDialog room={room} me={me} onClose={() => setInviting(false)} />}
           {/* メディアのボタンは、ボックスが紐づいているルームだけ（設定していないルームでは、チャットの上のフォルダから画像を見る） */}
           {roomBox && (
             <>

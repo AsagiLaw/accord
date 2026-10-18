@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable, type Table, type Transaction } from "dexie";
 import { newId } from "@/lib/id";
 import type { ImageEdit } from "@/lib/media/edit";
+import { makeUsername } from "@/lib/username";
 import { DEFAULT_STAGES as REQUEST_DEFAULT_STAGES, requestDatabase, stepsFromPcts, stepsFromRatios } from "@/lib/requests/defaults";
 import { copyView, fromGrid, homeBlocks, layoutToBlocks, mapTabs, mergePageProp, replaceProgress, standardRequestBlocks, standardRequestTemplate, toBlockTab } from "./windowLayout";
 
@@ -45,6 +46,11 @@ export type PresenceTab = {
 export type Profile = {
   id: string;
   displayName: string;
+  /**
+   * ID（Discord のユーザー名と同じ）。ほかの人と重ならず、フレンドの申請はこれで送る。
+   * 半角の英小文字・数字・「_」「.」で2〜32文字（決まりは lib/username.ts）。登録のときに自分で決め、あとで変えられる
+   */
+  username: string;
   createdAt: number;
   /** アイコン画像（正方形に切り抜いて小さくした data URL）。無ければ名前の最初の1文字 */
   avatar?: string;
@@ -71,8 +77,26 @@ export type Room = {
   icon?: string;
   createdBy: string;
   createdAt: number;
+  /** メンバーもフレンドを招待できる（ホストが設定で決める）。無ければホストだけ */
+  membersCanInvite?: boolean;
 };
 export type RoomMember = { roomId: string; userId: string; role: RoomRole; joinedAt: number };
+
+/**
+ * ルームへの招待（Discord と同じ）。フレンドとの DM に招待のカード（Message の inviteId）が届き、
+ * 相手が「参加する」を押すとメンバーになる。期限は7日。取り消す（招待の発言を消す）と、この行も消える
+ */
+export type RoomInvite = {
+  id: string;
+  roomId: string;
+  /** 招待した人と、招待された人（フレンド） */
+  fromId: string;
+  toId: string;
+  createdAt: number;
+  expiresAt: number;
+  /** 招待を受けて参加した日時 */
+  acceptedAt?: number;
+};
 
 /**
  * フレンドの間柄。fromId が申請を送り、toId が承認すると accepted になる。
@@ -201,6 +225,8 @@ export type Message = {
   replyTo: string | null;
   createdAt: number;
   editedAt: number | null;
+  /** ルームへの招待のカード（DM で送る。text は空） */
+  inviteId?: string;
 };
 
 /** どこまで読んだか（未読の数に使う） */
@@ -612,6 +638,7 @@ export const db = new Dexie("irai-note") as Dexie & {
   presenceTabs: EntityTable<PresenceTab, "tabId">;
   accounts: EntityTable<LocalAccount, "userId">;
   authTokens: EntityTable<AuthToken, "token">;
+  roomInvites: EntityTable<RoomInvite, "id">;
 };
 
 db.version(1).stores({
@@ -1075,6 +1102,9 @@ export function defaultChat(roomId: string): Chat {
   return { id: newId(), roomId, name: "雑談", kind: "normal", order: 1, createdAt: Date.now() };
 }
 
+/** 最初に用意する2人の ID */
+const SEED_USERNAMES: Record<string, string> = { マネージャー: "manager", イラストレーター: "illustrator" };
+
 // 初回起動時に、2人（マネージャー・イラストレーター）と最初のルームを用意する
 db.on("populate", (tx) => {
   const now = Date.now();
@@ -1082,8 +1112,8 @@ db.on("populate", (tx) => {
   const illustrator = newId();
   const room = newId();
   tx.table("profiles").bulkAdd([
-    { id: manager, displayName: "マネージャー", createdAt: now },
-    { id: illustrator, displayName: "イラストレーター", createdAt: now + 1 },
+    { id: manager, displayName: "マネージャー", username: SEED_USERNAMES["マネージャー"], createdAt: now },
+    { id: illustrator, displayName: "イラストレーター", username: SEED_USERNAMES["イラストレーター"], createdAt: now + 1 },
   ]);
   tx.table("rooms").add({ id: room, name: "依頼ノート", createdBy: manager, createdAt: now });
   tx.table("mediaBoxes").bulkAdd([newMyMediaBox(manager, now), newMyMediaBox(illustrator, now)]);
@@ -1345,4 +1375,22 @@ db.version(32)
         delete v.options.stage;
         delete v.options.stages;
       });
+  });
+
+// アカウントの ID（重ならない）と、ルームへの招待。今いる人には仮の ID を付ける（アカウントの設定で変えられる）
+db.version(34)
+  .stores({
+    profiles: "id, createdAt, &username",
+    roomInvites: "id, roomId, fromId, toId",
+  })
+  .upgrade(async (tx) => {
+    const profiles = (await tx.table("profiles").orderBy("createdAt").toArray()) as Profile[];
+    const used = new Set(profiles.flatMap((p) => (p.username ? [p.username] : [])));
+    for (const p of profiles) {
+      if (p.username) continue;
+      // 最初に用意した2人はその ID、ほかの人は名前から（英数字の無い名前は「user」と数字。メールアドレスは ID に使わない）
+      const username = await makeUsername(SEED_USERNAMES[p.displayName] ?? p.displayName, (n) => used.has(n));
+      used.add(username);
+      await tx.table("profiles").update(p.id, { username });
+    }
   });

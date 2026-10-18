@@ -2,6 +2,7 @@
 
 import { useLiveQuery } from "dexie-react-hooks";
 import { removeSharesBetween } from "./boxes";
+import { findProfileByUsername } from "./profiles";
 import { db, newId, type Friendship, type Profile } from "./db";
 
 export type FriendRow = { friendship: Friendship; other: Profile };
@@ -32,12 +33,6 @@ export function useFriendships(userId: string | undefined) {
   }, [userId]);
 }
 
-/** 名前がちょうど同じ人（同じ名前の人が何人かいることもある） */
-export async function findProfilesByName(name: string) {
-  const want = name.trim();
-  return db.profiles.filter((p) => p.displayName === want).toArray();
-}
-
 async function between(a: string, b: string) {
   return (
     (await db.friendships.where("fromId").equals(a).filter((f) => f.toId === b).first()) ??
@@ -62,6 +57,16 @@ export async function requestFriend(fromId: string, toId: string): Promise<"sent
     await db.friendships.add({ id: newId(), fromId, toId, status: "pending", createdAt: Date.now() });
     return "sent";
   });
+}
+
+/**
+ * 相手の ID（Discord のユーザー名と同じ）で申請を送る。名前では探さない（同じ名前の人を取り違えないように）。
+ * 見つからなければ notFound（ID の形が違うときも）
+ */
+export async function requestFriendByUsername(fromId: string, text: string): Promise<{ result: Awaited<ReturnType<typeof requestFriend>> | "notFound"; other?: Profile }> {
+  const other = await findProfileByUsername(text);
+  if (!other) return { result: "notFound" };
+  return { result: await requestFriend(fromId, other.id), other };
 }
 
 export async function acceptFriend(friendshipId: string) {

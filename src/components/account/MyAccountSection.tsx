@@ -10,7 +10,9 @@ import { toast } from "@/components/ui/overlay";
 import { authMode, changeEmail, changePassword, deleteAccount, signOut, useAccountInfo, type AccountInfo } from "@/lib/auth";
 import type { AuthResult } from "@/lib/auth/validate";
 import type { Profile } from "@/lib/local/db";
+import { changeUsername } from "@/lib/local/profiles";
 import { useSignedInIds } from "@/lib/local/session";
+import { normalizeUsername, USERNAME_MAX, USERNAME_RULE } from "@/lib/username";
 
 const KIND_LABEL: Record<AccountInfo["kind"], string> = {
   password: "メールアドレスとパスワード",
@@ -127,6 +129,49 @@ function PasswordEditor({ me, info, onDone }: { me: Profile; info: AccountInfo; 
   );
 }
 
+/** ID（フレンドの申請に使う、ほかの人と重ならない名前）を変える */
+function UsernameEditor({ me, onDone }: { me: Profile; onDone: () => void }) {
+  const [draft, setDraft] = useState(me.username);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        const r = await changeUsername(me.id, draft);
+        setBusy(false);
+        if (!r.ok) return setError(r.error);
+        toast(`ID を「${r.username}」にしました`);
+        onDone();
+      }}
+    >
+      <Field label="新しい ID" hint={`${USERNAME_RULE}。前の ID では、フレンドの申請を受けられなくなります。`}>
+        <input
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setError(null);
+          }}
+          maxLength={USERNAME_MAX + 8}
+          autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
+          required
+          className="field"
+        />
+      </Field>
+      <FormError error={error} />
+      <div className="flex justify-end">
+        <button className="btn" disabled={busy || normalizeUsername(draft) === me.username}>
+          ID を変える
+        </button>
+      </div>
+    </form>
+  );
+}
+
 /** アカウントの削除の確かめ。パスワードがある人はパスワード、無い人は「わかりました」の印 */
 function DeleteDialog({ me, info, onClose }: { me: Profile; info: AccountInfo; onClose: () => void }) {
   const router = useRouter();
@@ -194,7 +239,7 @@ function DeleteDialog({ me, info, onClose }: { me: Profile; info: AccountInfo; o
 export function MyAccountSection({ me }: { me: Profile }) {
   const info = useAccountInfo(me.id);
   const logout = useLogout(me);
-  const [open, setOpen] = useState<"email" | "password" | null>(null);
+  const [open, setOpen] = useState<"username" | "email" | "password" | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   if (!info) return <p className="text-muted">読み込み中…</p>;
@@ -205,6 +250,21 @@ export function MyAccountSection({ me }: { me: Profile }) {
       {authMode === "local" && (
         <FormNotice>ローカル版：アカウントはこのブラウザの中だけにあります。メールは送らず、変更はすぐに反映されます。</FormNotice>
       )}
+
+      {/* Discord のユーザー名と同じ。フレンドはこの ID で申請を送る */}
+      <EditCard
+        title="ID"
+        value={
+          <>
+            <span className="font-bold">{me.username}</span>
+            <span className="mt-1 block text-xs text-muted">フレンドになりたい人に、この ID を伝えてください。「フレンドを追加」で、この ID を入れると申請が届きます。</span>
+          </>
+        }
+        open={open === "username"}
+        onOpen={(v) => setOpen(v ? "username" : null)}
+      >
+        <UsernameEditor me={me} onDone={() => setOpen(null)} />
+      </EditCard>
 
       <section data-name="ログインの方法" className="card">
         <h2 className="text-sm font-bold text-muted">ログインの方法</h2>

@@ -7,7 +7,8 @@ import { MenuItem, Popover, usePopover } from "@/components/ui/Popover";
 import { choose, confirmAction, toast } from "@/components/ui/overlay";
 import type { Profile } from "@/lib/local/db";
 import { openDm } from "@/lib/local/dm";
-import { acceptFriend, findProfilesByName, removeFriendship, requestFriend, useFriendships, type FriendRow } from "@/lib/local/friends";
+import { inviteFriend, roomsToInvite } from "@/lib/local/invites";
+import { acceptFriend, removeFriendship, requestFriendByUsername, useFriendships, type FriendRow } from "@/lib/local/friends";
 import { useAllProfiles } from "@/lib/local/rooms";
 import { useNow, useShownPresence, type ShownPresence } from "@/lib/local/presence";
 import { liveStatus } from "@/lib/status";
@@ -15,6 +16,8 @@ import { useCurrentUser } from "@/lib/local/session";
 import { UserCardButton } from "@/components/account/UserCard";
 import { Avatar } from "@/components/Avatar";
 import { badgeTone, useDoNotDisturb } from "@/lib/local/dnd";
+import { authMode } from "@/lib/auth/mode";
+import { checkUsername, normalizeUsername, USERNAME_MAX } from "@/lib/username";
 
 type Tab = "all" | "pending" | "add";
 
@@ -78,6 +81,21 @@ function FriendActions({ me, row }: { me: Profile; row: FriendRow }) {
         <Icon name="dots" size={18} />
       </button>
       <Popover anchor={menu.anchor} onClose={menu.close} width={200} label="フレンドのメニュー">
+        {/* 自分が招待できるルームから選んで、招待のカードを DM に送る */}
+        <MenuItem
+          icon={<Icon name="add" size={16} />}
+          onClick={async () => {
+            menu.close();
+            const rooms = await roomsToInvite(me.id, row.other.id);
+            if (!rooms.length) return toast("招待できるルームがありません（もう参加しているか、ホストだけが招待できるルームです）");
+            const i = await choose(`${row.other.displayName}さんをルームに招待`, rooms.map((r) => ({ label: r.name })), "招待は、このDMにカードで届きます。");
+            if (i === null) return;
+            const r = await inviteFriend(rooms[i].id, me.id, row.other.id);
+            toast(r === "sent" ? `ルーム「${rooms[i].name}」に招待しました` : r === "invited" ? "もう招待を送っています" : "招待を送れませんでした");
+          }}
+        >
+          ルームに招待
+        </MenuItem>
         <MenuItem
           icon={<Icon name="x" size={16} />}
           danger
@@ -95,41 +113,36 @@ function FriendActions({ me, row }: { me: Profile; row: FriendRow }) {
   );
 }
 
-/** 名前を入れて申請を送る */
+/** 相手の ID を入れて申請を送る（Discord と同じく、名前では探さない） */
 function AddFriend({ me }: { me: Profile }) {
   const profiles = useAllProfiles();
-  const [name, setName] = useState("");
+  const [text, setText] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const submit = async () => {
-    const want = name.trim();
-    if (!want) return;
-    const found = await findProfilesByName(want);
-    if (!found.length) return setResult({ ok: false, text: `「${want}」さんは見つかりません。名前を確かめてください。` });
-    let target = found[0];
-    // 同じ名前の人が何人かいるときは、どの人か選んでもらう
-    if (found.length > 1) {
-      const i = await choose(`「${want}」さんが${found.length}人います`, found.map((p, k) => ({ label: `${p.displayName}（${k + 1}人目）`, detail: `登録：${new Date(p.createdAt).toLocaleDateString("ja-JP")}` })));
-      if (i === null) return;
-      target = found[i];
-    }
-    const r = await requestFriend(me.id, target.id);
-    const text = {
-      sent: `${target.displayName}さんに申請を送りました。承認されるとフレンドになります。`,
-      accepted: `${target.displayName}さんからも申請が届いていたので、フレンドになりました。`,
-      already: `${target.displayName}さんとは、もうフレンドです。`,
-      pending: `${target.displayName}さんには、もう申請を送っています。`,
-      self: "自分には申請を送れません。",
+    const id = normalizeUsername(text);
+    if (!id) return;
+    const bad = checkUsername(id);
+    if (bad) return setResult({ ok: false, text: bad });
+    const { result: r, other } = await requestFriendByUsername(me.id, id);
+    if (r === "notFound" || !other) return setResult({ ok: false, text: `ID が「${id}」の人は見つかりません。ID を確かめてください。` });
+    const name = other.displayName;
+    const message = {
+      sent: `${name}さん（${other.username}）に申請を送りました。承認されるとフレンドになります。`,
+      accepted: `${name}さんからも申請が届いていたので、フレンドになりました。`,
+      already: `${name}さんとは、もうフレンドです。`,
+      pending: `${name}さんには、もう申請を送っています。`,
+      self: "自分の ID です。自分には申請を送れません。",
     }[r];
-    setResult({ ok: r === "sent" || r === "accepted", text });
-    if (r === "sent" || r === "accepted") setName("");
+    setResult({ ok: r === "sent" || r === "accepted", text: message });
+    if (r === "sent" || r === "accepted") setText("");
   };
 
   const others = profiles?.filter((p) => p.id !== me.id) ?? [];
   return (
     <section className="card">
       <h2 className="font-bold">フレンドを追加</h2>
-      <p className="text-sm text-muted">相手の名前で申請を送ります。相手が承認すると、フレンドになります。</p>
+      <p className="text-sm text-muted">相手の ID で申請を送ります。相手が承認すると、フレンドになります。</p>
       <form
         className="mt-3 flex flex-wrap gap-2"
         onSubmit={(e) => {
@@ -138,36 +151,42 @@ function AddFriend({ me }: { me: Profile }) {
         }}
       >
         <input
-          value={name}
+          value={text}
           onChange={(e) => {
-            setName(e.target.value);
+            setText(e.target.value);
             setResult(null);
           }}
-          placeholder="相手の名前"
-          aria-label="相手の名前"
-          maxLength={60}
+          placeholder="相手の ID（例：illust_taro）"
+          aria-label="相手の ID"
+          maxLength={USERNAME_MAX + 8}
+          autoCapitalize="none"
+          spellCheck={false}
           className="field min-w-0 flex-1"
         />
-        <button className="btn" disabled={!name.trim()}>
+        <button className="btn" disabled={!normalizeUsername(text)}>
           申請を送る
         </button>
       </form>
       {result && <p className={`mt-2 text-sm ${result.ok ? "text-accent" : "text-warn"}`}>{result.text}</p>}
-      {/* ローカル版だけ：登録されている人の名前を押すと入力欄に入る（サーバー版では、相手の探し方を別に決める） */}
-      {others.length > 0 && (
+      <p className="mt-2 text-xs text-muted">
+        自分の ID は <b className="text-ink">{me.username}</b> です（左下の歯車 → マイアカウントで変えられます）。
+      </p>
+      {/* ローカル版だけ：登録されている人を押すと、その人の ID が入力欄に入る（サーバー版では、ほかの人の ID は相手から教えてもらう） */}
+      {authMode === "local" && others.length > 0 && (
         <div data-name="登録されている人（ローカル版のみ）" className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-line pt-3 text-sm">
-          <span className="text-xs text-muted">登録されている人：</span>
+          <span className="text-xs text-muted">登録されている人（ローカル版のみ）：</span>
           {others.map((p) => (
             <button
               key={p.id}
               type="button"
               onClick={() => {
-                setName(p.displayName);
+                setText(p.username);
                 setResult(null);
               }}
               className="rounded-full border border-line px-2.5 py-0.5 hover:bg-tint"
             >
               {p.displayName}
+              <span className="ml-1 text-xs text-muted">{p.username}</span>
             </button>
           ))}
         </div>
@@ -246,7 +265,7 @@ export default function FriendsPage() {
             {incoming.length ? (
               <ul className="card p-1.5">
                 {incoming.map((row) => (
-                  <PersonRow key={row.friendship.id} person={row.other} note={`${new Date(row.friendship.createdAt).toLocaleDateString("ja-JP")} に届きました`}>
+                  <PersonRow key={row.friendship.id} person={row.other} note={`${row.other.username}・${new Date(row.friendship.createdAt).toLocaleDateString("ja-JP")} に届きました`}>
                     <button
                       className="btn min-h-[34px] px-3 text-sm"
                       onClick={async () => {
@@ -272,7 +291,7 @@ export default function FriendsPage() {
             {outgoing.length ? (
               <ul className="card p-1.5">
                 {outgoing.map((row) => (
-                  <PersonRow key={row.friendship.id} person={row.other} note="承認を待っています">
+                  <PersonRow key={row.friendship.id} person={row.other} note={`${row.other.username}・承認を待っています`}>
                     <button className="btn-sub min-h-[34px] px-3 text-sm" onClick={() => removeFriendship(row.friendship.id)}>
                       取り消す
                     </button>

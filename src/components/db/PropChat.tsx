@@ -53,7 +53,7 @@ export function PropChatPopup({
   useEffect(() => {
     if (!chatId || chat === null) void ensurePropChat(page.id, prop);
   }, [chatId, chat, page.id, prop]);
-  const me: Profile = { id: userId, displayName: members.find((m) => m.userId === userId)?.displayName ?? "", createdAt: 0 };
+  const me: Profile = { id: userId, displayName: members.find((m) => m.userId === userId)?.displayName ?? "", username: "", createdAt: 0 };
   const canTalk = !prop.allowed?.length || prop.allowed.includes(userId);
   const notice = canTalk ? undefined : `「${prop.name}」に書き込めるのは、選ばれた人だけです`;
   const name = page.title ? `${page.title}${nameSuffixOf(database)}` : "無題";

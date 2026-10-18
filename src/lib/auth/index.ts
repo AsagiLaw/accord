@@ -14,7 +14,9 @@ import {
   useLocalAccount,
   whyCannotDelete,
 } from "@/lib/local/accounts";
+import { usernameTaken } from "@/lib/local/profiles";
 import { useSupabaseUser } from "@/lib/local/session";
+import { checkUsername, normalizeUsername } from "@/lib/username";
 import { authMode } from "./mode";
 import {
   supaChangeEmail,
@@ -25,6 +27,7 @@ import {
   supaSignOut,
   supaSignUp,
   supaUpdatePassword,
+  supaUsernameAvailable,
   supaVerifyPassword,
 } from "./supabase";
 import { turnstileEnabled } from "@/lib/turnstile";
@@ -55,10 +58,22 @@ async function guard(token?: string): Promise<string | null> {
 /** Supabase 版で、設定の画面からパスワードを確かめるときの token の確かめ（ローカル版は要らない） */
 const supaGuard = (token?: string) => (supa && turnstileEnabled && !token ? CAPTCHA_NEEDED : null);
 
-export async function signUp(displayName: string, email: string, password: string, next: string, captcha?: string): Promise<AuthResult> {
+export async function signUp(displayName: string, username: string, email: string, password: string, next: string, captcha?: string): Promise<AuthResult> {
   const bad = await guard(captcha);
   if (bad) return { ok: false, error: bad };
-  return supa ? supaSignUp(displayName, email, password, next, captcha) : localSignUp(displayName, email, password);
+  return supa ? supaSignUp(displayName, username, email, password, next, captcha) : localSignUp(displayName, username, email, password);
+}
+
+/**
+ * 登録の画面で、入れた ID が使えるか。形が違えばその言葉、使われていれば「もう使われています」、使えれば null。
+ * Supabase 版で確かめられないとき（0009 をまだ実行していない）も null（登録のときに、もう一度確かめる）
+ */
+export async function checkUsernameFree(username: string): Promise<string | null> {
+  const id = normalizeUsername(username);
+  const bad = checkUsername(id);
+  if (bad) return bad;
+  const free = supa ? await supaUsernameAvailable(id) : !(await usernameTaken(id));
+  return free === false ? "この ID は、もうほかの人が使っています" : null;
 }
 
 export async function signIn(email: string, password: string, captcha?: string): Promise<AuthResult> {

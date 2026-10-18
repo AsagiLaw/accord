@@ -6,7 +6,9 @@ import { Icon } from "@/components/Icon";
 import { confirmAction, promptText, toast } from "@/components/ui/overlay";
 import { deleteChannelTemplate, renameChannelTemplate, useChannelTemplates } from "@/lib/local/channelTemplates";
 import { useState } from "react";
-import { addMember, deleteRoom, renameRoom, useAllProfiles, useMembers, useRoom } from "@/lib/local/rooms";
+import { deleteRoom, renameRoom, useMembers, useRoom } from "@/lib/local/rooms";
+import { canInviteTo, setMembersCanInvite } from "@/lib/local/invites";
+import { InviteFriendsDialog } from "@/components/InviteFriendsDialog";
 import { useCurrentUser } from "@/lib/local/session";
 import { RoomMediaSettings } from "@/components/media/RoomMediaSettings";
 
@@ -47,13 +49,13 @@ export default function SettingsPage() {
   const me = useCurrentUser();
   const room = useRoom(roomId);
   const members = useMembers(roomId);
-  const profiles = useAllProfiles();
-  const [newName, setNewName] = useState("");
+  const [inviting, setInviting] = useState(false);
   const router = useRouter();
 
-  if (!me || !room || !members || !profiles) return null;
-  const isHost = members.some((m) => m.userId === me.id && m.role === "host");
-  const outsiders = profiles.filter((p) => !members.some((m) => m.userId === p.id));
+  if (!me || !room || !members) return null;
+  const myRole = members.find((m) => m.userId === me.id)?.role;
+  const isHost = myRole === "host";
+  const canInvite = canInviteTo(room, myRole);
 
   return (
     <div data-name="設定画面" className="max-w-2xl space-y-4">
@@ -74,8 +76,16 @@ export default function SettingsPage() {
 
       <RoomMediaSettings roomId={roomId} room={room} me={me} />
 
-      <section className="card">
-        <h2 className="mb-3 font-bold">メンバー</h2>
+      <section data-name="メンバー" className="card">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="min-w-0 flex-1 font-bold">メンバー</h2>
+          {canInvite && (
+            <button type="button" className="btn-sub h-9 min-h-0 px-3 text-sm" onClick={() => setInviting(true)}>
+              <Icon name="add" size={16} />
+              フレンドを招待
+            </button>
+          )}
+        </div>
         <ul className="divide-y divide-line">
           {members.map((m) => (
             <li key={m.userId} className="flex items-center justify-between py-2">
@@ -87,42 +97,27 @@ export default function SettingsPage() {
             </li>
           ))}
         </ul>
+        {!canInvite && <p className="mt-2 text-xs text-muted">このルームにフレンドを招待できるのは、ホストだけです。</p>}
+        {inviting && <InviteFriendsDialog room={room} me={me} onClose={() => setInviting(false)} />}
       </section>
 
+      {/* だれが招待できるか（ホストだけが変えられる） */}
       {isHost && (
-        <section className="card space-y-3">
-          <div>
-            <h2 className="mb-1 font-bold">メンバーを追加</h2>
-            <p className="text-sm text-muted">サーバー版では招待リンクで参加します。ローカル版では、ここで人を追加します。</p>
-          </div>
-          {outsiders.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {outsiders.map((p) => (
-                <button key={p.id} className="btn-sub" onClick={() => addMember(roomId, { userId: p.id })}>
-                  ＋ {p.displayName}
-                </button>
-              ))}
-            </div>
-          )}
-          <form
-            className="flex flex-wrap gap-2"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (!newName.trim()) return;
-              await addMember(roomId, { displayName: newName.trim() });
-              setNewName("");
-            }}
-          >
+        <section data-name="招待できる人" className="card">
+          <h2 className="mb-1 font-bold">招待できる人</h2>
+          <p className="mb-3 text-sm text-muted">フレンドとのDMに招待のカードを送り、相手が「参加する」を押すとメンバーになります。ホストはいつでも招待できます。</p>
+          <label className="flex items-start gap-2">
             <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              maxLength={30}
-              placeholder="新しい人の名前"
-              aria-label="新しい人の名前"
-              className="field min-w-0 flex-1"
+              type="checkbox"
+              checked={!!room.membersCanInvite}
+              onChange={(e) => void setMembersCanInvite(roomId, me.id, e.target.checked)}
+              className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--accent)]"
             />
-            <button className="btn">追加</button>
-          </form>
+            <span>
+              メンバーもフレンドを招待できる
+              <span className="block text-xs text-muted">オフにすると、招待できるのはホストだけになります（送ってあった招待は、そのまま使えます）。</span>
+            </span>
+          </label>
         </section>
       )}
 

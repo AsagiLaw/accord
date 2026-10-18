@@ -410,7 +410,7 @@ function PropVisibility({ database, visible, onChange, onBack }: { database: Dat
 function PageChatBlock({ which, onChange }: { which: string; onChange: (p: Record<string, string>) => void }) {
   const { ctx, page } = usePageScope();
   const chat = useChat((which === "reenact" ? page?.reenactChatId : page?.chatId) ?? "");
-  const me: Profile = { id: ctx.userId, displayName: ctx.members.find((m) => m.userId === ctx.userId)?.displayName ?? "", createdAt: 0 };
+  const me: Profile = { id: ctx.userId, displayName: ctx.members.find((m) => m.userId === ctx.userId)?.displayName ?? "", username: "", createdAt: 0 };
   if (!ctx.page) return <Placeholder>ページのチャット（データベースのページの中で使えます）</Placeholder>;
   return (
     <div className="flex h-full flex-col p-2">
@@ -495,7 +495,7 @@ export function PropChatView({ database, page, prop }: { database: Database; pag
     if (!chatId || chat === null) void ensurePropChat(page.id, prop);
   }, [chatId, chat, page.id, prop]);
   if (!chat) return <p className="text-sm text-muted">準備中…</p>;
-  const me: Profile = { id: ctx.userId, displayName: ctx.members.find((m) => m.userId === ctx.userId)?.displayName ?? "", createdAt: 0 };
+  const me: Profile = { id: ctx.userId, displayName: ctx.members.find((m) => m.userId === ctx.userId)?.displayName ?? "", username: "", createdAt: 0 };
   const canTalk = !prop.allowed?.length || prop.allowed.includes(ctx.userId);
   const notice = canTalk ? undefined : `「${prop.name}」に書き込めるのは、選ばれた人だけです`;
   void database;

@@ -2,10 +2,11 @@
 
 import { useLiveQuery } from "dexie-react-hooks";
 import { checkEmail, checkPassword, normalizeEmail, type AuthResult } from "@/lib/auth/validate";
+import { checkUsername, normalizeUsername } from "@/lib/username";
 import { deleteBox } from "./boxes";
 import { db } from "./db";
 import { removeFriendship } from "./friends";
-import { createLocalProfile } from "./profiles";
+import { createLocalProfile, usernameTaken } from "./profiles";
 import { signInLocalSession, signOutLocalSession } from "./session";
 
 // ローカル版のアカウント：メールとパスワードでのログインを、ブラウザの中だけで試すためのもの。
@@ -34,12 +35,14 @@ async function passwordMatches(userId: string, password: string) {
 
 const WRONG = "メールアドレスかパスワードが違います";
 
-export async function localSignUp(displayName: string, email: string, password: string): Promise<AuthResult> {
-  const bad = (!displayName.trim() && "表示名を入れてください") || checkEmail(email) || checkPassword(password);
+export async function localSignUp(displayName: string, username: string, email: string, password: string): Promise<AuthResult> {
+  const id = normalizeUsername(username);
+  const bad = (!displayName.trim() && "表示名を入れてください") || checkUsername(id) || checkEmail(email) || checkPassword(password);
   if (bad) return { ok: false, error: bad };
+  if (await usernameTaken(id)) return { ok: false, error: "この ID は、もうほかの人が使っています" };
   const mail = normalizeEmail(email);
   if (await db.accounts.where("email").equals(mail).first()) return { ok: false, error: "このメールアドレスは、もう登録されています" };
-  const profile = await createLocalProfile(displayName.trim());
+  const profile = await createLocalProfile(displayName.trim(), { username: id });
   await db.accounts.add({ userId: profile.id, email: mail, ...(await newCredentials(password)), createdAt: Date.now() });
   signInLocalSession(profile.id);
   return { ok: true };
@@ -152,7 +155,7 @@ export async function whyCannotDelete(userId: string) {
 
 /**
  * アカウントを削除する（ブラウザの中のデータ）。Discord と同じく、自分がホストのルームがあるときは先に削除してもらう（ホストは引き継げない）。
- * 消すもの：プロフィール・アカウント・フレンド・ルームへの参加・自分のボックス（ほかの人が入れた画像は、その人のマイメディアに移す）・マイメディアの画像。
+ * 消すもの：プロフィール・アカウント・フレンド・ルームへの参加と招待・自分のボックス（ほかの人が入れた画像は、その人のマイメディアに移す）・マイメディアの画像。
  * 残すもの：送ったメッセージ（「削除された人」として残る）
  */
 export async function deleteLocalUserData(userId: string): Promise<AuthResult> {
@@ -174,8 +177,10 @@ export async function deleteLocalUserData(userId: string): Promise<AuthResult> {
       await db.mediaBoxes.delete(b.id);
     }
   });
-  await db.transaction("rw", [db.roomMembers, db.chatReads, db.presenceTabs, db.accounts, db.authTokens, db.profiles], async () => {
+  await db.transaction("rw", [db.roomMembers, db.roomInvites, db.chatReads, db.presenceTabs, db.accounts, db.authTokens, db.profiles], async () => {
     await db.roomMembers.where("userId").equals(userId).delete();
+    // 送った招待と、届いていた招待（DM の招待のカードは「使えない招待」になる）
+    await db.roomInvites.where("fromId").equals(userId).or("toId").equals(userId).delete();
     await db.chatReads.where("userId").equals(userId).delete();
     await db.presenceTabs.where("userId").equals(userId).delete();
     await db.authTokens.where("userId").equals(userId).delete();

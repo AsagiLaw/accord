@@ -2,6 +2,7 @@
 
 import type { AuthError } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { checkUsername, normalizeUsername } from "@/lib/username";
 import { checkEmail, checkPassword, type AuthResult } from "./validate";
 
 // Supabase Auth でのログインまわり（.env.local に Supabase のキーがあるとき）。画面からは src/lib/auth/index.ts を通して使う
@@ -40,13 +41,25 @@ function message(e: AuthError): string {
 /** メールのリンクや Google から戻ってくる先（ここでログインを仕上げてから next へ） */
 const callback = (next: string) => `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
 
-export async function supaSignUp(displayName: string, email: string, password: string, next: string, captchaToken?: string): Promise<AuthResult> {
-  const bad = (!displayName.trim() && "表示名を入れてください") || checkEmail(email) || checkPassword(password);
+/**
+ * その ID がまだ使われていないか（Supabase の profiles で確かめる：0009 の username_available）。
+ * 確かめられないとき（0009 をまだ実行していないなど）は null
+ */
+export async function supaUsernameAvailable(username: string): Promise<boolean | null> {
+  const { data, error } = await sb().rpc("username_available", { name: username });
+  return error || typeof data !== "boolean" ? null : data;
+}
+
+export async function supaSignUp(displayName: string, username: string, email: string, password: string, next: string, captchaToken?: string): Promise<AuthResult> {
+  const id = normalizeUsername(username);
+  const bad = (!displayName.trim() && "表示名を入れてください") || checkUsername(id) || checkEmail(email) || checkPassword(password);
   if (bad) return { ok: false, error: bad };
+  if ((await supaUsernameAvailable(id)) === false) return { ok: false, error: "この ID は、もうほかの人が使っています" };
   const { data, error } = await sb().auth.signUp({
     email: email.trim(),
     password,
-    options: { data: { display_name: displayName.trim() }, emailRedirectTo: callback(next), captchaToken },
+    // ID は登録したときのプロフィールに入る（0009 の handle_new_user）
+    options: { data: { display_name: displayName.trim(), username: id }, emailRedirectTo: callback(next), captchaToken },
   });
   if (error) return { ok: false, error: message(error) };
   // メールの確認が要る設定のときは、まだログインしていない

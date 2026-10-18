@@ -4,7 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import type { IconName } from "@/components/Icon";
 import roomPreset from "@/lib/requests/roomPreset.json";
 import { unlinkRoom } from "./boxes";
-import { db, defaultCategories, defaultChat, newId, newMyMediaBox, newRoomMediaBox, type Category, type Chat, type Database, type DbView, type Profile, type RoomRole, type WindowPage } from "./db";
+import { db, defaultCategories, defaultChat, newId, newRoomMediaBox, type Category, type Chat, type Database, type DbView, type Profile, type RoomRole, type WindowPage } from "./db";
 
 export type MemberWithProfile = {
   userId: string;
@@ -149,14 +149,15 @@ export async function createRoom(name: string, userId: string, template: RoomTem
 export async function deleteRoom(roomId: string) {
   // 紐づけを外す（メンバーが入れた画像は、それぞれのマイメディアに移る）。メンバーの一覧を使うので、ルームを消す前に行う
   await unlinkRoom(roomId);
-  const tables = [db.rooms, db.roomMembers, db.boxShares, db.chats, db.messages, db.chatReads, db.databases, db.dbPages, db.dbViews, db.events, db.todos, db.notes, db.categories, db.imageUsers, db.windows];
+  const tables = [db.rooms, db.roomMembers, db.roomInvites, db.boxShares, db.chats, db.messages, db.chatReads, db.databases, db.dbPages, db.dbViews, db.events, db.todos, db.notes, db.categories, db.imageUsers, db.windows];
   await db.transaction("rw", tables, async () => {
     // ルームの ID を持たないもの（既読・ビュー）は、持ち主から辿って消す
     const chatIds = await db.chats.where("roomId").equals(roomId).primaryKeys();
     const dbIds = await db.databases.where("roomId").equals(roomId).primaryKeys();
     await db.chatReads.filter((r) => chatIds.includes(r.chatId)).delete();
     await db.dbViews.where("dbId").anyOf(dbIds).delete();
-    for (const t of [db.boxShares, db.chats, db.messages, db.databases, db.dbPages, db.events, db.todos, db.notes, db.categories, db.imageUsers, db.windows, db.roomMembers]) {
+    // 送ってあった招待も消す（DM の招待のカードは「使えない招待」になる）
+    for (const t of [db.boxShares, db.chats, db.messages, db.databases, db.dbPages, db.events, db.todos, db.notes, db.categories, db.imageUsers, db.windows, db.roomMembers, db.roomInvites]) {
       await (t as typeof db.chats).where("roomId").equals(roomId).delete();
     }
     await db.rooms.delete(roomId);
@@ -165,25 +166,6 @@ export async function deleteRoom(roomId: string) {
 
 export async function renameRoom(roomId: string, name: string) {
   await db.rooms.update(roomId, { name });
-}
-
-/** サーバー版の「招待リンクで参加」に当たる操作。既存の人を加えるか、新しい人を作って加える */
-export async function addMember(roomId: string, who: { userId: string } | { displayName: string }) {
-  await db.transaction("rw", db.profiles, db.roomMembers, db.mediaBoxes, async () => {
-    let userId: string;
-    if ("userId" in who) {
-      userId = who.userId;
-    } else {
-      const profile: Profile = { id: newId(), displayName: who.displayName, createdAt: Date.now() };
-      await db.profiles.add(profile);
-      // 新しい人にも、はじめからマイメディアを用意する
-      await db.mediaBoxes.add(newMyMediaBox(profile.id));
-      userId = profile.id;
-    }
-    if (!(await db.roomMembers.get([roomId, userId]))) {
-      await db.roomMembers.add({ roomId, userId, role: "member", joinedAt: Date.now() });
-    }
-  });
 }
 
 export async function renameProfile(userId: string, displayName: string) {

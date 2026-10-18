@@ -14,6 +14,7 @@ import { ensureMyMedia } from "@/lib/local/boxes";
 import { ensureInBox, uploadToRoom, useMediaByIds } from "@/lib/local/media";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { useAllProfiles, type MemberWithProfile } from "@/lib/local/rooms";
+import { InviteCard } from "./InviteCard";
 
 const WEEK = "日月火水木金土";
 const dayLabel = (t: number) => {
@@ -22,6 +23,8 @@ const dayLabel = (t: number) => {
 };
 const timeLabel = (t: number) => new Date(t).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 const sameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString();
+/** 返信の引用などに出す、発言の短い中身 */
+const previewOf = (m: Message) => (m.inviteId ? "（ルームへの招待）" : m.text || "（画像）");
 
 export function ChatView({
   chat,
@@ -110,6 +113,7 @@ export function ChatView({
               )}
               <MessageItem
                 m={m}
+                meId={me.id}
                 mine={reenact ? who(m) === "自分" : m.authorId === me.id}
                 canEdit={reenact || m.authorId === me.id}
                 grouped={grouped}
@@ -162,6 +166,7 @@ type Author = { id: string; avatar?: string; role?: RoomRole };
 
 function MessageItem({
   m,
+  meId,
   author,
   mine,
   canEdit,
@@ -176,6 +181,7 @@ function MessageItem({
   onOpen,
 }: {
   m: Message;
+  meId: string;
   author?: Author;
   mine: boolean;
   canEdit: boolean;
@@ -236,7 +242,7 @@ function MessageItem({
           <div className="mb-0.5 max-w-full truncate rounded-[10px] border-l-4 border-accent bg-tint px-2 py-0.5 text-xs text-muted">
             {reply ? (
               <>
-                <b>{replyName(reply)}</b>：{reply.text || "（画像）"}
+                <b>{replyName(reply)}</b>：{previewOf(reply)}
               </>
             ) : (
               "削除された発言"
@@ -244,68 +250,74 @@ function MessageItem({
           </div>
         ) : null}
         <div className="flex items-end gap-1">
-          {mine && <Actions canEdit={canEdit} onReply={onReply} onEdit={() => setEditing(true)} id={m.id} />}
-          <div
-            className={`rounded-[16px] px-3 py-2 ${
-              speakerTone !== undefined
-                ? SPEAKER_TONES[Math.max(0, speakerTone) % SPEAKER_TONES.length]
-                : mine
-                  ? "bg-accent text-accent-ink"
-                  : "border border-line bg-card"
-            }`}
-          >
-            {images.length > 0 && (
-              <div className={`mb-1 grid gap-1 ${images.length > 1 ? "grid-cols-2" : ""}`}>
-                {images.map((id, i) => (
-                  <button key={id} onClick={() => onOpen(i)} className="block h-40 w-40 overflow-hidden rounded-[10px] sm:h-48 sm:w-48" aria-label={`画像を開く：${media.get(id)?.name}`}>
-                    <ThumbImage id={id} alt={media.get(id)?.name ?? ""} />
-                  </button>
-                ))}
-              </div>
-            )}
-            {missing > 0 && <p className="text-xs opacity-70">（削除された画像 {missing}枚）</p>}
-            {editing ? (
-              <div className="space-y-1">
-                <textarea
-                  value={draft}
-                  autoFocus
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                      e.preventDefault();
-                      save();
-                    }
-                    if (e.key === "Escape") setEditing(false);
-                  }}
-                  rows={Math.min(6, draft.split("\n").length + 1)}
-                  className="field min-w-56 text-ink"
-                />
-                <div className="flex justify-end gap-1 text-xs">
-                  <button className="rounded-full px-2 py-0.5 underline" onClick={() => setEditing(false)}>
-                    やめる
-                  </button>
-                  <button className="rounded-full px-2 py-0.5 font-bold underline" onClick={save}>
-                    保存
-                  </button>
+          {mine && <Actions canEdit={canEdit} onReply={onReply} onEdit={m.inviteId ? undefined : () => setEditing(true)} invite={!!m.inviteId} id={m.id} />}
+          {/* ルームへの招待は、吹き出しの代わりにカードで出す */}
+          {m.inviteId ? (
+            <InviteCard inviteId={m.inviteId} meId={meId} mine={mine} />
+          ) : (
+            <div
+              className={`rounded-[16px] px-3 py-2 ${
+                speakerTone !== undefined
+                  ? SPEAKER_TONES[Math.max(0, speakerTone) % SPEAKER_TONES.length]
+                  : mine
+                    ? "bg-accent text-accent-ink"
+                    : "border border-line bg-card"
+              }`}
+            >
+              {images.length > 0 && (
+                <div className={`mb-1 grid gap-1 ${images.length > 1 ? "grid-cols-2" : ""}`}>
+                  {images.map((id, i) => (
+                    <button key={id} onClick={() => onOpen(i)} className="block h-40 w-40 overflow-hidden rounded-[10px] sm:h-48 sm:w-48" aria-label={`画像を開く：${media.get(id)?.name}`}>
+                      <ThumbImage id={id} alt={media.get(id)?.name ?? ""} />
+                    </button>
+                  ))}
                 </div>
-              </div>
-            ) : (
-              m.text && (
-                <p className="break-words whitespace-pre-wrap">
-                  {m.text}
-                  {m.editedAt && <span className="ml-1 text-[11px] opacity-70">（編集済み）</span>}
-                </p>
-              )
-            )}
-          </div>
-          {!mine && <Actions canEdit={canEdit} onReply={onReply} onEdit={() => setEditing(true)} id={m.id} />}
+              )}
+              {missing > 0 && <p className="text-xs opacity-70">（削除された画像 {missing}枚）</p>}
+              {editing ? (
+                <div className="space-y-1">
+                  <textarea
+                    value={draft}
+                    autoFocus
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                        e.preventDefault();
+                        save();
+                      }
+                      if (e.key === "Escape") setEditing(false);
+                    }}
+                    rows={Math.min(6, draft.split("\n").length + 1)}
+                    className="field min-w-56 text-ink"
+                  />
+                  <div className="flex justify-end gap-1 text-xs">
+                    <button className="rounded-full px-2 py-0.5 underline" onClick={() => setEditing(false)}>
+                      やめる
+                    </button>
+                    <button className="rounded-full px-2 py-0.5 font-bold underline" onClick={save}>
+                      保存
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                m.text && (
+                  <p className="break-words whitespace-pre-wrap">
+                    {m.text}
+                    {m.editedAt && <span className="ml-1 text-[11px] opacity-70">（編集済み）</span>}
+                  </p>
+                )
+              )}
+            </div>
+          )}
+          {!mine && <Actions canEdit={canEdit} onReply={onReply} onEdit={m.inviteId ? undefined : () => setEditing(true)} invite={!!m.inviteId} id={m.id} />}
         </div>
       </div>
     </div>
   );
 }
 
-function Actions({ canEdit, onReply, onEdit, id }: { canEdit: boolean; onReply: () => void; onEdit?: () => void; id: string }) {
+/** 発言の横の操作。onEdit が無い発言（招待のカード）は、直せない。invite は招待のカード（消すと招待も取り消す） */
+function Actions({ canEdit, onReply, onEdit, invite, id }: { canEdit: boolean; onReply: () => void; onEdit?: () => void; invite?: boolean; id: string }) {
   const btn = "grid h-8 w-8 place-items-center rounded-full text-muted hover:bg-tint hover:text-ink";
   return (
     <div className="flex shrink-0 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 max-md:opacity-60">
@@ -314,15 +326,20 @@ function Actions({ canEdit, onReply, onEdit, id }: { canEdit: boolean; onReply: 
       </button>
       {canEdit && (
         <>
-          <button className={btn} aria-label="編集" title="編集" onClick={onEdit}>
-            <Icon name="edit" size={16} />
-          </button>
+          {onEdit && (
+            <button className={btn} aria-label="編集" title="編集" onClick={onEdit}>
+              <Icon name="edit" size={16} />
+            </button>
+          )}
           <button
             className={btn}
-            aria-label="削除"
-            title="削除"
+            aria-label={invite ? "招待を取り消す" : "削除"}
+            title={invite ? "招待を取り消す" : "削除"}
             onClick={async () => {
-              if (await confirmAction("この発言を削除します", "削除", "添付した画像はメディアに残ります。")) deleteMessage(id);
+              const ok = invite
+                ? await confirmAction("この招待を取り消します", "取り消す", "招待のカードが消え、相手はこの招待で参加できなくなります（もう参加していれば、そのままです）。")
+                : await confirmAction("この発言を削除します", "削除", "添付した画像はメディアに残ります。");
+              if (ok) deleteMessage(id);
             }}
           >
             <Icon name="del" size={16} />
@@ -404,7 +421,7 @@ function Composer({
         <div className="mb-1 flex items-center gap-2 rounded-[10px] bg-tint px-3 py-1 text-sm">
           <Icon name="reply" size={14} />
           <span className="min-w-0 flex-1 truncate">
-            <b>{replyName}</b> に返信：{replyTo.text || "（画像）"}
+            <b>{replyName}</b> に返信：{previewOf(replyTo)}
           </span>
           <button aria-label="返信をやめる" onClick={onClearReply} className="grid h-6 w-6 place-items-center rounded-full hover:bg-tint">
             <Icon name="x" size={14} />

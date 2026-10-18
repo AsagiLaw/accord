@@ -1,4 +1,5 @@
 import { Icon } from "@/components/Icon";
+import { toast } from "@/components/ui/overlay";
 import type { Profile, ProfileLink, WorkStatus } from "@/lib/local/db";
 
 /** 受付状況の名前と、印の色 */
@@ -31,6 +32,31 @@ export function linkLabel(l: ProfileLink) {
   } catch {
     return l.url;
   }
+}
+
+/** 名前の下に出す ID（Discord のユーザー名と同じ）。右のボタンで写せる（フレンドの申請に使ってもらう） */
+export function UsernameLine({ username }: { username: string }) {
+  return (
+    <p data-name="ID" className="flex min-w-0 items-center gap-1 text-sm text-muted">
+      <span className="min-w-0 truncate">{username}</span>
+      <button
+        type="button"
+        aria-label="ID をコピー"
+        title="ID をコピー"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(username);
+            toast("ID をコピーしました");
+          } catch {
+            toast("コピーできませんでした");
+          }
+        }}
+        className="grid h-6 w-6 shrink-0 place-items-center rounded-full hover:bg-tint hover:text-ink"
+      >
+        <Icon name="copy" size={14} />
+      </button>
+    </p>
+  );
 }
 
 /** 受付状況の小さな印 */
