@@ -22,6 +22,7 @@ import {
   extOf,
   isUnsorted,
   libraryView,
+  searchMedia,
   THUMB_SIZES,
 } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
@@ -40,6 +41,7 @@ import { CoverCard } from "./LibraryCard";
 import { ThumbImage } from "./Thumb";
 import { useMediaState } from "./MediaContext";
 import { MediaGrid, isPointerFine, useTileSize } from "./MediaGrid";
+import { MediaSearch } from "./MediaSearch";
 import { PreviewPanel, usePreviewWidth } from "./PreviewPanel";
 import { SortMenu } from "./SortMenu";
 import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
@@ -152,6 +154,30 @@ export function MediaView({ view }: { view: MediaViewKind }) {
     setSelected([]);
   }, [viewKey, setSelected]);
 
+  // 検索：今いる場所の中を探す（ホームではボックス全体。ゴミ箱の画像は、ゴミ箱を開いたときだけ）。
+  // 言葉は場所ごとに持ち、ほかの場所へ移ったら消える。スマホでは、入力欄を広げている間は場所の表示を隠す
+  const [search, setSearch] = useState({ key: viewKey, q: "" });
+  const query = search.key === viewKey ? search.q : "";
+  const searching = query.trim() !== "";
+  const [searchExpanded, setSearchExpanded] = useState(false);
+  const onQuery = (q: string) => {
+    setSearch({ key: viewKey, q });
+    // 見えなくなった画像を選んだままにしない（Delete でゴミ箱へ送ってしまわないように）
+    setSelected([]);
+  };
+  const found = useMemo(() => {
+    if (!searching) return list;
+    const uploader = (id: string) => s.members.find((x) => x.userId === id)?.displayName ?? "";
+    // ホームとライブラリーは、画面に出ている画像より広く探す（ボックス全体・子ライブラリーの画像も）
+    const pool =
+      view.kind === "home"
+        ? arrange(media.filter((m) => !m.trashed), prefs)
+        : view.kind === "lib" && lib
+          ? arrange(media.filter((m) => !m.trashed && m.libIds.includes(lib.id)), prefs)
+          : list;
+    return searchMedia(pool, query, uploader);
+  }, [searching, list, query, view.kind, media, lib, prefs, s.members]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (
@@ -176,14 +202,14 @@ export function MediaView({ view }: { view: MediaViewKind }) {
         e.preventDefault();
         copyImageFlow(selected.flatMap((id) => s.byId.get(id) ?? []));
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === "a" && view.kind !== "home") {
+      if ((e.ctrlKey || e.metaKey) && e.key === "a" && (view.kind !== "home" || searching)) {
         e.preventDefault();
-        setSelected(list.map((m) => m.id));
+        setSelected(found.map((m) => m.id));
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selected, setSelected, view.kind, boxId, list, s.byId, canEdit]);
+  }, [selected, setSelected, view.kind, searching, boxId, found, s.byId, canEdit]);
 
   // 右クリック：大きく表示している画像・一覧の画像・ライブラリーの何もない所で、それぞれのメニューを出す
   const openCtx = ctx.openAt;
@@ -517,7 +543,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
           <nav
             data-name="パンくず（現在の場所）"
             aria-label="現在の場所"
-            className="flex min-w-0 flex-1 items-center gap-1"
+            className={`${searchExpanded && !viewingMedia ? "hidden md:flex" : "flex"} min-w-0 flex-1 items-center gap-1`}
           >
             <Icon name="img" size={16} className="shrink-0" />
             {/* 名前を変えられるのは今開いているものだけ。画像を拡大している間は、上の場所はすべて移動するためのリンク（押すと拡大を閉じる） */}
@@ -528,6 +554,14 @@ export function MediaView({ view }: { view: MediaViewKind }) {
               onNavigate={closeViewing}
             />
           </nav>
+          {!viewingMedia && (
+            <MediaSearch
+              query={query}
+              onQuery={onQuery}
+              expanded={searchExpanded}
+              onExpand={setSearchExpanded}
+            />
+          )}
           {!viewingMedia && (
             <div
               data-name="操作ボタン"
@@ -563,7 +597,22 @@ export function MediaView({ view }: { view: MediaViewKind }) {
 
       <div className="flex gap-5">
         <div ref={setContentEl} className="min-w-0 flex-1">
-          {view.kind === "home" ? (
+          {searching ? (
+            <>
+              <p data-name="検索の結果" className="mb-2 text-sm text-muted">
+                {view.kind === "home"
+                  ? "ボックス全体"
+                  : `「${view.kind === "lib" ? (lib?.name ?? "") : TITLES[view.kind]}」の中`}
+                から「{query.trim()}」で探した結果：{found.length}枚
+              </p>
+              <MediaGrid
+                size={cardSize}
+                list={found}
+                selectMode={selectMode}
+                empty="見つかりませんでした"
+              />
+            </>
+          ) : view.kind === "home" ? (
             <MediaHome selectMode={selectMode} size={cardSize} />
           ) : (
             <>

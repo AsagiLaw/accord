@@ -4,7 +4,8 @@ import Dexie from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
 import { forgetBlobUrls, refreshBlobUrls } from "@/lib/media/blob-url";
 import { isDefaultEdit, renderEdit, type ImageEdit } from "@/lib/media/edit";
-import { makeThumb, readImage } from "@/lib/media/image";
+import { decodeImage, isImageFile, makeThumb, readImage } from "@/lib/media/image";
+import { PSD_MIME } from "@/lib/media/psd";
 import { childrenOf, descendants, withAncestors } from "@/lib/media/logic";
 import { uploadBoxForRoom } from "./boxes";
 import { db, newId, type Library, type Media, type MediaBlob } from "./db";
@@ -77,7 +78,7 @@ export async function uploadFiles(boxId: string, userId: string, files: File[]) 
   const ids: string[] = [];
   let failed = 0;
   for (const file of files) {
-    if (!file.type.startsWith("image/")) {
+    if (!isImageFile(file)) {
       failed++;
       continue;
     }
@@ -85,14 +86,14 @@ export async function uploadFiles(boxId: string, userId: string, files: File[]) 
       const info = await readImage(file);
       const id = newId();
       await db.transaction("rw", db.media, db.mediaBlobs, async () => {
-        await db.mediaBlobs.add({ id, original: file, thumb: info.thumb });
+        await db.mediaBlobs.add({ id, original: file, thumb: info.thumb, ...(info.view && { view: info.view }) });
         await db.media.add({
           id,
           boxId,
           uploadedBy: userId,
           name: file.name.replace(/\.\w+$/, ""),
           fileName: file.name,
-          mime: file.type,
+          mime: info.view ? PSD_MIME : file.type,
           size: file.size,
           width: info.width,
           height: info.height,
@@ -234,7 +235,7 @@ function sourceOf(row: MediaBlob, m: Media) {
 
 /** 元の画像に編集をあてて、元の大きさの画像と一覧用の小さい画像を作る */
 async function renderEdited(source: Blob, sourceInfo: { fileName: string; mime: string }, edit: ImageEdit) {
-  const bitmap = await createImageBitmap(source);
+  const bitmap = await decodeImage(source);
   let canvas: HTMLCanvasElement;
   try {
     canvas = renderEdit(bitmap, edit);
@@ -323,8 +324,8 @@ export async function saveEditAsCopy(id: string, edit: ImageEdit, userId: string
   let media: Media;
   if (isDefaultEdit(edit)) {
     // 何も編集していなければ、オリジナルをそのまま複製する
-    const thumb = row.source ? (await readImage(source)).thumb : row.thumb;
-    blobRow = { id: copyId, original: source, thumb };
+    const { thumb, view } = row.source ? await readImage(source) : row;
+    blobRow = { id: copyId, original: source, thumb, ...(view && { view }) };
     media = base;
   } else {
     const out = await renderEdited(source, sourceInfo, edit);
@@ -418,7 +419,7 @@ export async function revertEdit(id: string): Promise<Undo> {
   const info = await readImage(row.source);
   const s = row.sourceInfo;
   await db.transaction("rw", db.media, db.mediaBlobs, async () => {
-    await db.mediaBlobs.put({ id, original: row.source!, thumb: info.thumb });
+    await db.mediaBlobs.put({ id, original: row.source!, thumb: info.thumb, ...(info.view && { view: info.view }) });
     await db.media.update(id, {
       edited: false,
       rev: (m.rev ?? 0) + 1,

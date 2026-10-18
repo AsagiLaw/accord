@@ -44,7 +44,29 @@ export function useUnreadCounts(roomId: string, userId: string | undefined) {
 
 export async function markRead(chatId: string, userId: string, upTo: number) {
   const cur = await db.chatReads.get([chatId, userId]);
-  if (!cur || cur.lastReadAt < upTo) await db.chatReads.put({ chatId, userId, lastReadAt: upTo });
+  // 通知を切っているかは残す
+  if (!cur || cur.lastReadAt < upTo) await db.chatReads.put({ ...cur, chatId, userId, lastReadAt: upTo });
+}
+
+/** そのチャットの、人ごとのどこまで読んだか（既読に使う）。人の ID → 最後に読んだ発言の時刻 */
+export function useChatReads(chatId: string) {
+  return useLiveQuery(
+    async () =>
+      new Map(
+        (await db.chatReads.where("[chatId+userId]").between([chatId, Dexie.minKey], [chatId, Dexie.maxKey]).toArray()).map((r) => [r.userId, r.lastReadAt]),
+      ),
+    [chatId],
+  );
+}
+
+/** そのチャットの通知を切っているか（人ごと。どの端末でも同じ） */
+export function useChatMuted(chatId: string, userId: string | undefined) {
+  return useLiveQuery(async () => (userId ? !!(await db.chatReads.get([chatId, userId]))?.muted : false), [chatId, userId]);
+}
+
+export async function setChatMuted(chatId: string, userId: string, muted: boolean) {
+  const cur = await db.chatReads.get([chatId, userId]);
+  await db.chatReads.put({ chatId, userId, lastReadAt: cur?.lastReadAt ?? 0, ...(muted && { muted: true }) });
 }
 
 export async function createChat(roomId: string, name: string, kind: Chat["kind"] = "normal") {

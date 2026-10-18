@@ -276,6 +276,21 @@ body {
 .ProseMirror-selectednode.node-calendarBlock > .bn-block-content > *::after,
 .doc-window:not(.doc-editing) .ProseMirror-selectednode > .bn-block-content > *::after { display: none; }
 
+/* ---- 左右に並んだブロック（列）：スマホの幅（768px 未満）ではタブにして、選んだ1列だけを横いっぱいに見せる（columnTabs.tsx） ---- */
+/* タブの並びは列の並びのすぐ前に置いてある。パソコンの幅では出さない。
+   見た目はタブのブロックと同じ：タブの並びと列の並びを1つの灰色の枠に見せ、選んだ列は角の丸い白い面にする */
+.col-tabs { display: none; }
+@media (max-width: 767.98px) {
+  .col-tabs { display: block; margin-top: 4px; background: var(--bg); border: 1px solid var(--line); border-bottom: 0; border-radius: 10px 10px 0 0; }
+  .col-tabs + .bn-block-column-list { background: var(--bg); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 10px 10px; margin-bottom: 4px; }
+  .col-tabs + .bn-block-column-list > .col-tab-off { display: none !important; }
+  .col-tabs + .bn-block-column-list > .bn-block-column { padding: 0 !important; background: var(--card); border-radius: 8px 8px 9px 9px; overflow: hidden; }
+  /* 列の中のブロック：カード（チャット・ビューなど）は自分の枠・角の丸み・上下の間をなくして、タブの枠とつなげる。文章だけは左右に少し余白 */
+  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content { padding: 0 !important; }
+  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > * { border: 0 !important; border-radius: 0 !important; }
+  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .bn-block-content { padding: 6px 10px; }
+}
+
 /* 選んでいるタブ：上の角は丸く、下の両側は内側へ丸くして下の面とつなげる（Chrome のタブの形） */
 .tab-active::before, .tab-active::after { content: ""; position: absolute; bottom: 0; width: 8px; height: 8px; pointer-events: none; }
 .tab-active::before { left: -8px; border-bottom-right-radius: 8px; box-shadow: 4px 4px 0 4px var(--card); }

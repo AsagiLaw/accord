@@ -4,6 +4,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { withFormulas } from "@/lib/requests/formula";
 import { dueProp, dueStatus, dueText } from "@/lib/requests/due";
 import { today } from "@/lib/requests/logic";
+import { askNotifyPermission, showAppNotice } from "@/lib/notify";
 import { db, type Profile } from "./db";
 
 // 納期のブラウザの通知。出すかどうかは、人と端末（ブラウザ）ごとに覚える（ブラウザの許可も端末ごとのため）。
@@ -37,11 +38,7 @@ export function useDueNotify(userId: string | undefined) {
 
 /** 通知を出すかを決める。オンにするときは、ブラウザに許可を求める（断られたら false） */
 export async function setDueNotify(userId: string, on: boolean): Promise<boolean> {
-  if (on) {
-    if (typeof Notification === "undefined") return false;
-    const p = Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission;
-    if (p !== "granted") return false;
-  }
+  if (on && !(await askNotifyPermission())) return false;
   try {
     if (on) localStorage.setItem(KEY(userId), "1");
     else localStorage.removeItem(KEY(userId));
@@ -54,7 +51,7 @@ export async function setDueNotify(userId: string, on: boolean): Promise<boolean
 }
 
 /** 通知の許可の様子（ブラウザが通知を使えない・止めている） */
-export const notifyPermission = () => (typeof Notification === "undefined" ? "unsupported" : Notification.permission);
+export { notifyPermission } from "@/lib/notify";
 
 let running = false;
 
@@ -93,14 +90,8 @@ async function checkDue(userId: string, force = false) {
     }
     // 多いときは1つにまとめる
     const list = fresh.length > 3 ? [{ title: `納期が近いページが${fresh.length}件あります`, body: fresh.map((f) => f.title).join("\n"), href: fresh[0].href.replace(/\/p\/[^/]+$/, ""), tag: `due:all:${day}` }] : fresh;
-    for (const f of list) {
-      const n = new Notification(f.title, { body: f.body, tag: f.tag });
-      n.onclick = () => {
-        window.focus();
-        window.location.href = f.href;
-        n.close();
-      };
-    }
+    // Android の Chrome などでも出るよう、サービスワーカーから出す（押すとそのページへ）
+    for (const f of list) await showAppNotice(f);
   } finally {
     running = false;
   }

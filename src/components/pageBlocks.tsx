@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import { ChatImagesButton } from "@/components/chat/ChatImages";
+import { ChatNotifyButton } from "@/components/chat/ChatNotify";
 import { ChatSearchButton } from "@/components/chat/ChatSearch";
 import { ChatView } from "@/components/chat/ChatView";
 import { ImageChatView } from "@/components/chat/ImageChatView";
@@ -563,6 +564,7 @@ export function DbChatBlock({ kind, propId, onChange, fill }: { kind: "normal" |
         <span className="ml-auto flex shrink-0 items-center gap-0.5">
           {chatId && <ChatSearchButton chatId={chatId} roomId={ctx.roomId} compact />}
           {chatId && <ChatImagesButton chatId={chatId} roomId={ctx.roomId} compact />}
+          {chatId && <ChatNotifyButton chatId={chatId} compact />}
           {!ctx.locked && database && (
             <SettingsButton label={`${label}の設定`}>
               <DbChatMenu

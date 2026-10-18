@@ -27,7 +27,9 @@ import { Icon } from "@/components/Icon";
 import { toast } from "@/components/ui/overlay";
 import { uploadToRoom } from "@/lib/local/media";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
+import { isImageFile } from "@/lib/media/image";
 import { noteSchema, type NoteEditor as Editor } from "./blocks";
+import { ColumnTabsHost, columnTabsExtension } from "./columnTabs";
 
 // ノート・ウィンドウ・ページの本文・テンプレートで共通に使う、エディタの作り方とメニュー
 
@@ -476,6 +478,8 @@ export function EditorMenus({ editor }: { editor: Editor }) {
         // 「＋」「⋮⋮」を、そのブロックの1行目の真ん中にそろえる（BlockNote の決まった値は、見出しの大きさが違うとずれるので、実際の文字から測る）
         floatingUIOptions={{ useFloatingOptions: { middleware: [offset(sideMenuOffset)] } }}
       />
+      {/* 左右に並んだブロック（列）を、スマホの幅ではタブにする */}
+      <ColumnTabsHost editor={editor} />
     </>
   );
 }
@@ -502,7 +506,7 @@ export const dropImages = (editor: Editor, roomId: string, userId: string) => (e
     e.stopPropagation();
     return;
   }
-  const files = [...e.dataTransfer.files].filter((f) => f.type.startsWith("image/"));
+  const files = [...e.dataTransfer.files].filter(isImageFile);
   if (!files.length) return;
   e.preventDefault();
   e.stopPropagation();
@@ -518,10 +522,12 @@ export function useBlockEditor(initial: unknown[], roomId: string, userId: strin
       dropCursor,
       // チャットなど文字の入らないブロックの間に、横線のカーソル（ギャップカーソル）を置かない。そこで文字を打って行ができることも無くす
       disableExtensions: ["gapCursor"],
+      // 左右に並んだブロック（列）を、スマホの幅ではタブにして1列ずつ見せる
+      extensions: [columnTabsExtension],
       initialContent: initial.length ? (initial as Blocks) : undefined,
       // 画像を貼り付けたときは、まずメディアに入れてから「画像（メディアから）」ブロックにする
       pasteHandler: ({ event, editor, defaultPasteHandler }) => {
-        const files = [...(event.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+        const files = [...(event.clipboardData?.files ?? [])].filter(isImageFile);
         if (!files.length) return defaultPasteHandler();
         void insertUploaded(editor, roomId, userId, files);
         return true;

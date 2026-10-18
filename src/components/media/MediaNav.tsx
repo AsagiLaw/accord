@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { Icon, type IconName } from "@/components/Icon";
 import type { Library } from "@/lib/local/db";
 import { useLibraries, useMedia } from "@/lib/local/media";
+import { IMAGE_ACCEPT } from "@/lib/media/image";
 import { chain, childrenOf, descendants, isUnsorted } from "@/lib/media/logic";
 import {
   dropLibraryFlow,
@@ -308,7 +309,7 @@ export function MediaNav({
         メディアを追加
         <input
           type="file"
-          accept="image/*"
+          accept={IMAGE_ACCEPT}
           multiple
           className="sr-only"
           onClick={(e) => {

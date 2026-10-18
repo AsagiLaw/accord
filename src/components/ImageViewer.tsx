@@ -9,6 +9,7 @@ import type { Media } from "@/lib/local/db";
 import { ensureInBox } from "@/lib/local/media";
 import { useCurrentUser } from "@/lib/local/session";
 import { useBlobUrl } from "@/lib/media/blob-url";
+import { downloadOriginals } from "@/lib/media/export";
 
 /** チャットなどで添付画像を大きく見る、シンプルな表示画面 */
 export function ImageViewer({ items, start, roomId, onClose }: { items: Media[]; start: number; roomId: string; onClose: () => void }) {
@@ -59,11 +60,10 @@ export function ImageViewer({ items, start, roomId, onClose }: { items: Media[];
               {saved.includes(m.id) ? "保存しました" : "マイメディアに保存"}
             </button>
           ) : null}
-          {url && (
-            <a href={url} download={m.fileName} aria-label="元の画像を保存" title="元の画像を保存" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/15">
-              <Icon name="download" />
-            </a>
-          )}
+          {/* 表示している画像ではなく、元のファイルを保存する（PSD は表示用の PNG で見せているため） */}
+          <button onClick={() => void downloadOriginals([m])} aria-label="元の画像を保存" title="元の画像を保存" className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/15">
+            <Icon name="download" />
+          </button>
           <button aria-label="閉じる" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/15">
             <Icon name="x" />
           </button>

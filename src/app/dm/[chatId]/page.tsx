@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ChatImagesButton } from "@/components/chat/ChatImages";
+import { ChatNotifyButton } from "@/components/chat/ChatNotify";
 import { ChatSearchButton } from "@/components/chat/ChatSearch";
 import { ChatView } from "@/components/chat/ChatView";
 import { TopBarActions } from "@/components/TopBarSlot";
@@ -43,6 +44,7 @@ export default function DmChatPage() {
       <TopBarActions>
         <ChatSearchButton chatId={chat.id} roomId="" />
         <ChatImagesButton chatId={chat.id} roomId="" />
+        <ChatNotifyButton chatId={chat.id} />
       </TopBarActions>
       <div className="min-h-0 flex-1">
         <ChatView

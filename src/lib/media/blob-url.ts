@@ -9,6 +9,7 @@ const pending = new Map<string, Promise<void>>();
 /** 中身が変わったので作り直す URL（作り直すまでは古い URL を見せておき、表示が一瞬消えないようにする） */
 const stale = new Set<string>();
 
+/** original：元の大きさの画像（PSD は表示用にした PNG） */
 type Kind = "thumb" | "original";
 
 let generation = 0;
@@ -28,7 +29,7 @@ function load(id: string, kind: Kind): Promise<void> {
   if (!p) {
     p = db.mediaBlobs.get(id).then((row) => {
       const old = urls.get(key);
-      if (row) urls.set(key, URL.createObjectURL(row[kind]));
+      if (row) urls.set(key, URL.createObjectURL(kind === "original" ? (row.view ?? row.original) : row.thumb));
       else urls.delete(key);
       if (old) URL.revokeObjectURL(old);
       stale.delete(key);

@@ -14,6 +14,7 @@ import {
   repOf,
   LIST_COLUMNS,
   shownName,
+  typeName,
   type ListColumn,
 } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
@@ -193,7 +194,7 @@ export function MediaGrid({
         case "fileName":
           return m.fileName;
         case "type":
-          return (m.mime.replace("image/", "") || "不明").toUpperCase();
+          return typeName(m);
         case "dims":
           return `${m.width} × ${m.height}`;
         case "dpi":

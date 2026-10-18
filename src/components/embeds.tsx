@@ -4,6 +4,7 @@ import Link from "next/link";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { CalendarBlockView } from "@/components/calendar/CalendarBlock";
 import { ChatImagesButton } from "@/components/chat/ChatImages";
+import { ChatNotifyButton } from "@/components/chat/ChatNotify";
 import { ChatSearchButton } from "@/components/chat/ChatSearch";
 import { ChatView } from "@/components/chat/ChatView";
 import { ImageChatView } from "@/components/chat/ImageChatView";
@@ -252,6 +253,7 @@ export function ChatBlockView({
         <span className="ml-auto flex shrink-0 items-center gap-0.5">
           {chat && <ChatSearchButton chatId={chat.id} roomId={roomId} compact />}
           {chat && <ChatImagesButton chatId={chat.id} roomId={roomId} compact />}
+          {chat && <ChatNotifyButton chatId={chat.id} compact />}
           {!locked && (
             <SettingsButton label={label}>
               <ChatMenu title={label} kind={kind} chat={chat} seed={seed} onSeed={onSeed} />
@@ -659,6 +661,7 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
       <span className="ml-auto flex shrink-0 items-center gap-0.5">
         {chatId && <ChatSearchButton chatId={chatId} roomId={roomId} compact />}
         {chatId && <ChatImagesButton chatId={chatId} roomId={roomId} compact />}
+        {chatId && <ChatNotifyButton chatId={chatId} compact />}
         {!locked && (
           <SettingsButton label="シングルビューの設定">
             <SingleViewMenu props={props} database={database} page={page} onChange={onChange} />

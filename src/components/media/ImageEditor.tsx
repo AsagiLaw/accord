@@ -5,6 +5,7 @@ import { Icon } from "@/components/Icon";
 import { toast } from "@/components/ui/overlay";
 import { newId } from "@/lib/id";
 import { db } from "@/lib/local/db";
+import { decodeImage } from "@/lib/media/image";
 import {
   ADJUST_TOOLS,
   FILTERS,
@@ -278,7 +279,7 @@ export function ImageEditor({ id }: { id: string }) {
     (async () => {
       const row = await db.mediaBlobs.get(id);
       if (!row) throw new Error("not found");
-      const full = await createImageBitmap(row.source ?? row.original);
+      const full = await decodeImage(row.source ?? row.view ?? row.original);
       const small = downscale(full, PREVIEW_MAX);
       if (!alive) return full.close();
       const initial = row.edit ?? defaultEdit();

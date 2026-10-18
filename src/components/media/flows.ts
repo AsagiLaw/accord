@@ -33,7 +33,7 @@ export async function uploadFlow(boxId: string, userId: string, files: File[], o
   if (!files.length) return;
   toast(`${files.length}枚を読み込み中…`);
   const { ids, failed } = await uploadFiles(boxId, userId, files);
-  if (ids.length) toast(`${ids.length}枚を追加しました${failed ? `（${failed}枚は画像でないため追加できません）` : ""}`, { label: "整理する", run: openUnsorted });
+  if (ids.length) toast(`${ids.length}枚を追加しました${failed ? `（${failed}枚は読み込めない形式のため追加できません）` : ""}`, { label: "整理する", run: openUnsorted });
   else toast("画像を追加できませんでした");
 }
 

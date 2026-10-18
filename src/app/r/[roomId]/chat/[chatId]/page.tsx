@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ChatView } from "@/components/chat/ChatView";
 import { ChatImagesButton } from "@/components/chat/ChatImages";
+import { ChatNotifyButton } from "@/components/chat/ChatNotify";
 import { ChatSearchButton } from "@/components/chat/ChatSearch";
 import { TopBarActions } from "@/components/TopBarSlot";
 import { useChat } from "@/lib/local/chat";
@@ -31,6 +32,7 @@ export default function ChatPage() {
       <TopBarActions>
         <ChatSearchButton chatId={chat.id} roomId={roomId} />
         <ChatImagesButton chatId={chat.id} roomId={roomId} />
+        <ChatNotifyButton chatId={chat.id} />
       </TopBarActions>
       <div className="min-h-0 flex-1">
         <ChatView key={chat.id} chat={chat} me={me} members={members} />

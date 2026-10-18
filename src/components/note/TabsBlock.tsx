@@ -33,7 +33,7 @@ const parseTitles = (s: unknown): Record<string, string> => {
 };
 
 /** 文章のブロックの中の文字（タブの名前に使う） */
-const textOf = (b: AnyBlock) =>
+export const textOf = (b: AnyBlock) =>
   Array.isArray(b.content)
     ? (b.content as { text?: string }[])
         .map((c) => c.text ?? "")
@@ -58,7 +58,7 @@ function blockViewOf(views: string | undefined, active: string | undefined): { n
  * タブのアイコンと名前。名前は：付けた名前 → 文章なら最初の文字 → シングルビューなら項目の名前
  * → ページの項目なら見出し（無ければ、1つだけ出している項目の名前）→ オールビューならビューの名前 → ブロックの種類
  */
-function TabLabel({ child, title }: { child: AnyBlock; title?: string }) {
+export function TabLabel({ child, title }: { child: AnyBlock; title?: string }) {
   const ctx = useNoteContext();
   const p = child.props as Record<string, string>;
   const isSingle = child.type === "singleView";

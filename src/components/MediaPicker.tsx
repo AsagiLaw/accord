@@ -5,6 +5,7 @@ import { Icon } from "@/components/Icon";
 import { toast } from "@/components/ui/overlay";
 import { ensureMyMedia, useMyBoxes, useRoomBox } from "@/lib/local/boxes";
 import { useLibraries, useMedia, uploadFiles } from "@/lib/local/media";
+import { IMAGE_ACCEPT } from "@/lib/media/image";
 import { chain, isUnsorted } from "@/lib/media/logic";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { ThumbImage } from "@/components/ThumbImage";
@@ -65,7 +66,7 @@ export function MediaPicker({
       setPicked(target);
       toast("このボックスは見るだけなので、マイメディアに追加しました");
     }
-    if (failed) toast(`${failed}枚は画像でないため追加できませんでした`);
+    if (failed) toast(`${failed}枚は読み込めない形式のため追加できませんでした`);
     // アップロードした画像は、そのまま選んだ状態にする
     setChosen((c) => (single ? ids.slice(0, 1) : [...c, ...ids]));
     setFilter("recent");
@@ -103,7 +104,7 @@ export function MediaPicker({
             {busy ? "読み込み中…" : "新しくアップロード"}
             <input
               type="file"
-              accept="image/*"
+              accept={IMAGE_ACCEPT}
               multiple
               className="sr-only"
               disabled={busy}

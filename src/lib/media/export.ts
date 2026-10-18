@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { db, type Media } from "@/lib/local/db";
 import { useBlobUrl } from "./blob-url";
+import { PSD_MIME } from "./psd";
 import { makeZip } from "./zip";
 
 // メディアの画像を、元の画像のファイルとして外へ出す（他のアプリへのドラッグ・コピー・ダウンロード）。
@@ -25,7 +26,7 @@ export function safeFileName(name: string, fallback = "image"): string {
 export function exportFileName(m: Media): string {
   const ext =
     /\.[^.]+$/.exec(m.fileName)?.[0] ??
-    (m.mime.startsWith("image/") ? "." + m.mime.slice(6).replace("jpeg", "jpg").replace("svg+xml", "svg") : "");
+    (m.mime === PSD_MIME ? ".psd" : m.mime.startsWith("image/") ? "." + m.mime.slice(6).replace("jpeg", "jpg").replace("svg+xml", "svg") : "");
   return safeFileName(m.name) + ext;
 }
 
@@ -60,7 +61,9 @@ export function useOriginalUrl(m: Media | undefined) {
   if (!m) return undefined;
   // 編集して中身が変わったら、別の URL にする（ブラウザが前の画像を使い回さないように）。ファイル名は最後の部分なので変わらない
   const rev = m.rev ? `${m.rev}/` : "";
-  return named ? `/media-file/${m.id}/${rev}${encodeURIComponent(exportFileName(m))}` : blob;
+  // PSD は表示用の PNG を出すので、名前も .png にする（ドラッグして渡すのも PNG になる）
+  const name = m.mime === PSD_MIME ? safeFileName(m.name) + ".png" : exportFileName(m);
+  return named ? `/media-file/${m.id}/${rev}${encodeURIComponent(name)}` : blob;
 }
 
 /**
@@ -84,8 +87,9 @@ export async function copyImage(m: Media) {
   const png = (async () => {
     const row = await db.mediaBlobs.get(m.id);
     if (!row) throw new Error("no blob");
-    if (row.original.type === "image/png") return row.original;
-    const bitmap = await createImageBitmap(row.original);
+    const src = row.view ?? row.original;
+    if (src.type === "image/png") return src;
+    const bitmap = await createImageBitmap(src);
     const canvas = document.createElement("canvas");
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;

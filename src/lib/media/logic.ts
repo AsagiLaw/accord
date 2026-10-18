@@ -1,4 +1,5 @@
 import type { Library, Media } from "@/lib/local/db";
+import { PSD_MIME } from "./psd";
 
 // 試作「依頼ノート」のメディアの決まりごとを、画面から切り離した純粋な関数にしたもの
 
@@ -167,7 +168,36 @@ export function shownName(m: Media, showExt: boolean): string {
 export function extOf(m: Media): string {
   const dot = m.fileName.lastIndexOf(".");
   if (dot > 0) return m.fileName.slice(dot + 1).toLowerCase();
+  if (m.mime === PSD_MIME) return "psd";
   return m.mime.replace("image/", "").toLowerCase();
+}
+
+/** 形式の名前（JPEG・PNG・PSD など）。PSD は拡張子から（PSD か PSB） */
+export function typeName(m: Media): string {
+  if (m.mime === PSD_MIME) return extOf(m).toUpperCase();
+  return (m.mime.replace("image/", "") || "不明").toUpperCase();
+}
+
+/** 検索で比べるために、全角と半角・大文字と小文字・カタカナとひらがなの違いを無くす */
+export function searchKey(text: string): string {
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+}
+
+/**
+ * 検索：名前・ファイル名・形式・追加した人のどれかに言葉が入っている画像だけにする（並びはそのまま）。
+ * 空白で区切った言葉は、すべてを含むものだけ（「psd ラフ」なら、PSD で名前に「ラフ」がある画像）
+ */
+export function searchMedia(list: Media[], query: string, uploaderName: (userId: string) => string): Media[] {
+  const words = searchKey(query).split(/\s+/).filter(Boolean);
+  if (!words.length) return list;
+  return list.filter((m) => {
+    // 項目は改行でつなぐ（言葉が2つの項目にまたがって合わないように）。JPEG は「jpg」でも探せるようにする
+    const text = searchKey([m.name, m.fileName, typeName(m), extOf(m), m.mime === "image/jpeg" ? "jpg" : "", uploaderName(m.uploadedBy)].join("\n"));
+    return words.every((w) => text.includes(w));
+  });
 }
 
 export function arrange(list: Media[], prefs: MediaPrefs): Media[] {

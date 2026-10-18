@@ -8,11 +8,13 @@ import { ImageViewer } from "@/components/ImageViewer";
 import { MediaPicker } from "@/components/MediaPicker";
 import { ThumbImage } from "@/components/ThumbImage";
 import { choose, confirmAction, promptText, toast } from "@/components/ui/overlay";
-import { addSpeaker, changeSpeaker, deleteMessage, editMessage, markRead, sendMessage, useMessages } from "@/lib/local/chat";
+import { Popover, usePopover } from "@/components/ui/Popover";
+import { addSpeaker, changeSpeaker, deleteMessage, editMessage, markRead, sendMessage, useChatReads, useMessages } from "@/lib/local/chat";
 import type { Chat, Media, Message, Profile, RoomRole } from "@/lib/local/db";
 import { ensureMyMedia } from "@/lib/local/boxes";
 import { ensureInBox, uploadToRoom, useMediaByIds } from "@/lib/local/media";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
+import { isImageFile } from "@/lib/media/image";
 import { useAllProfiles, type MemberWithProfile } from "@/lib/local/rooms";
 import { InviteCard } from "./InviteCard";
 
@@ -52,6 +54,13 @@ export function ChatView({
     reenact
       ? undefined
       : { id: m.authorId, avatar: profiles?.find((p) => p.id === m.authorId)?.avatar, role: chat.dm ? undefined : members.find((x) => x.userId === m.authorId)?.role };
+  // 既読（LINE と同じ）：自分の発言を、ほかの人がどこまで読んだか。読める人は DM の相手・ルームのメンバー（話せる人が決まっていればその中）
+  const reads = useChatReads(chat.id);
+  const audience = useMemo(
+    () => (chat.dm ?? members.map((m) => m.userId)).filter((id) => id !== me.id && (!chat.allowed || chat.allowed.includes(id))),
+    [chat.dm, chat.allowed, members, me.id],
+  );
+  const readersOf = (m: Message) => audience.filter((id) => (reads?.get(id) ?? 0) >= m.createdAt);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [viewer, setViewer] = useState<{ items: Media[]; start: number } | null>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -64,13 +73,22 @@ export function ChatView({
     if (el && (stick.current || last?.authorId === me.id)) el.scrollTop = el.scrollHeight;
   }, [last?.id, last?.authorId, me.id]);
 
-  // 画面に出ている間は既読にする
+  // 画面に見えている間は既読にする。タブの裏や、スマホでタブにした列の隠れた方にあるときは既読にしない（既読を正しく出すため）
   useEffect(() => {
-    if (!last) return;
-    const read = () => document.visibilityState === "visible" && markRead(chat.id, me.id, last.createdAt);
-    read();
+    const el = list.current;
+    if (!last || !el) return;
+    let onScreen = false;
+    const read = () => onScreen && document.visibilityState === "visible" && void markRead(chat.id, me.id, last.createdAt);
+    const io = new IntersectionObserver(([e]) => {
+      onScreen = e.isIntersecting;
+      read();
+    });
+    io.observe(el);
     document.addEventListener("visibilitychange", read);
-    return () => document.removeEventListener("visibilitychange", read);
+    return () => {
+      io.disconnect();
+      document.removeEventListener("visibilitychange", read);
+    };
   }, [chat.id, me.id, last]);
 
   if (!messages || !byId) return <p className="text-muted">読み込み中…</p>;
@@ -132,6 +150,7 @@ export function ChatView({
                       }
                     : undefined
                 }
+                readMark={!reenact && m.authorId === me.id ? <ReadMark readers={readersOf(m)} audience={audience} nameOf={nameOf} /> : undefined}
                 reply={m.replyTo ? messages.find((x) => x.id === m.replyTo) : undefined}
                 replyName={(r) => who(r)}
                 media={byId}
@@ -168,6 +187,7 @@ function MessageItem({
   m,
   meId,
   author,
+  readMark,
   mine,
   canEdit,
   grouped,
@@ -183,6 +203,8 @@ function MessageItem({
   m: Message;
   meId: string;
   author?: Author;
+  /** 自分の発言の左に出す既読 */
+  readMark?: React.ReactNode;
   mine: boolean;
   canEdit: boolean;
   grouped: boolean;
@@ -251,6 +273,7 @@ function MessageItem({
         ) : null}
         <div className="flex items-end gap-1">
           {mine && <Actions canEdit={canEdit} onReply={onReply} onEdit={m.inviteId ? undefined : () => setEditing(true)} invite={!!m.inviteId} id={m.id} />}
+          {readMark}
           {/* ルームへの招待は、吹き出しの代わりにカードで出す */}
           {m.inviteId ? (
             <InviteCard inviteId={m.inviteId} meId={meId} mine={mine} />
@@ -313,6 +336,46 @@ function MessageItem({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * 既読（LINE と同じ）。読める人が1人（DM など）なら「既読」、2人以上なら「既読 2」のように読んだ人数。
+ * 人数を押すと、読んだ人と、まだ読んでいない人の一覧。だれも読んでいなければ何も出さない
+ */
+function ReadMark({ readers, audience, nameOf }: { readers: string[]; audience: string[]; nameOf: (id: string) => string }) {
+  const pop = usePopover();
+  if (!readers.length) return null;
+  const cls = "shrink-0 self-end pb-0.5 text-[11px] leading-none text-muted";
+  if (audience.length === 1) return <span className={cls}>既読</span>;
+  const unread = audience.filter((id) => !readers.includes(id));
+  const people = (ids: string[]) => (
+    <ul className="grid gap-0.5 pb-1">
+      {ids.map((id) => (
+        <li key={id} className="truncate rounded-[8px] px-2 py-1 text-sm">
+          {nameOf(id)}
+        </li>
+      ))}
+    </ul>
+  );
+  return (
+    <>
+      <button type="button" onClick={pop.toggle} title="押すと読んだ人" className={`${cls} hover:text-ink hover:underline`}>
+        既読 {readers.length}
+      </button>
+      {pop.anchor && (
+        <Popover anchor={pop.anchor} onClose={pop.close} width={220} label="既読の人">
+          <p className="px-2 pt-1 pb-0.5 text-xs text-muted">読んだ人 {readers.length}人</p>
+          {people(readers)}
+          {unread.length > 0 && (
+            <>
+              <p className="border-t border-line px-2 pt-1.5 pb-0.5 text-xs text-muted">まだ読んでいない人 {unread.length}人</p>
+              {people(unread)}
+            </>
+          )}
+        </Popover>
+      )}
+    </>
   );
 }
 
@@ -395,7 +458,7 @@ function Composer({
 
   // 貼り付け・ドロップした画像も、まずメディアに入れてから添付する
   const uploadAndAttach = async (files: File[]) => {
-    const images = files.filter((f) => f.type.startsWith("image/"));
+    const images = files.filter(isImageFile);
     if (!images.length) return;
     setUploading(true);
     const { ids, toMine } = await uploadToRoom(chat.roomId, me.id, images);

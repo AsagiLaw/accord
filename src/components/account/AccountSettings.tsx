@@ -5,6 +5,10 @@ import { createPortal } from "react-dom";
 import { Avatar, PRESENCE, PRESENCE_CHOICES } from "@/components/Avatar";
 import { Icon, type IconName } from "@/components/Icon";
 import { toast } from "@/components/ui/overlay";
+import { NotifyBlocked, NotifySwitch } from "@/components/chat/ChatNotify";
+import { setChatNotify, useChatNotify } from "@/lib/local/chatNotify";
+import { setDueNotify, useDueNotify } from "@/lib/local/dueNotify";
+import { notifyPermission } from "@/lib/notify";
 import { MediaPicker } from "@/components/MediaPicker";
 import { db, type Profile, type ProfileLink, type WorkStatus } from "@/lib/local/db";
 import { IDLE_AFTER, useShownPresence } from "@/lib/local/presence";
@@ -17,10 +21,11 @@ import { MyAccountSection } from "./MyAccountSection";
 import { ExpiryChoices, resolveExpiry } from "./StatusDialog";
 import { BIO_MAX, LINKS_MAX, normalizeUrl, WORK_STATUS } from "./ProfileExtras";
 
-export type SettingsSection = "account" | "profile" | "display";
+export type SettingsSection = "account" | "profile" | "notify" | "display";
 const SECTIONS: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "account", label: "マイアカウント", icon: "gear" },
   { id: "profile", label: "プロフィール", icon: "person" },
+  { id: "notify", label: "通知", icon: "bell" },
   { id: "display", label: "表示", icon: "palette" },
 ];
 
@@ -80,7 +85,15 @@ export function AccountSettings({ me, initial = "account", onClose }: { me: Prof
           <Icon name="x" size={20} />
         </button>
         <div className="max-w-2xl space-y-4">
-          {section === "account" ? <MyAccountSection key={me.id} me={me} /> : section === "profile" ? <ProfileSection key={me.id} me={me} /> : <DisplaySection />}
+          {section === "account" ? (
+            <MyAccountSection key={me.id} me={me} />
+          ) : section === "profile" ? (
+            <ProfileSection key={me.id} me={me} />
+          ) : section === "notify" ? (
+            <NotifySection me={me} />
+          ) : (
+            <DisplaySection />
+          )}
         </div>
       </div>
     </div>,
@@ -160,7 +173,8 @@ function ProfileSection({ me }: { me: Profile }) {
             onClose={() => setPicking(false)}
             onPick={async ([id]) => {
               setPicking(false);
-              const blob = id ? (await db.mediaBlobs.get(id))?.original : undefined;
+              const row = id ? await db.mediaBlobs.get(id) : undefined;
+              const blob = row && (row.view ?? row.original);
               if (blob) setCropping(blob);
               else toast("この画像は読み込めませんでした");
             }}
@@ -377,6 +391,36 @@ function WorkSection({ me }: { me: Profile }) {
         </button>
       </div>
     </form>
+  );
+}
+
+/**
+ * ブラウザの通知（この端末だけ。ブラウザの許可も端末ごとのため）。
+ * チャットは、ほかの人の発言が届いたら（チャットごとに切るのは、チャットの上のベルから）。納期は、近い・今日・過ぎたページ
+ */
+function NotifySection({ me }: { me: Profile }) {
+  const chatOn = useChatNotify(me.id);
+  const dueOn = useDueNotify(me.id);
+  const [denied, setDenied] = useState(false);
+  const unsupported = notifyPermission() === "unsupported";
+  return (
+    <>
+      <h1 className="mb-5 text-[28px] font-bold">通知</h1>
+      <section className="card space-y-4 text-sm">
+        <div>
+          <NotifySwitch on={chatOn} label="チャットの通知" disabled={unsupported} onClick={async () => setDenied(!chatOn && !(await setChatNotify(me.id, !chatOn)))} />
+          <p className="mt-1 text-muted">開いていないチャットに、ほかの人の発言が届いたら知らせます。チャットごとに切るときは、チャットの上のベルから。</p>
+        </div>
+        <div className="border-t border-line pt-4">
+          <NotifySwitch on={dueOn} label="納期の通知" disabled={unsupported} onClick={async () => setDenied(!dueOn && !(await setDueNotify(me.id, !dueOn)))} />
+          <p className="mt-1 text-muted">納期が近い・今日・過ぎたページを、1日1回知らせます。何日前からかは、データベースの納期の設定で決めます。</p>
+        </div>
+        <NotifyBlocked denied={denied} />
+        <p className="border-t border-line pt-4 text-muted">
+          この端末だけの設定です。取り込み中の間は出しません。依頼ノートを開いている間だけ届きます（スマホは、Android の Chrome なら開いている間に届きます。iPhone はホーム画面に追加したときだけ使えます）。
+        </p>
+      </section>
+    </>
   );
 }
 

@@ -169,6 +169,11 @@ export type MediaBlob = {
   id: string;
   original: Blob;
   thumb: Blob;
+  /**
+   * original がブラウザでそのまま表示できない画像（PSD）のとき、表示用にした元の大きさの PNG。
+   * 表示はこれを使い、ダウンロードなどで外へ出すのは original
+   */
+  view?: Blob;
   source?: Blob;
   sourceInfo?: { fileName: string; mime: string; size: number; width: number; height: number };
   edit?: ImageEdit;
@@ -229,8 +234,8 @@ export type Message = {
   inviteId?: string;
 };
 
-/** どこまで読んだか（未読の数に使う） */
-export type ChatRead = { chatId: string; userId: string; lastReadAt: number };
+/** どこまで読んだか（未読の数・既読に使う）と、そのチャットの通知を切っているか（人ごと） */
+export type ChatRead = { chatId: string; userId: string; lastReadAt: number; muted?: boolean };
 
 // ---- データベース（依頼など） ----
 
@@ -1376,6 +1381,9 @@ db.version(32)
         delete v.options.stages;
       });
   });
+
+// チャットの通知：アプリを開いてから届いた発言を、送った時刻で拾う
+db.version(33).stores({ messages: "id, roomId, createdAt, [chatId+createdAt]" });
 
 // アカウントの ID（重ならない）と、ルームへの招待。今いる人には仮の ID を付ける（アカウントの設定で変えられる）
 db.version(34)

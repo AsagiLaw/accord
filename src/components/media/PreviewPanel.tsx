@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { db, type Library, type Media } from "@/lib/local/db";
 import { aspectRatio, formatSize, readImageMeta, type ImageMeta } from "@/lib/media/image";
-import { chain, descendants, PREVIEW_FIELDS, shownName, type PreviewField } from "@/lib/media/logic";
+import { chain, descendants, PREVIEW_FIELDS, shownName, typeName, type PreviewField } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
 import { useMediaState } from "./MediaContext";
 import { DragOriginal, ThumbImage } from "./Thumb";
@@ -66,7 +66,7 @@ function PreviewBody() {
       case "fileName":
         return m.fileName;
       case "type":
-        return (m.mime.replace("image/", "") || "不明").toUpperCase();
+        return typeName(m);
       case "dims":
         return `${m.width} × ${m.height} px`;
       case "dpi":

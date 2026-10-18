@@ -1,16 +1,87 @@
 // アップロードした画像から、一覧用の小さい画像と情報（サイズ・解像度）を作る
 
+import { decodePsd, isPsd, isPsdFile, readPsdInfo } from "./psd";
+import { crc32 } from "./zip";
+
 const THUMB_MAX = 512;
 
-export type ImageInfo = { width: number; height: number; dpi: number; thumb: Blob };
+/** メディアに入れられるファイルか（画像と PSD） */
+export const isImageFile = (file: File) => file.type.startsWith("image/") || isPsdFile(file);
+
+/** ファイルを選ぶ画面で選べる形式 */
+export const IMAGE_ACCEPT = "image/*,.psd,.psb";
+
+export type ImageInfo = {
+  width: number;
+  height: number;
+  dpi: number;
+  thumb: Blob;
+  /** ブラウザがそのまま表示できない画像（PSD）を、表示用にした PNG */
+  view?: Blob;
+};
 
 export async function readImage(file: Blob): Promise<ImageInfo> {
-  const bitmap = await createImageBitmap(file);
+  const psd = (await isPsd(file)) ? await psdToPng(file) : null;
+  const bitmap = await createImageBitmap(psd?.png ?? file);
   const thumb = await makeThumb(bitmap);
-  const head = await file.slice(0, HEAD_SIZE).arrayBuffer();
-  const info = { width: bitmap.width, height: bitmap.height, dpi: dpiOf(head), thumb };
+  const dpi = psd ? psd.dpi : dpiOf(await file.slice(0, HEAD_SIZE).arrayBuffer());
+  const info = { width: bitmap.width, height: bitmap.height, dpi, thumb, view: psd?.png };
   bitmap.close();
   return info;
+}
+
+/** 画像を読み込む（ブラウザが読めない PSD も） */
+export async function decodeImage(blob: Blob): Promise<ImageBitmap> {
+  return createImageBitmap((await isPsd(blob)) ? (await psdToPng(blob)).png : blob);
+}
+
+/** PSD を、元の大きさの PNG にする。カラープロファイルも入れて、ブラウザがその色で表示するようにする */
+async function psdToPng(file: Blob) {
+  const psd = await decodePsd(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = psd.image.width;
+  canvas.height = psd.image.height;
+  canvas.getContext("2d")!.putImageData(psd.image, 0, 0);
+  const png = await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("png failed"))), "image/png"),
+  );
+  // 大きい画像のメモリを早めに返す
+  canvas.width = canvas.height = 0;
+  return { png: await withIcc(png, psd.icc), dpi: psd.dpi };
+}
+
+/** PNG にカラープロファイル（iCCP）を入れる。PNG は RGB なので、RGB のプロファイルだけ（CMYK・グレーは入れない） */
+async function withIcc(png: Blob, icc: Uint8Array | null): Promise<Blob> {
+  if (!icc || icc.length < 132 || String.fromCharCode(icc[16], icc[17], icc[18], icc[19]) !== "RGB ") return png;
+  const zipped = new Blob([icc.slice()]).stream().pipeThrough(new CompressionStream("deflate"));
+  const z = new Uint8Array(await new Response(zipped).arrayBuffer());
+  // 名前「ICC」＋区切り＋圧縮の方法（0）＋圧縮したプロファイル
+  const data = new Uint8Array(5 + z.length);
+  data.set([0x49, 0x43, 0x43, 0, 0]);
+  data.set(z, 5);
+  const b = new Uint8Array(await png.arrayBuffer());
+  const v = new DataView(b.buffer);
+  const parts: Uint8Array<ArrayBuffer>[] = [b.subarray(0, 8)];
+  let p = 8;
+  while (p + 12 <= b.length) {
+    const end = p + 12 + v.getUint32(p);
+    const type = String.fromCharCode(b[p + 4], b[p + 5], b[p + 6], b[p + 7]);
+    // 色の決まりの印は、プロファイルと食い違わないよう外す
+    if (!["iCCP", "sRGB", "gAMA", "cHRM"].includes(type)) parts.push(b.subarray(p, end));
+    if (type === "IHDR") parts.push(pngChunk("iCCP", data));
+    p = end;
+  }
+  return new Blob(parts, { type: "image/png" });
+}
+
+function pngChunk(type: string, data: Uint8Array) {
+  const out = new Uint8Array(12 + data.length);
+  const v = new DataView(out.buffer);
+  v.setUint32(0, data.length);
+  for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+  out.set(data, 8);
+  v.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
+  return out;
 }
 
 /** 一覧用の小さい画像を作る */
@@ -39,6 +110,10 @@ export type ImageMeta = {
 
 /** 元の画像から、解像度とカラープロファイルを読む */
 export async function readImageMeta(blob: Blob): Promise<ImageMeta> {
+  if (await isPsd(blob)) {
+    const { dpi, icc } = await readPsdInfo(blob);
+    return { dpi, profile: icc ? iccName(icc) : null };
+  }
   const head = await blob.slice(0, HEAD_SIZE).arrayBuffer();
   return { dpi: dpiOf(head), profile: await profileOf(head).catch(() => null) };
 }
