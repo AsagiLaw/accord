@@ -33,6 +33,16 @@ Supabase につなぐとき：
 4. Google でログインするときは、Authentication → Providers → Google を有効にし、Google Cloud で作った OAuth クライアントの ID とシークレットを入れる
 5. `npm run dev` を起動し直す
 
+### 公開するとき（本番ではローカル版を動かさない）
+
+公開したもの（`npm run build`）は、Supabase の URL とキーが無いと、ローカル版で動かずに「まだ使える状態ではありません」の画面だけを出す（`src/lib/auth/mode.ts` の `localModeBlocked`）。ローカル版のままだと、試し用の2人が自動で作られて誰でもパスワードなしで入れ、データもその人のブラウザの中だけになるため。
+
+- 公開先の環境変数に `NEXT_PUBLIC_SUPABASE_URL` と `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` を入れてからビルドする（`NEXT_PUBLIC_` の付くものはビルドのときに埋め込まれるので、入れたあとはビルドし直す）
+- 試しにローカル版のまま公開するときだけ、`NEXT_PUBLIC_ALLOW_LOCAL_MODE=1` を入れてビルドする
+- 開発中（`npm run dev`）は、今までどおりローカル版で動く
+
+ページが見つからないとき・思わぬエラーのときは、日本語の画面を出す（`src/app/not-found.tsx`・`error.tsx`・`global-error.tsx`）。アプリのアイコンは `src/app/icon.svg`（ブラウザのタブ）と `src/app/apple-icon.tsx`（iPhone のホーム画面）。
+
 ### ロボットよけ（Cloudflare Turnstile）
 
 ログイン・新規登録・パスワードの再設定の画面に、Cloudflare Turnstile の確認の欄を出す（`src/components/auth/Turnstile.tsx`）。キーを入れないときは、開発中（`npm run dev`）は Cloudflare の試し用のキー（いつも通る）で動き、公開したもの（`npm run build`）では出ない。

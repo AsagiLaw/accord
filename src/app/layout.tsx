@@ -1,9 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import { Zen_Kaku_Gothic_New } from "next/font/google";
 import { Housekeeping } from "@/components/app/Housekeeping";
+import { LocalModeBlocked } from "@/components/app/LocalModeBlocked";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { NameInspector } from "@/components/NameInspector";
 import { OverlayHost } from "@/components/ui/overlay";
+import { localModeBlocked } from "@/lib/auth/mode";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme-boot";
 import "./globals.css";
 
@@ -33,12 +35,19 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
       </head>
       <body className="min-h-full">
-        {/* ログインしていなければ、ログインの画面へ */}
-        <AuthGate>{children}</AuthGate>
-        {/* ゴミ箱の片付け・納期の通知 */}
-        <Housekeeping />
-        <OverlayHost />
-        <NameInspector />
+        {/* 公開したものが Supabase につながっていなければ、ローカル版を動かさない（ブラウザの中のデータベースも開かない） */}
+        {localModeBlocked ? (
+          <LocalModeBlocked />
+        ) : (
+          <>
+            {/* ログインしていなければ、ログインの画面へ */}
+            <AuthGate>{children}</AuthGate>
+            {/* ゴミ箱の片付け・納期の通知 */}
+            <Housekeeping />
+            <OverlayHost />
+            <NameInspector />
+          </>
+        )}
       </body>
     </html>
   );
