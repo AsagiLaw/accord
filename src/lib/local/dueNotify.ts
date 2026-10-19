@@ -81,7 +81,7 @@ async function checkDue(userId: string, force = false) {
           continue;
         }
         fresh.push({
-          title: `${p.title || "無題"}${p.title ? (d.nameSuffix ?? "") : ""}：${dueText(st)}`,
+          title: `${p.title || "無題"}：${dueText(st)}`,
           body: `${d.name}・納期 ${st.date.replaceAll("-", "/")}`,
           href: `/r/${d.roomId}/db/${d.id}/p/${p.id}`,
           tag: `due:${p.id}:${day}`,

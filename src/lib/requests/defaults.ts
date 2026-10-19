@@ -48,7 +48,6 @@ export function requestDatabase(roomId: string): { database: Database; views: Db
     id,
     roomId,
     name: "依頼",
-    nameSuffix: "様",
     templates: [template],
     defaultTemplateId: template.id,
     kind: "request",

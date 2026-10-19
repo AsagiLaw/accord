@@ -72,8 +72,7 @@ async function placeOf(chat: Chat): Promise<{ href: string; name: string }> {
 async function pageLink(pageId: string, chatName: string) {
   const page = await db.dbPages.get(pageId);
   if (!page) return { href: "/", name: chatName };
-  const database = await db.databases.get(page.dbId);
-  const title = page.title ? `${page.title}${database?.nameSuffix ?? ""}` : "無題";
+  const title = page.title || "無題";
   return { href: `/r/${page.roomId}/db/${page.dbId}/p/${page.id}`, name: `${title}・${chatName}` };
 }
 

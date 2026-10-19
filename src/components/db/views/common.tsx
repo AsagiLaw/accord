@@ -2,7 +2,6 @@
 
 import { createContext, useContext } from "react";
 import { DEFAULT_PAGE_ICON, IconMark } from "@/components/IconMark";
-import { nameSuffixOf } from "@/lib/local/requests";
 import type { CalEvent, Database, DbPage, DbView } from "@/lib/local/db";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 import { dueStatus, dueText, type DueState } from "@/lib/requests/due";
@@ -53,7 +52,6 @@ export function PageName({ database, page, className, noIcon, noDue }: { databas
       )}
       <span className={`truncate ${page.title ? "" : "text-muted"}`}>
         {page.title || "無題"}
-        {page.title && nameSuffixOf(database)}
       </span>
       {due && <DueBadge state={due} />}
     </span>

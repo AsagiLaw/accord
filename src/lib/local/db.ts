@@ -335,8 +335,6 @@ export type Database = {
   sidebarViewId?: string | null;
   /** サイドバーに出すページを、ビューを使わずに決めるときのフィルターと並び替え（sidebarViewId が "@filter" のとき） */
   sidebarFilter?: Pick<DbView, "filters" | "filterMode" | "sort" | "sorts">;
-  /** ページの名前の後ろに付ける言葉（例：「様」）。無いときは、依頼は「様」、ほかは付けない */
-  nameSuffix?: string;
   /** 納期のお知らせに使う日付の項目。undefined は名前（納期・締切・期限）から自動で選ぶ、null はお知らせしない */
   dueProp?: string | null;
   /** 納期の何日前から「近い」とするか（無ければ3日） */
@@ -1249,7 +1247,7 @@ db.version(25)
     // 「名前の後ろに付ける言葉」の既定を種類で変えるのをやめる。今まで既定の「様」だった依頼のデータベースには、設定として「様」を入れておく
     await tx
       .table("databases")
-      .filter((d: Database) => d.kind === "request" && d.nameSuffix === undefined)
+      .filter((d: Database & { nameSuffix?: string }) => d.kind === "request" && d.nameSuffix === undefined)
       .modify({ nameSuffix: "様" });
   });
 
@@ -1431,4 +1429,16 @@ db.version(35)
       }
       for (const d of dbs) await tx.table("databases").update(d.id, { categoryId: undefined, navOrder: undefined });
     }
+  });
+
+// 「名前の後ろに付ける言葉」（データベースの設定）をやめた。残っている設定を消す
+db.version(36)
+  .stores({})
+  .upgrade(async (tx) => {
+    await tx
+      .table("databases")
+      .toCollection()
+      .modify((d: Database & { nameSuffix?: string }) => {
+        delete d.nameSuffix;
+      });
   });

@@ -327,8 +327,8 @@ export function PropertyMenu({
       </div>
       {!locked && prop.type !== "title" && <NavRow icon={PROP_TYPES[prop.type].icon} label="種類" value={PROP_TYPES[prop.type].label} onClick={() => setScreen("type")} />}
       {prop.type === "stage" && onStageSettings && (
-        <MenuItem icon={<Icon name="timeline" size={16} />} onClick={() => (onStageSettings(prop), onDone())}>
-          工程の設定（プランごとの工程と割合）
+        <MenuItem icon={<Icon name="timeline" size={16} />} title="プランごとの工程と割合" onClick={() => (onStageSettings(prop), onDone())}>
+          工程の設定
         </MenuItem>
       )}
       {prop.type === "formula" && (

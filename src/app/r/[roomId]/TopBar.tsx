@@ -10,7 +10,7 @@ import { usePopover } from "@/components/ui/Popover";
 import { setChannelIcon, type ChannelKind } from "@/lib/local/channels";
 import { renameChat, useChat } from "@/lib/local/chat";
 import { renameNote, useNote } from "@/lib/local/notes";
-import { nameSuffixOf, setDatabaseIcon, setPageIcon, updateDatabase, updatePageTitle, useDatabase, usePage } from "@/lib/local/requests";
+import { setDatabaseIcon, setPageIcon, updateDatabase, updatePageTitle, useDatabase, usePage } from "@/lib/local/requests";
 import type { PageTemplate } from "@/lib/local/db";
 import { updateTemplate } from "@/lib/local/templates";
 import { renameWindow, useWindowPage } from "@/lib/local/windows";
@@ -238,7 +238,7 @@ function DbCrumb({ roomId, dbId, pageId, templateId }: { roomId: string; dbId: s
       {pageId && (
         <>
           <Sep />
-          <PageCrumb roomId={roomId} pageId={pageId} suffix={nameSuffixOf(database)} templates={database.templates ?? []} />
+          <PageCrumb roomId={roomId} pageId={pageId} templates={database.templates ?? []} />
         </>
       )}
       {template && (
@@ -260,7 +260,7 @@ function DbCrumb({ roomId, dbId, pageId, templateId }: { roomId: string; dbId: s
   );
 }
 
-function PageCrumb({ roomId, pageId, suffix, templates }: { roomId: string; pageId: string; suffix: string; templates: PageTemplate[] }) {
+function PageCrumb({ roomId, pageId, templates }: { roomId: string; pageId: string; templates: PageTemplate[] }) {
   const page = usePage(pageId);
   if (!page) return null;
   const source = page.sourceId ? templates.find((t) => t.id === page.sourceId) : undefined;
@@ -273,7 +273,6 @@ function PageCrumb({ roomId, pageId, suffix, templates }: { roomId: string; page
         onIcon={(i) => setPageIcon(page.id, i)}
         name={page.title}
         onRename={(n) => updatePageTitle(page.id, n)}
-        suffix={page.title ? suffix : ""}
       />
       {source && <SourceChip name={source.name} />}
     </>

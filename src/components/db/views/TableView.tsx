@@ -278,7 +278,6 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
     <>
       {chatAt && (
         <PropChatPopup
-          database={database}
           // 開いている間にページが変わっても（チャットができたなど）、新しいほうを使う
           page={pages.find((x) => x.id === chatAt.page.id) ?? chatAt.page}
           prop={chatAt.prop}

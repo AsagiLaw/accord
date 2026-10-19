@@ -37,7 +37,7 @@ import {
 } from "@/lib/local/channels";
 import type { Category, Database, DbPage, DbView } from "@/lib/local/db";
 import { linkTemplate, useChannelTemplates, type TemplateKind } from "@/lib/local/channelTemplates";
-import { nameSuffixOf, updateDatabase, useDatabase, useDatabases, usePages, useViews } from "@/lib/local/requests";
+import { updateDatabase, useDatabase, useDatabases, usePages, useViews } from "@/lib/local/requests";
 import { useMembers } from "@/lib/local/rooms";
 import { setSidebarFilter, setSidebarView } from "@/lib/local/templates";
 import { P } from "@/lib/requests/defaults";
@@ -840,7 +840,6 @@ function DbPages({ dbId, roomId, userId, onlyActive }: { dbId: string; roomId: s
             </span>
             <span className="min-w-0 flex-1 truncate">
               {p.title || <span className="text-muted">無題</span>}
-              {p.title && nameSuffixOf(database)}
             </span>
             {(() => {
               const due = dueStatus(database, p);

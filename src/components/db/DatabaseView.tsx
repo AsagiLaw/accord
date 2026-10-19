@@ -7,9 +7,9 @@ import { IconMark, mediaIcon } from "@/components/IconMark";
 import { MediaPicker } from "@/components/MediaPicker";
 import { MenuDivider, MenuItem, MenuLabel, Popover, usePopover } from "@/components/ui/Popover";
 import { TabStrip } from "@/components/ui/TabStrip";
-import { choose, promptText } from "@/components/ui/overlay";
+import { promptText } from "@/components/ui/overlay";
 import type { CalEvent, Database, DbPage, DbView, PageTemplate, ViewType } from "@/lib/local/db";
-import { createView, nameSuffixOf, saveView, setDatabaseIcon, updateDatabase, useTrash } from "@/lib/local/requests";
+import { createView, saveView, setDatabaseIcon, updateDatabase, useTrash } from "@/lib/local/requests";
 import { dueDaysOf, dueProp } from "@/lib/requests/due";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 import { sortsOf } from "@/lib/requests/logic";
@@ -276,24 +276,9 @@ export function DatabaseView({
               }}>
                 名前を変更
               </MenuItem>
-              <MenuItem
-                icon={<Icon name="text" size={16} />}
-                right={<span className="text-xs text-muted">{nameSuffixOf(database) || "なし"}</span>}
-                onClick={async () => {
-                  pop.close();
-                  const k = await choose("ページの名前の後ろに付ける言葉", [{ label: "言葉を入れる", detail: `今：${nameSuffixOf(database) || "なし"}（例：様）` }, { label: "付けない" }]);
-                  if (k === 1) await updateDatabase(database.id, { nameSuffix: "" });
-                  if (k === 0) {
-                    const v = await promptText("ページの名前の後ろに付ける言葉", nameSuffixOf(database), "例：様");
-                    if (v) await updateDatabase(database.id, { nameSuffix: v });
-                  }
-                }}
-              >
-                名前の後ろに付ける言葉
-              </MenuItem>
               {database.props.some((p) => p.type === "stage") && (
-                <MenuItem icon={<Icon name="timeline" size={16} />} onClick={() => (pop.close(), setDialog("plans"))}>
-                  工程の設定（プランごとの工程と割合）
+                <MenuItem icon={<Icon name="timeline" size={16} />} title="プランごとの工程と割合" onClick={() => (pop.close(), setDialog("plans"))}>
+                  工程の設定
                 </MenuItem>
               )}
               <MenuItem icon={<Icon name="bell" size={16} />} right={<span className="text-xs text-muted">{dueProp(database) ? `${dueDaysOf(database)}日前から` : "なし"}</span>} onClick={() => (pop.close(), setDialog("due"))}>

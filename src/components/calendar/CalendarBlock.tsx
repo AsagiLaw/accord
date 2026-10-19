@@ -14,7 +14,7 @@ import { MenuDivider } from "@/components/ui/Popover";
 import { Segmented } from "@/components/ui/Segmented";
 import { BackHead, EmptyNote, MenuTitle, NavRow, OptionRow, SectionHead, ToggleRow } from "@/components/ui/SettingsMenu";
 import { newId, type CalEvent, type Database, type DbPage, type TagColor } from "@/lib/local/db";
-import { deleteEvent, nameSuffixOf, saveCalEvent, useCalendarEvents, useDatabases, usePagesOf } from "@/lib/local/requests";
+import { deleteEvent, saveCalEvent, useCalendarEvents, useDatabases, usePagesOf } from "@/lib/local/requests";
 import { addDays, daysBetween, isDate, today, valueOf } from "@/lib/requests/logic";
 import { stageDates, stageOf } from "@/lib/requests/stages";
 
@@ -114,9 +114,8 @@ export function collectItems({
     const database = databases.find((d) => d.id === s.dbId);
     const prop = database?.props.find((p) => p.id === s.propId);
     if (!database || !prop) continue;
-    const suffix = nameSuffixOf(database);
     for (const p of pages.filter((x) => x.dbId === database.id)) {
-      const name = `${p.title || "無題"}${suffix}`;
+      const name = p.title || "無題";
       if (prop.type === "stage") {
         // 工程の期限：工程ごとに出す（終わった工程は線で消す）
         const current = stageOf(prop, p).index;

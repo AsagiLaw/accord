@@ -84,7 +84,6 @@ export function useTodos(roomId: string) {
 // ---- 依頼（ページ） ----
 
 /** ページの名前の後ろに付ける言葉（データベースの設定。無いときは、依頼は「様」） */
-export const nameSuffixOf = (d: Pick<Database, "nameSuffix">) => d.nameSuffix ?? "";
 
 /** 新しいページの初期値：受付日・開始日は今日、枚数1、進行0%、ステータスは最初の選択肢。項目に「はじめから入る値」があれば、そちらを使う */
 export function newPageDefaults(database: Database, userId?: string): Record<string, unknown> {
@@ -283,7 +282,7 @@ export async function addOption(dbId: string, propId: string, option: string) {
   await db.databases.update(dbId, { props });
 }
 
-export async function updateDatabase(dbId: string, patch: Partial<Pick<Database, "name" | "props" | "plans" | "nameSuffix" | "dueProp" | "dueDays">>) {
+export async function updateDatabase(dbId: string, patch: Partial<Pick<Database, "name" | "props" | "plans" | "dueProp" | "dueDays">>) {
   await db.databases.update(dbId, patch);
 }
 

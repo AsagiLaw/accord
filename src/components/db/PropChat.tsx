@@ -7,8 +7,8 @@ import { Icon } from "@/components/Icon";
 import { seedUsers } from "@/components/pageBlocks";
 import { PopupDialog } from "@/components/ui/Dialog";
 import { useChat, useChatSummary } from "@/lib/local/chat";
-import type { Database, DbPage, Profile, Property } from "@/lib/local/db";
-import { ensurePropChat, nameSuffixOf } from "@/lib/local/requests";
+import type { DbPage, Profile, Property } from "@/lib/local/db";
+import { ensurePropChat } from "@/lib/local/requests";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 
 /** 表などのセルに出す、チャットの項目の中身：発言の数と、最後の発言 */
@@ -33,14 +33,12 @@ export function ChatSummary({ chatId }: { chatId: string }) {
 
 /** チャットの項目の会話を、ポップアップで開く（表のセルを押したとき）。まだチャットが無ければ作る */
 export function PropChatPopup({
-  database,
   page,
   prop,
   members,
   userId,
   onClose,
 }: {
-  database: Database;
   page: DbPage;
   prop: Property;
   members: MemberWithProfile[];
@@ -56,7 +54,7 @@ export function PropChatPopup({
   const me: Profile = { id: userId, displayName: members.find((m) => m.userId === userId)?.displayName ?? "", username: "", createdAt: 0 };
   const canTalk = !prop.allowed?.length || prop.allowed.includes(userId);
   const notice = canTalk ? undefined : `「${prop.name}」に書き込めるのは、選ばれた人だけです`;
-  const name = page.title ? `${page.title}${nameSuffixOf(database)}` : "無題";
+  const name = page.title || "無題";
   return (
     <PopupDialog title={`${name} › ${prop.name}`} onClose={onClose} width="max-w-2xl">
       <div className="flex h-[70dvh] min-h-0 flex-col p-3">

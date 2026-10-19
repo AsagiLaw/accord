@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { choose, confirmAction, promptText } from "@/components/ui/overlay";
-import { addEvent, createBlankPage, deleteEvent, nameSuffixOf } from "@/lib/local/requests";
+import { addEvent, createBlankPage, deleteEvent } from "@/lib/local/requests";
 import { P } from "@/lib/requests/defaults";
 import { addDays, isDate, stagesOf, today, valueOf } from "@/lib/requests/logic";
 import { stageDates, stageOf } from "@/lib/requests/stages";
@@ -170,19 +170,18 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
   const items = new Map<string, Item[]>();
   const push = (date: string, item: Item) => items.set(date, [...(items.get(date) ?? []), item]);
   for (const p of pages) {
-    const suffix = nameSuffixOf(database);
     // 「出す日付」で工程の項目を選んだら、工程ごとの期限を出す
     const stageProp = database.props.find((x) => x.type === "stage" && x.id === dateId);
     // 終わった工程（今の工程より前）だけ斜線にする。今の工程は進めている途中なので、ふつうに出す
     if (stageProp) {
       const current = stageOf(stageProp, p).index;
       stageDates(stageProp, p).forEach((s, i) => {
-        push(s.date, { key: `${p.id}:${s.name}`, text: `${s.name}：${p.title}${suffix}`, pageId: p.id, tone: i < current ? "done" : "auto" });
+        push(s.date, { key: `${p.id}:${s.name}`, text: `${s.name}：${p.title}`, pageId: p.id, tone: i < current ? "done" : "auto" });
       });
     }
     const dp = database.props.find((x) => x.id === dateId && x.type !== "stage");
     const dv = dp ? valueOf(p, dp.id) : undefined;
-    if (dp && isDate(dv)) push(dv, { key: `${p.id}:${dp.id}`, text: `${dp.name}：${p.title}${suffix}`, pageId: p.id, tone: "auto" });
+    if (dp && isDate(dv)) push(dv, { key: `${p.id}:${dp.id}`, text: `${dp.name}：${p.title}`, pageId: p.id, tone: "auto" });
   }
   for (const e of events) push(e.date, { key: e.id, text: e.text, eventId: e.id, tone: "manual" });
 
@@ -216,7 +215,7 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
     }
     const pi = await choose(
       `${label}：どの依頼の工程ですか`,
-      pages.map((p) => ({ label: `${p.title}${nameSuffixOf(database)}`, detail: isDate(p.values[P.due]) ? `納期 ${String(p.values[P.due]).replaceAll("-", "/")}` : undefined })),
+      pages.map((p) => ({ label: p.title, detail: isDate(p.values[P.due]) ? `納期 ${String(p.values[P.due]).replaceAll("-", "/")}` : undefined })),
     );
     if (pi === null) return;
     const page = pages[pi];
@@ -229,11 +228,11 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
     ];
     const names = stageNames.length ? stageNames : ["ラフ", "下書き", "線画", "着色", "納品"];
     const si = await choose(
-      `${page.title}${nameSuffixOf(database)}：どの工程ですか`,
+      `${page.title}：どの工程ですか`,
       names.map((n) => ({ label: n })),
     );
     if (si === null) return;
-    await addEvent(database.roomId, date, `${names[si]}：${page.title}${nameSuffixOf(database)}`, page.id);
+    await addEvent(database.roomId, date, `${names[si]}：${page.title}`, page.id);
   };
 
   /** 1日のマス。label は左上に出す日付 */
