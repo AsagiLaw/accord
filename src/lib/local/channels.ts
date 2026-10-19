@@ -4,21 +4,21 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db, newId, type Category, type Database, type DbView } from "./db";
 
 // サイドバーの「カテゴリー」と「チャンネル」。
-// チャンネルは データベース・チャット・ノート・ウィンドウ の4種類で、それぞれの行に categoryId と navOrder を持たせている。
+// チャンネルは チャット・ノート・ウィンドウ の3種類で、それぞれの行に categoryId と navOrder を持たせている。
+// データベースはチャンネルではなく、カテゴリー（データベースカテゴリー。Category の dbId）としてサイドバーに出す
 
-export type ChannelKind = "db" | "chat" | "note" | "window";
+export type ChannelKind = "chat" | "note" | "window";
 /** sourceId：ウィンドウ・ノートが、ソースにしているテンプレート。updatedAt・updatedBy：ノートの最終更新（サイドバーの「更新あり」の印に使う） */
 export type Channel = { kind: ChannelKind; id: string; name: string; icon?: string; categoryId: string | null; order: number; sourceId?: string | null; updatedAt?: number; updatedBy?: string };
 
 export const CHANNEL_KINDS: Record<ChannelKind, { label: string; note: string }> = {
-  db: { label: "データベース", note: "依頼などを表やカレンダーで管理する" },
   chat: { label: "チャット", note: "2人で話す。画像はメディアから" },
   note: { label: "ノート", note: "ブロック式で書くページ" },
   window: { label: "ウィンドウ", note: "画面いっぱいに部品を自由に並べる" },
 };
 
-const tableOf = (kind: ChannelKind) => (kind === "db" ? db.databases : kind === "chat" ? db.chats : kind === "window" ? db.windows : db.notes);
-const CHANNEL_TABLES = [db.databases, db.chats, db.notes, db.windows];
+const tableOf = (kind: ChannelKind) => (kind === "chat" ? db.chats : kind === "window" ? db.windows : db.notes);
+const CHANNEL_TABLES = [db.chats, db.notes, db.windows];
 
 export function useCategories(roomId: string) {
   return useLiveQuery(async () => (await db.categories.where("roomId").equals(roomId).toArray()).sort((a, b) => a.order - b.order), [roomId]);
@@ -27,15 +27,13 @@ export function useCategories(roomId: string) {
 /** ルームのチャンネルを全部（依頼ページの中のチャット・メモは除く） */
 export function useChannels(roomId: string) {
   return useLiveQuery(async () => {
-    const [dbs, chats, notes, windows] = await Promise.all([
-      db.databases.where("roomId").equals(roomId).toArray(),
+    const [chats, notes, windows] = await Promise.all([
       db.chats.where("roomId").equals(roomId).filter((c) => !c.pageId).toArray(),
       db.notes.where("roomId").equals(roomId).filter((n) => !n.pageId && !n.template && !n.inner).toArray(),
       // ホームのウィンドウは、サイドバーの「ホーム」から開くので出さない。テンプレートも出さない
       db.windows.where("roomId").equals(roomId).filter((w) => !w.home && !w.template).toArray(),
     ]);
     const list: Channel[] = [
-      ...dbs.map((d) => ({ kind: "db" as const, id: d.id, name: d.name, icon: d.icon, categoryId: d.categoryId ?? null, order: d.navOrder ?? d.createdAt })),
       ...chats.map((c) => ({ kind: "chat" as const, id: c.id, name: c.name, icon: c.icon, categoryId: c.categoryId ?? null, order: c.navOrder ?? c.createdAt })),
       ...notes.map((n) => ({ kind: "note" as const, id: n.id, name: n.title, icon: n.icon, categoryId: n.categoryId ?? null, order: n.navOrder ?? n.createdAt, sourceId: n.sourceId ?? null, updatedAt: n.updatedAt, updatedBy: n.updatedBy })),
       ...windows.map((w) => ({ kind: "window" as const, id: w.id, name: w.name, icon: w.icon, categoryId: w.categoryId ?? null, order: w.navOrder ?? w.createdAt, sourceId: w.sourceId ?? null })),
@@ -46,9 +44,10 @@ export function useChannels(roomId: string) {
 
 // ---- カテゴリー ----
 
-export async function createCategory(roomId: string, name: string, before?: string) {
+/** カテゴリーを作る（before があれば、そのカテゴリーの上に）。dbId を渡すとデータベースカテゴリー */
+export async function createCategory(roomId: string, name: string, before?: string, dbId?: string) {
   const cats = (await db.categories.where("roomId").equals(roomId).toArray()).sort((a, b) => a.order - b.order);
-  const cat: Category = { id: newId(), roomId, name, order: 0, createdAt: Date.now() };
+  const cat: Category = { id: newId(), roomId, name, order: 0, createdAt: Date.now(), ...(dbId ? { dbId } : {}) };
   const i = before ? cats.findIndex((c) => c.id === before) : -1;
   const next = i < 0 ? [...cats, cat] : [...cats.slice(0, i), cat, ...cats.slice(i)];
   await db.transaction("rw", db.categories, async () => {
@@ -58,11 +57,22 @@ export async function createCategory(roomId: string, name: string, before?: stri
   return cat;
 }
 
+/** データベースカテゴリーを作る：空のデータベースと、それを出すカテゴリー。作ったデータベースの ID を返す */
+export async function createDbCategory(roomId: string, name: string, before?: string) {
+  const { database, views } = emptyDatabase(roomId, name);
+  await db.transaction("rw", db.databases, db.dbViews, async () => {
+    await db.databases.add(database);
+    await db.dbViews.bulkAdd(views);
+  });
+  await createCategory(roomId, name, before, database.id);
+  return database.id;
+}
+
 export async function renameCategory(id: string, name: string) {
   await db.categories.update(id, { name });
 }
 
-/** カテゴリーを消す。中のチャンネルは消さず、カテゴリーの外（一番上）に出す */
+/** 通常カテゴリーを消す。中のチャンネルは消さず、カテゴリーの外（一番上）に出す（データベースカテゴリーは deleteDatabase） */
 export async function deleteCategory(roomId: string, id: string) {
   await db.transaction("rw", [db.categories, ...CHANNEL_TABLES], async () => {
     for (const t of CHANNEL_TABLES) {
@@ -128,14 +138,6 @@ export function emptyDatabase(roomId: string, name: string): { database: Databas
 export async function createChannel(roomId: string, userId: string, kind: ChannelKind, name: string, categoryId: string | null) {
   const navOrder = await nextOrder(roomId, categoryId);
   const now = Date.now();
-  if (kind === "db") {
-    const { database, views } = emptyDatabase(roomId, name);
-    await db.transaction("rw", db.databases, db.dbViews, async () => {
-      await db.databases.add({ ...database, categoryId, navOrder });
-      await db.dbViews.bulkAdd(views);
-    });
-    return database.id;
-  }
   if (kind === "chat") {
     const id = newId();
     await db.chats.add({ id, roomId, name, kind: "normal", order: navOrder, createdAt: now, categoryId, navOrder });
@@ -156,27 +158,28 @@ export async function renameChannel(ch: Pick<Channel, "kind" | "id">, name: stri
   else await (tableOf(ch.kind) as typeof db.chats).update(ch.id, { name });
 }
 
-/** チャンネル（データベース・チャット・ノート・ウィンドウ）のアイコンを変える。undefined で種類のアイコンに戻す */
+/** チャンネル（チャット・ノート・ウィンドウ）のアイコンを変える。undefined で種類のアイコンに戻す */
 export async function setChannelIcon(ch: Pick<Channel, "kind" | "id">, icon: string | undefined) {
   await (tableOf(ch.kind) as typeof db.chats).update(ch.id, { icon });
 }
 
-/** チャンネルを削除する。データベースは中のページ・チャット・ビューも消える（画像はメディアに残る） */
+/** チャンネルを削除する（画像はメディアに残る） */
 export async function deleteChannel(ch: Pick<Channel, "kind" | "id">) {
   if (ch.kind === "note" || ch.kind === "window") {
     await deleteOwnedChats(`${ch.kind}:${ch.id}`);
     return ch.kind === "note" ? db.notes.delete(ch.id) : db.windows.delete(ch.id);
   }
-  if (ch.kind === "chat") {
-    await db.transaction("rw", db.chats, db.messages, db.chatReads, async () => {
-      await db.messages.filter((m) => m.chatId === ch.id).delete();
-      await db.chatReads.filter((r) => r.chatId === ch.id).delete();
-      await db.chats.delete(ch.id);
-    });
-    return;
-  }
-  await db.transaction("rw", [db.databases, db.dbPages, db.dbViews, db.chats, db.messages, db.chatReads, db.events, db.notes], async () => {
-    const pages = await db.dbPages.where("dbId").equals(ch.id).toArray();
+  await db.transaction("rw", db.chats, db.messages, db.chatReads, async () => {
+    await db.messages.filter((m) => m.chatId === ch.id).delete();
+    await db.chatReads.filter((r) => r.chatId === ch.id).delete();
+    await db.chats.delete(ch.id);
+  });
+}
+
+/** データベースを、出しているカテゴリーごと削除する。中のページ・チャット・ビューも消える（画像はメディアに残る） */
+export async function deleteDatabase(dbId: string) {
+  await db.transaction("rw", [db.databases, db.dbPages, db.dbViews, db.chats, db.messages, db.chatReads, db.events, db.notes, db.categories], async () => {
+    const pages = await db.dbPages.where("dbId").equals(dbId).toArray();
     const pageIds = pages.map((p) => p.id);
     // ページのチャットに加えて、チャットの項目のチャット（持ち主がページ）と、ページの本文に置いたチャットも消す
     const notes = await db.notes.filter((n) => !!n.pageId && pageIds.includes(n.pageId)).toArray();
@@ -189,8 +192,9 @@ export async function deleteChannel(ch: Pick<Channel, "kind" | "id">) {
     await db.events.filter((e) => !!e.pageId && pageIds.includes(e.pageId)).delete();
     await db.notes.filter((n) => !!n.pageId && pageIds.includes(n.pageId)).delete();
     await db.dbPages.bulkDelete(pageIds);
-    await db.dbViews.where("dbId").equals(ch.id).delete();
-    await db.databases.delete(ch.id);
+    await db.dbViews.where("dbId").equals(dbId).delete();
+    await db.databases.delete(dbId);
+    await db.categories.filter((c) => c.dbId === dbId).delete();
   });
 }
 

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { DEFAULT_PAGE_ICON, IconMark } from "@/components/IconMark";
+import { DatabasePopup } from "@/components/db/DatabasePopup";
 import { NewPageDialog } from "@/components/db/NewPageDialog";
 import { PageMenu } from "@/components/db/PageMenu";
 import { FilterScreens, SortScreens, sortText } from "@/components/db/ViewSettings";
@@ -21,8 +22,10 @@ import {
   channelHref,
   createCategory,
   createChannel,
+  createDbCategory,
   deleteCategory,
   deleteChannel,
+  deleteDatabase,
   moveCategory,
   moveChannel,
   renameCategory,
@@ -34,7 +37,7 @@ import {
 } from "@/lib/local/channels";
 import type { Category, Database, DbPage, DbView } from "@/lib/local/db";
 import { linkTemplate, useChannelTemplates, type TemplateKind } from "@/lib/local/channelTemplates";
-import { nameSuffixOf, useDatabase, usePages, useViews } from "@/lib/local/requests";
+import { nameSuffixOf, updateDatabase, useDatabase, useDatabases, usePages, useViews } from "@/lib/local/requests";
 import { useMembers } from "@/lib/local/rooms";
 import { setSidebarFilter, setSidebarView } from "@/lib/local/templates";
 import { P } from "@/lib/requests/defaults";
@@ -43,23 +46,28 @@ import { badgeTone, useDoNotDisturb } from "@/lib/local/dnd";
 import { DueBadge } from "@/components/db/views/common";
 import { dueStatus, isPageDone } from "@/lib/requests/due";
 
-const KIND_ICON: Record<ChannelKind, IconName> = { db: "db", chat: "chat", note: "note", window: "window" };
-const DEFAULT_NAME: Record<ChannelKind, string> = { db: "新しいデータベース", chat: "新しいチャット", note: "新しいノート", window: "新しいウィンドウ" };
+const KIND_ICON: Record<ChannelKind, IconName> = { chat: "chat", note: "note", window: "window" };
+const DEFAULT_NAME: Record<ChannelKind, string> = { chat: "新しいチャット", note: "新しいノート", window: "新しいウィンドウ" };
 
+/** 作るカテゴリーの種類：通常カテゴリー（チャンネルを入れる）・データベースカテゴリー（データベースのページが並ぶ） */
+type CategoryKind = "normal" | "db";
+/** category はデータベースカテゴリー（cat.dbId がある）のときもある */
 type Target = { type: "empty" } | { type: "category"; cat: Category } | { type: "channel"; ch: Channel };
-type Step = "main" | "kinds" | "move" | "sidebar" | "source" | "addPage";
+type Step = "main" | "kinds" | "catKinds" | "move" | "sidebar" | "source" | "addPage";
 /** サイドバーから足すページのテンプレート：既定のテンプレート・使わない・選んだテンプレート（ID） */
 type AddChoice = { dbId: string; template: "default" | "none" | string };
 type Drag = { type: "channel"; ch: Channel } | { type: "category"; id: string };
 type Drop = { type: "channel"; categoryId: string | null; index: number } | { type: "category"; index: number };
 
 /**
- * Discord のようなサイドバー：カテゴリーの中にチャンネル（データベース・チャット・ノート・ウィンドウ）が並ぶ。
+ * Discord のようなサイドバー：カテゴリーの中にチャンネル（チャット・ノート・ウィンドウ）が並ぶ。
+ * データベースはデータベースカテゴリーとして出し、中にページが並ぶ（「⋯」の「編集」でデータベースの画面をポップアップで開く）。
  * カテゴリーの＋や右クリックで作成、ドラッグで移動・並べ替え。
  */
 export function ChannelNav({ roomId, userId }: { roomId: string; userId: string }) {
   const categories = useCategories(roomId) ?? [];
   const channels = useChannels(roomId) ?? [];
+  const databases = useDatabases(roomId);
   const templates = useChannelTemplates(roomId) ?? [];
   const unread = useUnreadCounts(roomId, userId);
   const noteSeen = useNoteSeen(userId);
@@ -69,6 +77,9 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
   const [target, setTarget] = useState<Target>({ type: "empty" });
   const [step, setStep] = useState<Step>("main");
   const [adding, setAdding] = useState<AddChoice | null>(null);
+  // データベースの画面のポップアップ（ほかの画面へ移ったら閉じる）
+  const [editing, setEditing] = useState<{ dbId: string; at: string } | null>(null);
+  const editingNow = editing && editing.at === pathname ? editing : null;
   const [drag, setDrag] = useState<Drag | null>(null);
   const [drop, setDrop] = useState<Drop | null>(null);
   const [collapsed, setCollapsed] = useState<string[]>(() => {
@@ -120,13 +131,23 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
     if (template) await linkTemplate(kind as TemplateKind, id, template.id);
     router.push(channelHref(roomId, { kind, id }));
   };
-  const newCategory = async (before?: string) => {
+  const newCategory = async (kind: CategoryKind, before?: string) => {
     menu.close();
+    if (kind === "db") {
+      // 作ったら、項目やビューを整えられるように、データベースの画面をポップアップで開く
+      const name = await promptText("データベースカテゴリーを作成", "新しいデータベース", "名前");
+      if (!name) return;
+      const dbId = await createDbCategory(roomId, name, before);
+      setEditing({ dbId, at: pathname });
+      return;
+    }
     const name = await promptText("カテゴリーを作成", "", "カテゴリーの名前");
     if (name) await createCategory(roomId, name, before);
   };
 
   const listOf = (categoryId: string | null) => channels.filter((c) => c.categoryId === categoryId);
+  /** カテゴリーの名前（データベースカテゴリーは、データベースの名前） */
+  const nameOf = (cat: Category) => (cat.dbId ? (databases?.find((d) => d.id === cat.dbId)?.name ?? cat.name) : cat.name);
 
   // ---- ドラッグ ----
   const onRowDragOver = (e: React.DragEvent, ch: Channel, index: number) => {
@@ -137,7 +158,8 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
     setDrop({ type: "channel", categoryId: ch.categoryId, index: e.clientY > r.top + r.height / 2 ? index + 1 : index });
   };
   const onHeaderDragOver = (e: React.DragEvent, cat: Category, catIndex: number) => {
-    if (!drag) return;
+    // データベースカテゴリーには、チャンネルは入れられない
+    if (!drag || (drag.type === "channel" && cat.dbId)) return;
     e.preventDefault();
     e.stopPropagation();
     if (drag.type === "channel") setDrop({ type: "channel", categoryId: cat.id, index: listOf(cat.id).length });
@@ -204,7 +226,6 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
               </span>
             )}
           </Link>
-          {ch.kind === "db" && <DbUnread dbId={ch.id} roomId={roomId} userId={userId} hide={active} />}
           {n > 0 && !active && <UnreadBadge n={n} className="mr-1" />}
           {updated && <UpdatedDot />}
           <button
@@ -215,7 +236,6 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
             <Icon name="dots" size={16} />
           </button>
         </div>
-        {ch.kind === "db" && <DbPages dbId={ch.id} roomId={roomId} userId={userId} />}
       </div>
     );
   };
@@ -258,6 +278,8 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
       {categories.map((cat, ci) => {
         const isCollapsed = collapsed.includes(cat.id) && !(drag?.type === "channel" && drop?.type === "channel" && drop.categoryId === cat.id);
         const catLine = drop?.type === "category" && drop.index === ci;
+        const name = nameOf(cat);
+        const dbId = cat.dbId;
         return (
           <div key={cat.id} className="mt-4">
             {catLine && line}
@@ -271,24 +293,54 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
               onDrop={(e) => (e.preventDefault(), e.stopPropagation(), finish())}
               onDragEnd={() => (setDrag(null), setDrop(null))}
               onContextMenu={onContext({ type: "category", cat })}
-              data-name={`カテゴリー「${cat.name}」`}
+              data-name={dbId ? `データベースカテゴリー「${name}」` : `カテゴリー「${cat.name}」`}
               className={`group mb-0.5 flex items-center gap-0.5 pr-1 text-xs text-muted ${drag?.type === "category" && drag.id === cat.id ? "opacity-40" : ""}`}
             >
               <button onClick={() => toggle(cat.id)} aria-expanded={!isCollapsed} className="flex min-w-0 flex-1 items-center gap-0.5 py-1 pl-1 text-left hover:text-ink">
                 <Icon name={isCollapsed ? "rt" : "dn"} size={14} className="shrink-0" />
-                <span className="truncate font-bold tracking-wide">{cat.name}</span>
+                <span className="truncate font-bold tracking-wide">{name}</span>
               </button>
-              <button
-                aria-label={`「${cat.name}」にチャンネルを作成`}
-                title="チャンネルを作成"
-                onClick={(e) => openMenu({ type: "category", cat }, "kinds", e.currentTarget)}
-                className="grid h-6 w-6 shrink-0 place-items-center rounded-full hover:bg-tint hover:text-ink"
-              >
-                <Icon name="add" size={16} />
-              </button>
+              {dbId ? (
+                // データベースカテゴリー：中のページのチャットの未読と、⋯（編集などのメニュー）と、＋（ページを追加）
+                <>
+                  <DbUnread dbId={dbId} roomId={roomId} userId={userId} />
+                  <button
+                    aria-label={`「${name}」のメニュー`}
+                    title="メニュー"
+                    onClick={(e) => openMenu({ type: "category", cat }, "main", e.currentTarget)}
+                    className="grid h-6 w-6 shrink-0 place-items-center rounded-full hover:bg-tint hover:text-ink"
+                  >
+                    <Icon name="dots" size={16} />
+                  </button>
+                  <button
+                    aria-label={`「${name}」にページを追加`}
+                    title="ページを追加"
+                    onClick={() => setAdding({ dbId, template: "default" })}
+                    className="grid h-6 w-6 shrink-0 place-items-center rounded-full hover:bg-tint hover:text-ink"
+                  >
+                    <Icon name="add" size={16} />
+                  </button>
+                </>
+              ) : (
+                <button
+                  aria-label={`「${cat.name}」にチャンネルを作成`}
+                  title="チャンネルを作成"
+                  onClick={(e) => openMenu({ type: "category", cat }, "kinds", e.currentTarget)}
+                  className="grid h-6 w-6 shrink-0 place-items-center rounded-full hover:bg-tint hover:text-ink"
+                >
+                  <Icon name="add" size={16} />
+                </button>
+              )}
             </div>
-            {!isCollapsed && channelList(cat.id)}
-            {isCollapsed && listOf(cat.id).filter((c) => pathname.startsWith(channelHref(roomId, c))).map((c) => row(c, listOf(cat.id).indexOf(c)))}
+            {dbId ? (
+              // 閉じているときは、今開いているページだけ出す（チャンネルと同じ）
+              <DbPages dbId={dbId} roomId={roomId} userId={userId} onlyActive={isCollapsed} />
+            ) : (
+              <>
+                {!isCollapsed && channelList(cat.id)}
+                {isCollapsed && listOf(cat.id).filter((c) => pathname.startsWith(channelHref(roomId, c))).map((c) => row(c, listOf(cat.id).indexOf(c)))}
+              </>
+            )}
           </div>
         );
       })}
@@ -304,9 +356,11 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
             setStep={setStep}
             categories={categories}
             channels={channels}
+            nameOf={nameOf}
             onNewChannel={newChannel}
             onNewCategory={newCategory}
             onAddPage={setAdding}
+            onEditDb={(dbId) => setEditing({ dbId, at: pathname })}
             close={menu.close}
             roomId={roomId}
             router={router}
@@ -315,6 +369,7 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
         </Popover>
       )}
       {adding && <SidebarNewPage choice={adding} roomId={roomId} userId={userId} onClose={() => setAdding(null)} />}
+      {editingNow && <DatabasePopup roomId={roomId} dbId={editingNow.dbId} userId={userId} onClose={() => setEditing(null)} />}
     </div>
   );
 }
@@ -378,9 +433,11 @@ function ChannelMenu({
   setStep,
   categories,
   channels,
+  nameOf,
   onNewChannel,
   onNewCategory,
   onAddPage,
+  onEditDb,
   close,
   roomId,
   router,
@@ -391,15 +448,19 @@ function ChannelMenu({
   setStep: (s: Step) => void;
   categories: Category[];
   channels: Channel[];
+  nameOf: (cat: Category) => string;
   onNewChannel: (kind: ChannelKind, categoryId: string | null) => void;
-  onNewCategory: (before?: string) => void;
+  onNewCategory: (kind: CategoryKind, before?: string) => void;
   onAddPage: (choice: AddChoice) => void;
+  onEditDb: (dbId: string) => void;
   close: () => void;
   roomId: string;
   router: ReturnType<typeof useRouter>;
   pathname: string;
 }) {
   const categoryId = target.type === "category" ? target.cat.id : target.type === "channel" ? target.ch.categoryId : null;
+  // データベースカテゴリーのメニューのときの、データベース
+  const dbId = target.type === "category" ? target.cat.dbId : undefined;
 
   // 編集：テンプレートと繋いでいれば、テンプレートを直すか、分けて（ここだけの内容にして）直すかを選ぶ
   const sourceOf = (ch: Channel): SourceTarget => ({ kind: ch.kind as TemplateKind, id: ch.id, name: ch.name, sourceId: ch.sourceId });
@@ -407,6 +468,22 @@ function ChannelMenu({
     close();
     void openSourceEdit(sourceOf(ch), channelHref(roomId, ch), router);
   };
+
+  if (step === "catKinds") {
+    // 「この上にカテゴリーを作成」のときは、そのカテゴリーの上に作る
+    const before = target.type === "category" ? target.cat.id : undefined;
+    return (
+      <div>
+        <MenuLabel>作るカテゴリー</MenuLabel>
+        <MenuItem icon={<Icon name="folder" size={16} />} title="チャット・ノート・ウィンドウのチャンネルを入れる" onClick={() => onNewCategory("normal", before)}>
+          通常カテゴリー
+        </MenuItem>
+        <MenuItem icon={<Icon name="db" size={16} />} title="データベースのページを並べる。⋯の「編集」でデータベースの画面を開く" onClick={() => onNewCategory("db", before)}>
+          データベースカテゴリー
+        </MenuItem>
+      </div>
+    );
+  }
 
   if (step === "kinds") {
     // カテゴリーの＋では、そのカテゴリーに合う種類を一番上に出す（名前が種類と同じ「ノート」なら、ノート。そうでなければ、中に一番多い種類）
@@ -442,11 +519,14 @@ function ChannelMenu({
     return (
       <div>
         <MenuLabel>「{ch.name || "無題"}」の移動先</MenuLabel>
-        {categories.map((c) => (
-          <MenuItem key={c.id} active={c.id === ch.categoryId} onClick={() => go(c.id)}>
-            {c.name}
-          </MenuItem>
-        ))}
+        {/* データベースカテゴリーには入れられない */}
+        {categories
+          .filter((c) => !c.dbId)
+          .map((c) => (
+            <MenuItem key={c.id} active={c.id === ch.categoryId} onClick={() => go(c.id)}>
+              {c.name}
+            </MenuItem>
+          ))}
         <MenuItem active={ch.categoryId === null} onClick={() => go(null)}>
           カテゴリーの外（一番上）
         </MenuItem>
@@ -454,11 +534,8 @@ function ChannelMenu({
     );
   }
 
-  if (target.type === "channel" && step === "sidebar") return <SidebarViewMenu dbId={target.ch.id} close={close} />;
-  if (target.type === "channel" && step === "addPage") {
-    const dbId = target.ch.id;
-    return <AddPageMenu dbId={dbId} onAdd={(template) => (close(), onAddPage({ dbId, template }))} />;
-  }
+  if (dbId && step === "sidebar") return <SidebarViewMenu dbId={dbId} close={close} />;
+  if (dbId && step === "addPage") return <AddPageMenu dbId={dbId} onAdd={(template) => (close(), onAddPage({ dbId, template }))} />;
   if (target.type === "channel" && step === "source") return <SourceMenu target={sourceOf(target.ch)} roomId={roomId} close={close} />;
 
   if (target.type === "channel") {
@@ -474,8 +551,6 @@ function ChannelMenu({
         <MenuLabel>
           {CHANNEL_KINDS[ch.kind].label}「{ch.name || "無題"}」
         </MenuLabel>
-        {/* データベースは、ここからもページを足せる（既定のテンプレートで。テンプレートを選んでも足せる） */}
-        {ch.kind === "db" && <AddPageItems dbId={ch.id} onAdd={() => (close(), onAddPage({ dbId: ch.id, template: "default" }))} onPick={() => setStep("addPage")} />}
         {/* ウィンドウは、ここから編集モードで開く（画面の右上には編集ボタンを置かない）。
             テンプレートと繋いだノートも、ここから（ふだんは読むだけ） */}
         {(ch.kind === "window" || (ch.kind === "note" && ch.sourceId)) && (
@@ -501,11 +576,6 @@ function ChannelMenu({
         <MenuItem icon={<Icon name="folder" size={16} />} onClick={() => setStep("move")}>
           カテゴリーへ移動
         </MenuItem>
-        {ch.kind === "db" && (
-          <MenuItem icon={<Icon name="filter" size={16} />} onClick={() => setStep("sidebar")}>
-            サイドバーに出すページ
-          </MenuItem>
-        )}
         {i > 0 && (
           <MenuItem icon={<Icon name="up" size={16} />} onClick={step1(-1)}>
             上へ
@@ -526,18 +596,57 @@ function ChannelMenu({
           danger
           onClick={async () => {
             close();
-            const body =
-              ch.kind === "db"
-                ? "中のページ、ページのチャット・メモ、ビューもすべて消えます。画像はメディアに残ります。元に戻せません。"
-                : ch.kind === "chat"
-                  ? "発言はすべて消えます。画像はメディアに残ります。元に戻せません。"
-                  : "中に置いたチャットの発言も消えます。画像はメディアに残ります。元に戻せません。";
+            const body = ch.kind === "chat" ? "発言はすべて消えます。画像はメディアに残ります。元に戻せません。" : "中に置いたチャットの発言も消えます。画像はメディアに残ります。元に戻せません。";
             if (!(await confirmAction(`「${ch.name || "無題"}」を削除します`, "削除", body))) return;
             if (pathname.startsWith(channelHref(roomId, ch))) router.push(`/r/${roomId}`);
             await deleteChannel(ch);
           }}
         >
           チャンネルを削除
+        </MenuItem>
+      </div>
+    );
+  }
+
+  if (target.type === "category" && dbId) {
+    // データベースカテゴリー：編集（データベースの画面をポップアップで）・ページの追加・名前・サイドバーに出すページ・削除
+    const name = nameOf(target.cat);
+    return (
+      <div>
+        <MenuLabel>データベース「{name}」</MenuLabel>
+        <MenuItem icon={<Icon name="db" size={16} />} onClick={() => (close(), onEditDb(dbId))}>
+          編集
+        </MenuItem>
+        <AddPageItems dbId={dbId} onAdd={() => (close(), onAddPage({ dbId, template: "default" }))} onPick={() => setStep("addPage")} />
+        <MenuItem
+          icon={<Icon name="edit" size={16} />}
+          onClick={async () => {
+            close();
+            const next = await promptText("データベースの名前", name);
+            if (next) await updateDatabase(dbId, { name: next });
+          }}
+        >
+          名前を変更
+        </MenuItem>
+        <MenuItem icon={<Icon name="filter" size={16} />} onClick={() => setStep("sidebar")}>
+          サイドバーに出すページ
+        </MenuItem>
+        <MenuItem icon={<Icon name="folder" size={16} />} onClick={() => setStep("catKinds")}>
+          この上にカテゴリーを作成
+        </MenuItem>
+        <MenuDivider />
+        <MenuItem
+          icon={<Icon name="del" size={16} />}
+          danger
+          onClick={async () => {
+            close();
+            const body = "中のページ、ページのチャット・メモ、ビューもすべて消えます。画像はメディアに残ります。元に戻せません。";
+            if (!(await confirmAction(`データベース「${name}」を削除します`, "削除", body))) return;
+            if (pathname.startsWith(`/r/${roomId}/db/${dbId}`)) router.push(`/r/${roomId}`);
+            await deleteDatabase(dbId);
+          }}
+        >
+          データベースを削除
         </MenuItem>
       </div>
     );
@@ -561,7 +670,7 @@ function ChannelMenu({
         >
           名前を変更
         </MenuItem>
-        <MenuItem icon={<Icon name="folder" size={16} />} onClick={() => onNewCategory(cat.id)}>
+        <MenuItem icon={<Icon name="folder" size={16} />} onClick={() => setStep("catKinds")}>
           この上にカテゴリーを作成
         </MenuItem>
         <MenuDivider />
@@ -581,7 +690,7 @@ function ChannelMenu({
 
   return (
     <div>
-      <MenuItem icon={<Icon name="folder" size={16} />} onClick={() => onNewCategory()}>
+      <MenuItem icon={<Icon name="folder" size={16} />} onClick={() => setStep("catKinds")}>
         カテゴリーを作成
       </MenuItem>
       <MenuItem icon={<Icon name="add" size={16} />} onClick={() => setStep("kinds")}>
@@ -603,13 +712,13 @@ function UnreadBadge({ n, className = "" }: { n: number; className?: string }) {
   return <span className={`rounded-full px-2 text-xs ${badgeTone(quiet)} ${className}`}>{n}</span>;
 }
 
-/** データベースのチャンネルの未読（中の依頼のチャットの未読の合計） */
-function DbUnread({ dbId, roomId, userId, hide }: { dbId: string; roomId: string; userId: string; hide: boolean }) {
+/** データベースカテゴリーの未読（中のページのチャットの未読の合計） */
+function DbUnread({ dbId, roomId, userId }: { dbId: string; roomId: string; userId: string }) {
   const pages = usePages(dbId) ?? [];
   const unread = useUnreadCounts(roomId, userId);
   const n = pages.reduce((a, p) => a + (p.chatId ? (unread?.get(p.chatId) ?? 0) : 0) + (p.reenactChatId ? (unread?.get(p.reenactChatId) ?? 0) : 0), 0);
-  if (!n || hide) return null;
-  return <UnreadBadge n={n} className="mr-1" />;
+  if (!n) return null;
+  return <UnreadBadge n={n} className="mr-0.5" />;
 }
 
 /** サイドバーに出すページを、ビューを使わずに決めるとき（sidebarViewId がこれ） */
@@ -657,14 +766,12 @@ function SidebarViewMenu({ dbId, close }: { dbId: string; close: () => void }) {
   return (
     <div>
       <MenuLabel>サイドバーに出すページ</MenuLabel>
-      <MenuItem active={cur === null || (cur === undefined && database.kind !== "request")} onClick={() => pick(null)}>
+      <MenuItem active={cur === null} onClick={() => pick(null)}>
         出さない
       </MenuItem>
-      {database.kind === "request" && (
-        <MenuItem active={cur === undefined} onClick={() => pick(undefined)}>
-          終わっていない依頼（納期の近い順）
-        </MenuItem>
-      )}
+      <MenuItem active={cur === undefined} onClick={() => pick(undefined)}>
+        {database.kind === "request" ? "終わっていない依頼（納期の近い順）" : "すべてのページ"}
+      </MenuItem>
       {/* 選んでもメニューは閉じず、その下にフィルターと並び替えの行を出す */}
       <MenuItem icon={<Icon name="filter" size={16} />} active={own} onClick={() => !own && void setSidebarView(dbId, SIDEBAR_FILTER)}>
         フィルターで決める
@@ -686,10 +793,11 @@ function SidebarViewMenu({ dbId, close }: { dbId: string; close: () => void }) {
 }
 
 /**
- * データベースの下にページを並べる。どのページを出すかはデータベースの設定（ビュー）で決める。依頼は、はじめは終わっていない依頼を納期順。
+ * データベースカテゴリーの中にページを並べる（チャンネルと同じ形の行）。どのページを出すかはデータベースの設定（ビュー）で決める。
+ * はじめは、依頼は終わっていない依頼を納期順、ほかはすべてのページ。onlyActive（カテゴリーを閉じているとき）は、今開いているページだけ。
  * ページを右クリックすると、編集（ウィンドウ型のページ）と削除
  */
-function DbPages({ dbId, roomId, userId }: { dbId: string; roomId: string; userId: string }) {
+function DbPages({ dbId, roomId, userId, onlyActive }: { dbId: string; roomId: string; userId: string; onlyActive: boolean }) {
   const database = useDatabase(dbId);
   const pages = usePages(dbId) ?? [];
   const views = useViews(dbId) ?? [];
@@ -701,15 +809,17 @@ function DbPages({ dbId, roomId, userId }: { dbId: string; roomId: string; userI
   if (!database) return null;
   const setting = database.sidebarViewId;
   const view = setting === SIDEBAR_FILTER ? sidebarFilterView(database) : setting ? views.find((v) => v.id === setting) : undefined;
-  let active: DbPage[];
-  if (view) active = applyView(database, pages, view, userId);
+  let shown: DbPage[];
+  if (view) shown = applyView(database, pages, view, userId);
   else if (setting === undefined && database.kind === "request")
-    active = pages.filter((p) => !isPageDone(database, p)).sort((a, b) => String(a.values[P.due] ?? "9999").localeCompare(String(b.values[P.due] ?? "9999")));
+    shown = pages.filter((p) => !isPageDone(database, p)).sort((a, b) => String(a.values[P.due] ?? "9999").localeCompare(String(b.values[P.due] ?? "9999")));
+  else if (setting === undefined) shown = pages;
   else return null;
   const href = `/r/${roomId}/db/${dbId}`;
+  if (onlyActive) shown = shown.filter((p) => pathname === `${href}/p/${p.id}`);
   return (
-    <>
-      {active.map((p) => {
+    <div className="space-y-0.5">
+      {shown.map((p) => {
         const ph = `${href}/p/${p.id}`;
         const n = (p.chatId ? (unread?.get(p.chatId) ?? 0) : 0) + (p.reenactChatId ? (unread?.get(p.reenactChatId) ?? 0) : 0);
         const on = pathname === ph;
@@ -723,12 +833,12 @@ function DbPages({ dbId, roomId, userId }: { dbId: string; roomId: string; userI
               menu.openAt(e);
             }}
             data-name={`ページ「${p.title || "無題"}」`}
-            className={`flex min-h-[32px] items-center gap-2 rounded-[10px] pr-2 pl-9 text-sm transition ${on ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"} ${n && !on ? "font-bold" : ""}`}
+            className={`flex min-h-[36px] items-center gap-2 rounded-[10px] py-1.5 pr-2 pl-3 transition ${on ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"} ${n && !on ? "font-bold" : ""}`}
           >
+            <span className="w-4 shrink-0 text-center">
+              <IconMark icon={p.icon || DEFAULT_PAGE_ICON} />
+            </span>
             <span className="min-w-0 flex-1 truncate">
-              <span className="mr-1.5">
-                <IconMark icon={p.icon || DEFAULT_PAGE_ICON} />
-              </span>
               {p.title || <span className="text-muted">無題</span>}
               {p.title && nameSuffixOf(database)}
             </span>
@@ -750,6 +860,6 @@ function DbPages({ dbId, roomId, userId }: { dbId: string; roomId: string; userI
           />
         </Popover>
       )}
-    </>
+    </div>
   );
 }

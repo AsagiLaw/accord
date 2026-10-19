@@ -74,7 +74,7 @@ export async function createRoom(name: string, userId: string, template: RoomTem
   const id = newId();
   const now = Date.now();
   const categories = defaultCategories(id);
-  const [, chatCat, noteCat] = categories;
+  const [chatCat, noteCat] = categories;
   const chat = (name: string, order: number): Chat => ({ ...defaultChat(id), name, order, categoryId: chatCat.id, navOrder: order });
   const chats = template === "chat" ? [chat("雑談", 1), chat("連絡", 2), chat("資料", 3)] : [chat("雑談", 1)];
   const preset = template === "request" ? presetRecords(id, now) : null;

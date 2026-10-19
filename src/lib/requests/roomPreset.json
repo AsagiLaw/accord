@@ -2,8 +2,9 @@
   "categories": [
     {
       "id": "5c933323-c109-4310-b342-80e38bcd4fb9",
-      "name": "依頼",
-      "order": 1
+      "name": "依頼データベース",
+      "order": 1,
+      "dbId": "2bb35c0b-24fb-4858-9a10-e99072991253"
     }
   ],
   "databases": [
@@ -148,8 +149,6 @@
       ],
       "plans": {},
       "order": 1,
-      "categoryId": "5c933323-c109-4310-b342-80e38bcd4fb9",
-      "navOrder": 1,
       "templates": [
         {
           "id": "2113ffc1-2587-4fa1-97a3-d752e16ec556",

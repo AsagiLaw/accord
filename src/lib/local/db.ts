@@ -326,9 +326,6 @@ export type Database = {
   plans: Record<string, Stage[]>;
   order: number;
   createdAt: number;
-  /** サイドバーでの置き場所：カテゴリー（無ければカテゴリーの外）と、その中の並び順 */
-  categoryId?: string | null;
-  navOrder?: number;
   /** ページのテンプレート（「追加」の横から選ぶ） */
   templates?: PageTemplate[];
   /** 「追加」で使うテンプレート（無ければテンプレートなし） */
@@ -534,8 +531,11 @@ export type Note = {
   inner?: { kind: "note" | "window" };
 };
 
-/** サイドバーのカテゴリー（Discord のカテゴリーと同じ）。中にデータベース・チャット・ノートのチャンネルが入る */
-export type Category = { id: string; roomId: string; name: string; order: number; createdAt: number };
+/**
+ * サイドバーのカテゴリー（Discord のカテゴリーと同じ）。通常カテゴリーには、チャット・ノート・ウィンドウのチャンネルが入る。
+ * dbId があればデータベースカテゴリー：チャンネルは入らず、そのデータベースのページが並ぶ（名前はデータベースの名前を出す）
+ */
+export type Category = { id: string; roomId: string; name: string; order: number; createdAt: number; dbId?: string };
 
 /** イメージチャットで使う「イメージユーザー」。ルームの誰でもどのブロックでも使える */
 export type ImageUser = {
@@ -1078,7 +1078,7 @@ db.version(7)
 
 export function defaultCategories(roomId: string): Category[] {
   const now = Date.now();
-  return ["データベース", "チャット", "ノート"].map((name, i) => ({ id: newId(), roomId, name, order: i + 1, createdAt: now + i }));
+  return ["チャット", "ノート"].map((name, i) => ({ id: newId(), roomId, name, order: i + 1, createdAt: now + i }));
 }
 
 /** アカウントごとに1つの「マイメディア」 */
@@ -1397,5 +1397,38 @@ db.version(34)
       const username = await makeUsername(SEED_USERNAMES[p.displayName] ?? p.displayName, (n) => used.has(n));
       used.add(username);
       await tx.table("profiles").update(p.id, { username });
+    }
+  });
+
+// データベースはチャンネルではなく、サイドバーのカテゴリー（データベースカテゴリー）にする。
+// 今あるデータベースは、入っていたカテゴリーのすぐ後ろ（カテゴリーの外にあったものは一番上）にデータベースカテゴリーを作って移す。
+// データベースが抜けて空になったカテゴリーと、空の「データベース」カテゴリー（前のルームの既定）は消す
+db.version(35)
+  .stores({})
+  .upgrade(async (tx) => {
+    type OldDatabase = Database & { categoryId?: string | null; navOrder?: number };
+    const rooms = (await tx.table("rooms").toArray()) as Room[];
+    const now = Date.now();
+    for (const room of rooms) {
+      const cats = ((await tx.table("categories").where("roomId").equals(room.id).toArray()) as Category[]).sort((a, b) => a.order - b.order);
+      const dbs = ((await tx.table("databases").where("roomId").equals(room.id).toArray()) as OldDatabase[]).sort((a, b) => (a.navOrder ?? a.createdAt) - (b.navOrder ?? b.createdAt));
+      // データベースのほかに、チャンネルが入っているカテゴリー
+      const used = new Set<string>();
+      for (const table of ["chats", "notes", "windows"]) {
+        for (const row of (await tx.table(table).where("roomId").equals(room.id).toArray()) as { categoryId?: string | null }[]) if (row.categoryId) used.add(row.categoryId);
+      }
+      const hadDb = new Set(dbs.flatMap((d) => (d.categoryId ? [d.categoryId] : [])));
+      const dbCat = (d: OldDatabase): Category => ({ id: newId(), roomId: room.id, name: d.name, order: 0, createdAt: now, dbId: d.id });
+      const list: Category[] = dbs.filter((d) => !d.categoryId || !cats.some((c) => c.id === d.categoryId)).map(dbCat);
+      for (const c of cats) {
+        if (used.has(c.id) || !(hadDb.has(c.id) || c.name === "データベース")) list.push(c);
+        else await tx.table("categories").delete(c.id);
+        list.push(...dbs.filter((d) => d.categoryId === c.id).map(dbCat));
+      }
+      for (const [i, c] of list.entries()) {
+        if (c.dbId) await tx.table("categories").add({ ...c, order: i + 1 });
+        else await tx.table("categories").update(c.id, { order: i + 1 });
+      }
+      for (const d of dbs) await tx.table("databases").update(d.id, { categoryId: undefined, navOrder: undefined });
     }
   });

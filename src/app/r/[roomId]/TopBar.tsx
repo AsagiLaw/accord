@@ -7,10 +7,10 @@ import { Icon, type IconName } from "@/components/Icon";
 import { DEFAULT_PAGE_ICON, IconMark } from "@/components/IconMark";
 import { IconPicker } from "@/components/IconPicker";
 import { usePopover } from "@/components/ui/Popover";
-import { renameChannel, setChannelIcon, type ChannelKind } from "@/lib/local/channels";
+import { setChannelIcon, type ChannelKind } from "@/lib/local/channels";
 import { renameChat, useChat } from "@/lib/local/chat";
 import { renameNote, useNote } from "@/lib/local/notes";
-import { nameSuffixOf, setDatabaseIcon, setPageIcon, updatePageTitle, useDatabase, usePage } from "@/lib/local/requests";
+import { nameSuffixOf, setDatabaseIcon, setPageIcon, updateDatabase, updatePageTitle, useDatabase, usePage } from "@/lib/local/requests";
 import type { PageTemplate } from "@/lib/local/db";
 import { updateTemplate } from "@/lib/local/templates";
 import { renameWindow, useWindowPage } from "@/lib/local/windows";
@@ -161,12 +161,12 @@ function EditCrumb({
   );
 }
 
-const KIND_ICON: Record<ChannelKind, IconName> = { db: "db", chat: "chat", note: "note", window: "window" };
+const KIND_ICON: Record<ChannelKind | "db", IconName> = { db: "db", chat: "chat", note: "note", window: "window" };
 
 /** サイドバーに出るもの（ウィンドウ・ノート・チャット・データベース）の、アイコンと名前を変えられる表示 */
-function ChannelCrumb({ roomId, kind, id, name, icon, template }: { roomId: string; kind: ChannelKind; id: string; name: string; icon?: string; template?: boolean }) {
+function ChannelCrumb({ roomId, kind, id, name, icon, template }: { roomId: string; kind: ChannelKind | "db"; id: string; name: string; icon?: string; template?: boolean }) {
   const rename = (n: string) =>
-    kind === "window" ? renameWindow(id, n) : kind === "note" ? renameNote(id, n) : kind === "chat" ? renameChat(id, n) : renameChannel({ kind, id }, n);
+    kind === "window" ? renameWindow(id, n) : kind === "note" ? renameNote(id, n) : kind === "chat" ? renameChat(id, n) : updateDatabase(id, { name: n });
   return (
     <EditCrumb
       roomId={roomId}

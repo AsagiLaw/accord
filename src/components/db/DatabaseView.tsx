@@ -36,8 +36,9 @@ export function DatabaseView({
   events,
   members,
   userId,
-  openNew,
+  openNew = false,
   onCloseNew,
+  onSwitchView,
 }: {
   database: Database;
   views: DbView[];
@@ -46,8 +47,10 @@ export function DatabaseView({
   events: CalEvent[];
   members: MemberWithProfile[];
   userId: string;
-  openNew: boolean;
-  onCloseNew: () => void;
+  openNew?: boolean;
+  onCloseNew?: () => void;
+  /** ビューを切り替える。無ければ URL（?v=）で切り替える（ポップアップでは URL を変えない） */
+  onSwitchView?: (id: string) => void;
 }) {
   const router = useRouter();
   const trash = useTrash(database.id);
@@ -70,7 +73,7 @@ export function DatabaseView({
     pop.open({ currentTarget: el });
   };
   const label = "ページ";
-  const switchTo = (id: string) => router.replace(`?v=${id}`);
+  const switchTo = (id: string) => (onSwitchView ? onSwitchView(id) : router.replace(`?v=${id}`));
   const showNew = dialog === "new" || openNew;
   // 「追加」で使う既定のテンプレート
   const defaultTemplate = database.templates?.find((t) => t.id === database.defaultTemplateId);
@@ -322,7 +325,7 @@ export function DatabaseView({
           onClose={() => {
             setDialog(null);
             setTemplate(null);
-            onCloseNew();
+            onCloseNew?.();
           }}
         />
       )}
