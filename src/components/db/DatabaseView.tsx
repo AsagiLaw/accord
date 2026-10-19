@@ -18,7 +18,6 @@ import { ImportDialog } from "./ImportDialog";
 import { EmojiPicker, VIEW_TYPES } from "./meta";
 import { NewPageDialog } from "./NewPageDialog";
 import { DueSettings } from "./DueSettings";
-import { StageSettings } from "./StageSettings";
 import { TrashDialog } from "./TrashDialog";
 import { TemplateMenu } from "./TemplateMenu";
 import { FilterScreens, SortScreens, ViewSettingsMenu } from "./ViewSettings";
@@ -55,7 +54,7 @@ export function DatabaseView({
   const router = useRouter();
   const trash = useTrash(database.id);
   const [search, setSearch] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<"new" | "plans" | "import" | "iconMedia" | "due" | "trash" | null>(null);
+  const [dialog, setDialog] = useState<"new" | "import" | "iconMedia" | "due" | "trash" | null>(null);
   // テンプレートから追加するときの、選んだテンプレート
   const [template, setTemplate] = useState<PageTemplate | null>(null);
   const pop = usePopover();
@@ -276,11 +275,7 @@ export function DatabaseView({
               }}>
                 名前を変更
               </MenuItem>
-              {database.props.some((p) => p.type === "stage") && (
-                <MenuItem icon={<Icon name="timeline" size={16} />} title="プランごとの工程と割合" onClick={() => (pop.close(), setDialog("plans"))}>
-                  工程の設定
-                </MenuItem>
-              )}
+              {/* 工程の設定は工程の項目ごとなので、ここには置かない（列の見出しのメニューから開く） */}
               <MenuItem icon={<Icon name="bell" size={16} />} right={<span className="text-xs text-muted">{dueProp(database) ? `${dueDaysOf(database)}日前から` : "なし"}</span>} onClick={() => (pop.close(), setDialog("due"))}>
                 納期のお知らせ
               </MenuItem>
@@ -313,9 +308,6 @@ export function DatabaseView({
             onCloseNew?.();
           }}
         />
-      )}
-      {dialog === "plans" && database.props.find((p) => p.type === "stage") && (
-        <StageSettings database={database} prop={database.props.find((p) => p.type === "stage")!} onClose={() => setDialog(null)} />
       )}
       {dialog === "import" && <ImportDialog database={database} userId={userId} onClose={() => setDialog(null)} />}
       {dialog === "due" && <DueSettings database={database} onClose={() => setDialog(null)} />}
