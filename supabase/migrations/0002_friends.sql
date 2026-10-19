@@ -18,18 +18,6 @@ create unique index friendships_pair_idx
   on public.friendships (least(from_id, to_id), greatest(from_id, to_id));
 create index friendships_to_idx on public.friendships (to_id);
 
--- 申請中も含めて、その人と間柄があるか（相手の名前を見せるのに使う）
-create function public.has_friendship(other uuid)
-returns boolean
-language sql stable security definer set search_path = ''
-as $$
-  select exists (
-    select 1 from public.friendships
-    where (from_id = (select auth.uid()) and to_id = other)
-       or (to_id = (select auth.uid()) and from_id = other)
-  );
-$$;
-
 alter table public.friendships enable row level security;
 
 create policy "自分の間柄を見られる" on public.friendships
@@ -49,9 +37,5 @@ create policy "自分の間柄を消せる（断る・取り消す・解除）" 
   for delete to authenticated
   using (from_id = (select auth.uid()) or to_id = (select auth.uid()));
 
-create policy "申請中も含め、間柄のある人のプロフィールを見られる" on public.profiles
-  for select to authenticated
-  using (public.has_friendship(id));
-
--- 相手の探し方（名前・ID・招待リンクなど）は、サーバー版を作るときに決める。
--- ほかの人のプロフィールは見られないので、探すのは security definer の関数で行う
+-- 申請中も含め、間柄のある人のプロフィールは、見せる用の窓口（profiles_public：0005）から見られる。
+-- 相手は ID で探す（send_friend_request：0009）

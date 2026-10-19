@@ -39,9 +39,6 @@ begin
   if exists (select 1 from public.rooms where created_by = me) then
     raise exception 'ホストになっているルームを、先に削除してください';
   end if;
-  -- 自分が作った招待リンクは消し、使った記録は残す（使った人の欄だけ空にする）
-  delete from public.room_invites where created_by = me;
-  update public.room_invites set used_by = null where used_by = me;
   delete from auth.users where id = me;
 end;
 $$;

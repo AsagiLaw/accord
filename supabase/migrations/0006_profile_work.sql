@@ -6,7 +6,7 @@ alter table public.profiles
   add column links jsonb not null default '[]'::jsonb check (jsonb_typeof(links) = 'array' and jsonb_array_length(links) <= 5),
   add column work_status text check (work_status in ('open', 'consult', 'closed'));
 
--- 公開用のビューにも足す（オフライン表示の扱いは 0005 と同じ）
+-- 公開用のビューにも足す（見せる人とオフライン表示の扱いは 0005 と同じ）
 create or replace view public.profiles_public
 with (security_invoker = true) as
 select
@@ -19,4 +19,4 @@ select
   bio,
   links,
   work_status
-from public.profiles;
+from private.visible_profiles();

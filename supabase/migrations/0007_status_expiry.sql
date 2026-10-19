@@ -16,4 +16,4 @@ select
   links,
   work_status,
   status_expires_at
-from public.profiles;
+from private.visible_profiles();

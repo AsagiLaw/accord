@@ -65,9 +65,10 @@ $$;
 alter table public.media_boxes enable row level security;
 alter table public.box_shares enable row level security;
 
+-- 持ち主はここで直接確かめる（作った直後の行は can_view_box からはまだ見えず、作った箱を読み返せないため）
 create policy "使えるボックスを見られる" on public.media_boxes
   for select to authenticated
-  using (public.can_view_box(id));
+  using (owner_id = (select auth.uid()) or public.can_view_box(id));
 
 create policy "自分のボックスを作れる" on public.media_boxes
   for insert to authenticated
@@ -91,14 +92,15 @@ create policy "持ち主はフレンドとの共有を決められる" on public
   using (user_id is not null and exists (select 1 from public.media_boxes b where b.id = box_id and b.owner_id = (select auth.uid()) and b.kind = 'box'))
   with check (user_id is not null and exists (select 1 from public.media_boxes b where b.id = box_id and b.owner_id = (select auth.uid()) and b.kind = 'box'));
 
--- ルームのメディア（紐づけるボックス・権限）を変えられるのは、ルームを作ったホストだけ
+-- ルームのメディア（紐づけるボックス・権限）を変えられるのは、ルームを作ったホストだけ。
+-- 紐づけられるのはホスト自身のボックスだけ（フレンドから共有されたボックスを、ルームのメンバーに広げない）
 create policy "ルームを作ったホストはルームの紐づけを決められる" on public.box_shares
   for all to authenticated
   using (room_id is not null and exists (select 1 from public.rooms r where r.id = room_id and r.created_by = (select auth.uid())))
   with check (
     room_id is not null
     and exists (select 1 from public.rooms r where r.id = room_id and r.created_by = (select auth.uid()))
-    and exists (select 1 from public.media_boxes b where b.id = box_id and b.kind = 'box')
+    and exists (select 1 from public.media_boxes b where b.id = box_id and b.owner_id = (select auth.uid()) and b.kind = 'box')
   );
 
 -- サインアップしたら、マイメディアも作る
