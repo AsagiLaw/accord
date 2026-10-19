@@ -47,7 +47,7 @@ function SignupForm() {
   return (
     <AuthCard
       title="新規登録"
-      lead="依頼ノートのアカウントを作ります。"
+      lead="Accord のアカウントを作ります。"
       footer={
         <>
           アカウントがあるときは <AuthLink href={`/login${keep ? `?${keep}` : ""}`}>ログイン</AuthLink>
@@ -104,6 +104,10 @@ function SignupForm() {
             </Field>
             {captcha.element}
             <FormError error={error} />
+            {/* 同意の文は、法律上いつも見えている必要があるので、ツールチップにしない */}
+            <p data-name="規約への同意" className="text-xs text-muted">
+              登録すると、<AuthLink href="/terms">利用規約</AuthLink>と<AuthLink href="/privacy">プライバシーポリシー</AuthLink>に同意したものとみなします。
+            </p>
             <button className="btn w-full" disabled={busy || !captcha.ready}>
               {busy ? "登録しています…" : "登録する"}
             </button>

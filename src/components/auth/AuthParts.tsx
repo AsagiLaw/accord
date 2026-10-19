@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { BrandMark } from "@/components/BrandMark";
 import { Icon } from "@/components/Icon";
 import { authMode } from "@/lib/auth/mode";
 import { PASSWORD_MIN } from "@/lib/auth/validate";
+import { LEGAL_LINKS, SITE } from "@/lib/site";
 
 /** ログイン・新規登録などの画面の入れ物：まんなかにアプリの名前と、白いカード */
 export function AuthCard({ title, lead, children, footer }: { title: string; lead?: string; children: React.ReactNode; footer?: React.ReactNode }) {
@@ -12,10 +14,8 @@ export function AuthCard({ title, lead, children, footer }: { title: string; lea
     <main data-name="ログインまわりの画面" className="grid min-h-dvh place-items-center bg-bg px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
-          <span aria-hidden className="grid h-12 w-12 place-items-center rounded-[16px] bg-accent text-accent-ink">
-            <Icon name="note" size={26} />
-          </span>
-          <p className="text-sm font-bold text-muted">依頼ノート</p>
+          <BrandMark size={48} />
+          <p className="text-sm font-bold text-muted">{SITE.name}</p>
         </div>
         <section className="card space-y-4">
           <div>
@@ -25,6 +25,13 @@ export function AuthCard({ title, lead, children, footer }: { title: string; lea
           {children}
         </section>
         {footer && <div className="mt-4 text-center text-sm">{footer}</div>}
+        <nav data-name="規約などのリンク" aria-label="規約など" className="mt-6 flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted">
+          {LEGAL_LINKS.map((l) => (
+            <Link key={l.href} href={l.href} className="hover:text-ink hover:underline">
+              {l.label}
+            </Link>
+          ))}
+        </nav>
         {authMode === "local" && (
           <p data-name="ローカル版の説明" className="mt-6 text-center text-xs text-muted">
             ローカル版：アカウントはこのブラウザの中だけに保存されます。Supabase につなぐと、同じ画面で本物のログインになります。

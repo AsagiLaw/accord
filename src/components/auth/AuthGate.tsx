@@ -6,7 +6,7 @@ import { safeNext } from "@/lib/auth/validate";
 import { useCurrentUser } from "@/lib/local/session";
 
 /** ログインしていなくても開ける画面 */
-const PUBLIC = ["/login", "/signup", "/forgot-password", "/reset-password", "/auth"];
+const PUBLIC = ["/login", "/signup", "/forgot-password", "/reset-password", "/auth", "/terms", "/privacy", "/contact"];
 /** ログインしているときは開かない画面（ログイン・新規登録）。?add=1 のときは、アカウントを足すので開く */
 const GUEST_ONLY = ["/login", "/signup"];
 

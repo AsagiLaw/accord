@@ -12,7 +12,7 @@ export default function GlobalError({ error, retry }: { error: Error & { digest?
   return (
     <html lang="ja">
       <body>
-        <title>エラー | 依頼ノート</title>
+        <title>エラー | Accord</title>
         <NoticeScreen title="うまく表示できませんでした" lead="一時的な不具合かもしれません。もう一度試しても直らないときは、ページを読み込み直してください。">
           <ErrorDetails error={error} retry={retry} />
         </NoticeScreen>

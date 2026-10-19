@@ -14,6 +14,7 @@ import { db, type Profile, type ProfileLink, type WorkStatus } from "@/lib/local
 import { IDLE_AFTER, useShownPresence } from "@/lib/local/presence";
 import { updateProfile } from "@/lib/local/rooms";
 import { setNameHints, useNameHints } from "@/lib/name-hints";
+import { LEGAL_LINKS } from "@/lib/site";
 import { setTheme, useTheme } from "@/lib/theme";
 import { liveStatus, type StatusExpiry } from "@/lib/status";
 import { AvatarCropper } from "./AvatarCropper";
@@ -72,6 +73,14 @@ export function AccountSettings({ me, initial = "account", onClose }: { me: Prof
             {s.label}
           </button>
         ))}
+        {/* 規約などは、設定を閉じずに読めるよう別のタブで開く */}
+        <div data-name="規約などのリンク" className="hidden space-y-1 border-t border-line px-3 pt-4 text-xs text-muted md:mt-auto md:block">
+          {LEGAL_LINKS.map((l) => (
+            <a key={l.href} href={l.href} target="_blank" rel="noopener" className="block w-fit hover:text-ink hover:underline">
+              {l.label}
+            </a>
+          ))}
+        </div>
       </nav>
 
       <div className="relative min-h-0 flex-1 overflow-y-auto px-4 pt-6 pb-10 md:px-10 md:pt-8">
@@ -417,7 +426,7 @@ function NotifySection({ me }: { me: Profile }) {
         </div>
         <NotifyBlocked denied={denied} />
         <p className="border-t border-line pt-4 text-muted">
-          この端末だけの設定です。取り込み中の間は出しません。依頼ノートを開いている間だけ届きます（スマホは、Android の Chrome なら開いている間に届きます。iPhone はホーム画面に追加したときだけ使えます）。
+          この端末だけの設定です。取り込み中の間は出しません。Accord を開いている間だけ届きます（スマホは、Android の Chrome なら開いている間に届きます。iPhone はホーム画面に追加したときだけ使えます）。
         </p>
       </section>
     </>

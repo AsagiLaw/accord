@@ -145,6 +145,20 @@ body {
   .card {
     @apply rounded-[14px] border border-line bg-card p-5;
   }
+  /* 利用規約・プライバシーポリシーの本文 */
+  .legal {
+    @apply text-sm leading-relaxed;
+  }
+  .legal ol {
+    @apply list-decimal space-y-1 pl-6;
+  }
+  .legal ul {
+    @apply list-disc space-y-1 pl-6;
+  }
+  .legal ol ol,
+  .legal ol ul {
+    @apply mt-1;
+  }
 }
 
 /* ノート（BlockNote）の色と書体を、アプリの色に合わせる */

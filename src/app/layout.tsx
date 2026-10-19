@@ -17,7 +17,7 @@ const zen = Zen_Kaku_Gothic_New({
 });
 
 export const metadata: Metadata = {
-  title: "依頼ノート",
+  title: "Accord",
   description: "イラストレーターとマネージャーのための依頼・メディア・チャット管理",
 };
 

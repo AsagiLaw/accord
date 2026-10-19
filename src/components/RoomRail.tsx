@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { BrandShape } from "@/components/BrandMark";
 import { CreateRoomDialog } from "@/components/CreateRoomDialog";
 import { Icon } from "@/components/Icon";
 import { useRoomUnreadTotals } from "@/lib/local/chat";
@@ -63,7 +64,7 @@ export function RoomRail({
               : "rounded-[24px] bg-card text-ink group-hover:rounded-[16px] group-hover:bg-accent group-hover:text-accent-ink"
           }`}
         >
-          <Icon name="chat" size={24} />
+          <BrandShape size={38} />
           {dmCount > 0 && (
             <span className={`absolute -right-1 -bottom-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-rail px-1 text-[11px] leading-none font-bold ${badgeTone(quiet)}`}>
               {dmCount > 99 ? "99+" : dmCount}

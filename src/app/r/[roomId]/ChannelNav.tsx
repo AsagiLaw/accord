@@ -81,7 +81,7 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
   // ブラウザのタブにも未読の数を出す（取り込み中は出さない）
   const quiet = useDoNotDisturb();
   useEffect(() => {
-    document.title = total && !quiet ? `(${total}) 依頼ノート` : "依頼ノート";
+    document.title = total && !quiet ? `(${total}) Accord` : "Accord";
   }, [total, quiet]);
 
   const toggle = (id: string) => {
