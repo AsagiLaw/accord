@@ -4,7 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { MediaPicker } from "@/components/MediaPicker";
 import { ThumbImage } from "@/components/ThumbImage";
+import { Checkbox } from "@/components/ui/Checkbox";
+import { DateInput } from "@/components/ui/DateInput";
 import { Popover, usePopover } from "@/components/ui/Popover";
+import { Select, pickerBox } from "@/components/ui/Select";
 import type { Database, DbPage, Property } from "@/lib/local/db";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 import { formatValue } from "@/lib/requests/logic";
@@ -65,7 +68,7 @@ export function PropInput({
         </div>
       );
     case "date":
-      return <input id={id} type="date" value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} className="field" />;
+      return <DateInput id={id} value={String(value ?? "")} onChange={onChange} label={prop.name} size="lg" clearable />;
     case "select":
     case "status":
     case "multiselect":
@@ -73,7 +76,7 @@ export function PropInput({
     case "stage":
       return <StageField id={id} database={database} prop={prop} value={value} onChange={onChange} page={page} />;
     case "checkbox":
-      return <input id={id} type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} className="h-5 w-5 accent-[var(--accent)]" />;
+      return <Checkbox id={id} checked={!!value} onChange={onChange} label={prop.name} />;
     case "url":
     case "email":
     case "phone":
@@ -86,14 +89,15 @@ export function PropInput({
       return <p className="py-2 text-sm">{formatValue(prop, value) || <span className="text-muted">—</span>}</p>;
     case "user":
       return (
-        <select id={id} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} className="field">
-          <option value="">—</option>
-          {members.map((m) => (
-            <option key={m.userId} value={m.userId}>
-              {m.displayName}
-            </option>
-          ))}
-        </select>
+        <Select
+          id={id}
+          value={String(value ?? "")}
+          onChange={onChange}
+          label={prop.name}
+          size="lg"
+          placeholder="退出した人"
+          options={[{ value: "", label: "—" }, ...members.map((m) => ({ value: m.userId, label: m.displayName }))]}
+        />
       );
     case "media": {
       const ids = Array.isArray(value) ? (value as string[]) : [];
@@ -139,8 +143,11 @@ function StageField({ id, database, prop, value, onChange, page }: { id?: string
   const p = page ?? { values: {} };
   return (
     <>
-      <button id={id} type="button" onClick={pop.toggle} className="field flex min-h-[38px] items-center gap-1 text-left">
-        <PropValue prop={prop} value={value} page={p} members={[]} empty={<span className="text-muted">選ぶ</span>} />
+      <button id={id} type="button" onClick={pop.toggle} aria-expanded={!!pop.anchor} className={`${pickerBox("lg")} w-full`}>
+        <span className="flex min-w-0 flex-wrap items-center gap-1">
+          <PropValue prop={prop} value={value} page={p} members={[]} empty={<span className="text-muted">選ぶ</span>} />
+        </span>
+        <Icon name="dn" size={16} className={`shrink-0 text-muted transition-transform ${pop.anchor ? "rotate-180" : ""}`} />
       </button>
       {pop.anchor && (
         <Popover anchor={pop.anchor} onClose={pop.close} label={prop.name}>
@@ -156,8 +163,11 @@ function SelectField({ id, database, prop, value, onChange }: { id?: string; dat
   const pop = usePopover();
   return (
     <>
-      <button id={id} type="button" onClick={pop.toggle} className="field flex min-h-[38px] flex-wrap items-center gap-1 text-left">
-        <PropValue prop={prop} value={value} members={[]} empty={<span className="text-muted">選ぶ</span>} />
+      <button id={id} type="button" onClick={pop.toggle} aria-expanded={!!pop.anchor} className={`${pickerBox("lg")} w-full`}>
+        <span className="flex min-w-0 flex-wrap items-center gap-1">
+          <PropValue prop={prop} value={value} members={[]} empty={<span className="text-muted">選ぶ</span>} />
+        </span>
+        <Icon name="dn" size={16} className={`shrink-0 text-muted transition-transform ${pop.anchor ? "rotate-180" : ""}`} />
       </button>
       {pop.anchor && (
         <Popover anchor={pop.anchor} onClose={pop.close} label={prop.name}>

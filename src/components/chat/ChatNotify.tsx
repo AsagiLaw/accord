@@ -9,9 +9,10 @@ import { useCurrentUser } from "@/lib/local/session";
 import { notifyPermission } from "@/lib/notify";
 
 /** オン・オフのスイッチ（納期の通知の設定と同じ形） */
-export function NotifySwitch({ on, label, disabled, onClick }: { on: boolean; label: string; disabled?: boolean; onClick: () => void }) {
+/** note：説明。いつもは出さず、カーソルを乗せてしばらくすると出す */
+export function NotifySwitch({ on, label, disabled, onClick, note }: { on: boolean; label: string; disabled?: boolean; onClick: () => void; note?: string }) {
   return (
-    <button role="switch" aria-checked={on} disabled={disabled} onClick={onClick} className="flex w-full items-center gap-2 text-left disabled:opacity-50">
+    <button role="switch" aria-checked={on} disabled={disabled} onClick={onClick} title={note} className="flex w-full items-center gap-2 text-left disabled:opacity-50">
       <span className="flex-1">{label}</span>
       <span aria-hidden className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${on ? "bg-accent" : "bg-line"}`}>
         <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? "left-[18px]" : "left-0.5"}`} />
@@ -56,8 +57,7 @@ export function ChatNotifyButton({ chatId, compact }: { chatId: string; compact?
       {pop.anchor && (
         <Popover anchor={pop.anchor} onClose={pop.close} width={280} align="end" label="チャットの通知">
           <div className="space-y-3 p-2 text-sm">
-            <NotifySwitch on={!muted} label="このチャットを通知する" onClick={() => void setChatMuted(chatId, me.id, !muted)} />
-            <p className="text-xs text-muted">切っても、未読の数は出ます。どの端末でも同じです。</p>
+            <NotifySwitch on={!muted} label="このチャットを通知する" note="切っても、未読の数は出ます。どの端末でも同じです" onClick={() => void setChatMuted(chatId, me.id, !muted)} />
             {!deviceOn && (
               <div className="space-y-2 border-t border-line pt-3">
                 <p>この端末では、チャットの通知がオフです。</p>
@@ -72,7 +72,6 @@ export function ChatNotifyButton({ chatId, compact }: { chatId: string; compact?
                 <NotifyBlocked denied={denied} />
               </div>
             )}
-            {deviceOn && me.presence === "dnd" && <p className="border-t border-line pt-3 text-xs text-muted">取り込み中の間は、通知を出しません。</p>}
           </div>
         </Popover>
       )}

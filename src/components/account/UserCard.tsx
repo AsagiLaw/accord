@@ -65,7 +65,7 @@ function UserCard({ userId, role, onDone }: { userId: string; role?: RoomRole; o
   const friendships = useFriendships(me?.id);
   const now = useNow();
 
-  if (person === undefined || !me) return <p className="p-3 text-sm text-muted">読み込み中…</p>;
+  if (person === undefined || !me) return <p className="loading p-3 text-sm text-muted">読み込み中…</p>;
   if (!person) return <p className="p-3 text-sm text-muted">この人は退出したか、削除されています。</p>;
   const self = person.id === me.id;
   const shown = shownOf(person);

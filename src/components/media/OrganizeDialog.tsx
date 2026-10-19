@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Icon } from "@/components/Icon";
 import { choose, toast } from "@/components/ui/overlay";
+import { Segmented } from "@/components/ui/Segmented";
 import type { Library } from "@/lib/local/db";
 import { organize } from "@/lib/local/media";
 import { chain, childrenOf, coverOf, descendants } from "@/lib/media/logic";
@@ -226,7 +227,7 @@ export function OrganizeDialog({ ids }: { ids: string[] }) {
 
   return (
     <div
-      className="fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center"
+      className="sheet-backdrop fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center"
       onClick={(e) => e.target === e.currentTarget && close()}
     >
       <div
@@ -270,35 +271,18 @@ export function OrganizeDialog({ ids }: { ids: string[] }) {
             ))}
           </div>
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-muted">
-              入れるライブラリーを選んでください（いくつでも）。
-              {view === "list" ? "左の ▸" : "右下の ▸"}{" "}
-              で子ライブラリーを開けます。
+            <p className="text-sm font-bold" title={`入れるライブラリーを選んでください（いくつでも）。${view === "list" ? "左の ▸" : "右下の ▸"} で子ライブラリーを開けます`}>
+              入れるライブラリー
             </p>
-            <div
-              role="group"
-              aria-label="ライブラリーの表示"
-              className="flex shrink-0 gap-0.5 rounded-full bg-bg p-1"
-            >
-              {(
-                [
-                  ["icon", "gallery", "アイコン表示"],
-                  ["list", "list", "リスト表示"],
-                ] as const
-              ).map(([v, icon, label]) => (
-                <button
-                  key={v}
-                  type="button"
-                  aria-pressed={view === v}
-                  aria-label={label}
-                  title={label}
-                  onClick={() => changeView(v)}
-                  className={`grid h-7 w-9 place-items-center rounded-full ${view === v ? "bg-accent text-accent-ink" : "text-muted hover:text-ink"}`}
-                >
-                  <Icon name={icon} size={16} />
-                </button>
-              ))}
-            </div>
+            <Segmented
+              value={view}
+              onChange={changeView}
+              label="ライブラリーの表示"
+              items={[
+                { value: "icon", label: "アイコン表示", icon: "gallery" },
+                { value: "list", label: "リスト表示", icon: "list" },
+              ]}
+            />
           </div>
           {view === "list" ? (
             <ul

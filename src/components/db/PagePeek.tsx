@@ -61,7 +61,7 @@ function PagePeek({ roomId, dbId, pageId, mode, onClose }: { roomId: string; dbI
     <>
       {/* 上のバー：ページの名前と、拡大・閉じる */}
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line px-3">
-        {database && page ? <PageName database={database} page={page} className="text-sm font-bold" /> : <span className="text-sm text-muted">読み込み中…</span>}
+        {database && page ? <PageName database={database} page={page} className="text-sm font-bold" /> : <span className="loading text-sm text-muted">読み込み中…</span>}
         <button
           className="btn-sub ml-auto h-8 min-h-0 gap-1 px-2.5 text-sm"
           title="ページの画面で開く"
@@ -90,7 +90,7 @@ function PagePeek({ roomId, dbId, pageId, mode, onClose }: { roomId: string; dbI
         role="dialog"
         aria-label="ページ"
         data-name="ページのポップアップ（右から）"
-        className="fixed inset-y-0 right-0 z-[45] flex w-[min(720px,100vw)] animate-[fade_.15s] flex-col border-l border-line bg-bg shadow-2xl"
+        className="fixed inset-y-0 right-0 z-[45] flex w-[min(720px,100vw)] anim-panel flex-col border-l border-line bg-bg shadow-2xl"
       >
         {panel}
       </div>

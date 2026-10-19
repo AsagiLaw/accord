@@ -17,8 +17,10 @@ const GRID = "grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-2";
 function Section({ title, note, children }: { title: string; note: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="font-bold">{title}</h2>
-      <p className="mb-2 text-sm text-muted">{note}</p>
+      {/* 説明はいつもは出さず、見出しにカーソルを乗せてしばらくすると出す */}
+      <h2 className="mb-2 w-fit font-bold" title={note}>
+        {title}
+      </h2>
       {children}
     </section>
   );
@@ -130,7 +132,7 @@ export default function DmMediaPage() {
   const all = data ? [...(data.mine ? [data.mine] : []), ...data.own, ...data.shared] : [];
   const summary = useBoxSummaries(all.map((b) => b.id));
 
-  if (!me || !data) return <p className="text-muted">読み込み中…</p>;
+  if (!me || !data) return <p className="loading text-muted">読み込み中…</p>;
 
   const create = async () => {
     const name = await promptText("新しいボックスの名前", "", "例：資料・納品用");

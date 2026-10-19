@@ -132,7 +132,7 @@ export function WorkloadView({ database, view, pages, compact }: ViewProps) {
                 }}
                 aria-label={`${range(x)}：${fmt(x.value)}${x.over ? "（上限超え）" : ""}`}
               >
-                {x.over && <span className="mb-0.5 text-[10px] font-bold whitespace-nowrap text-warn">上限超え</span>}
+                {x.over && <span className="mb-0.5 text-[11px] font-bold whitespace-nowrap text-warn">上限超え</span>}
                 <span
                   className={`w-full max-w-10 rounded-t-[4px] ${x.over ? "bg-warn" : x.current ? "bg-accent" : "bg-accent/45"} ${hover === i ? "brightness-110" : ""}`}
                   style={{ height: `${(x.value / max) * 100}%`, minHeight: x.value ? 2 : 0 }}

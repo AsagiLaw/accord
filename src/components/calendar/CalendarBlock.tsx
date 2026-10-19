@@ -6,9 +6,12 @@ import { TAG_COLORS } from "@/components/db/meta";
 import { tintOf } from "@/components/db/views/groups";
 import { SettingsButton, useNoteContext } from "@/components/embeds";
 import { Icon } from "@/components/Icon";
+import { Checkbox } from "@/components/ui/Checkbox";
+import { DateInput, TimeInput } from "@/components/ui/DateInput";
 import { PopupDialog } from "@/components/ui/Dialog";
 import { confirmAction } from "@/components/ui/overlay";
 import { MenuDivider } from "@/components/ui/Popover";
+import { Segmented } from "@/components/ui/Segmented";
 import { BackHead, EmptyNote, MenuTitle, NavRow, OptionRow, SectionHead, ToggleRow } from "@/components/ui/SettingsMenu";
 import { newId, type CalEvent, type Database, type DbPage, type TagColor } from "@/lib/local/db";
 import { deleteEvent, nameSuffixOf, saveCalEvent, useCalendarEvents, useDatabases, usePagesOf } from "@/lib/local/requests";
@@ -340,13 +343,7 @@ export function CalendarBlockView({ props, onChange, fill }: { props: CalendarPr
         </button>
         <b className="ml-1 whitespace-nowrap">{title}</b>
         <span className="ml-auto flex items-center gap-1">
-          <span className="flex overflow-hidden rounded-full border border-line text-xs" role="group" aria-label="期間">
-            {(["month", "week", "list"] as const).map((r) => (
-              <button key={r} aria-pressed={range === r} onClick={() => setPicked({ base: setting, range: r })} className={`px-2.5 py-1 ${range === r ? "bg-accent text-accent-ink" : "hover:bg-tint"}`}>
-                {RANGE_LABEL[r]}
-              </button>
-            ))}
-          </span>
+          <Segmented size="sm" label="期間" value={range} onChange={(r) => setPicked({ base: setting, range: r })} items={(["month", "week", "list"] as const).map((r) => ({ value: r, label: RANGE_LABEL[r] }))} />
           <button className="btn h-7 min-h-0 gap-1 px-2.5 text-xs" disabled={!canAdd} title={canAdd ? "予定を追加" : "歯車で「このカレンダーの予定」か「ルームの予定」を出すと、予定を足せます"} onClick={() => openNew(now)}>
             <Icon name="add" size={14} />
             予定
@@ -542,31 +539,30 @@ function EventDialog({ roomId, event, date, targets, onClose }: { roomId: string
         <div className="grid grid-cols-2 gap-2">
           <label className="block">
             <span className="text-xs text-muted">始まりの日</span>
-            <input
-              type="date"
+            <DateInput
               value={start}
-              onChange={(e) => {
-                const v = e.target.value;
+              label="始まりの日"
+              size="lg"
+              onChange={(v) => {
                 // 終わりの日は、始まりの日より前にならないようにそろえる
                 setStart(v);
                 if (isDate(v) && end < v) setEnd(v);
               }}
-              className="field"
             />
           </label>
           <label className="block">
             <span className="text-xs text-muted">終わりの日</span>
-            <input type="date" value={end} min={start} onChange={(e) => setEnd(e.target.value)} className="field" />
+            <DateInput value={end} min={start} label="終わりの日" size="lg" onChange={setEnd} />
           </label>
         </div>
         <div className="flex items-center gap-4 text-sm">
           <label className="flex items-center gap-2">
-            <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
+            <Checkbox checked={allDay} onChange={setAllDay} />
             終日
           </label>
           {/* 済み：ToDo のブロックでチェックしたものと同じ。カレンダーでは線で消して出す */}
           <label className="flex items-center gap-2">
-            <input type="checkbox" checked={done} onChange={(e) => setDone(e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
+            <Checkbox checked={done} onChange={setDone} />
             済み
           </label>
         </div>
@@ -574,11 +570,11 @@ function EventDialog({ roomId, event, date, targets, onClose }: { roomId: string
           <div className="grid grid-cols-2 gap-2">
             <label className="block">
               <span className="text-xs text-muted">始まりの時刻</span>
-              <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="field" />
+              <TimeInput value={time} label="始まりの時刻" size="lg" onChange={setTime} />
             </label>
             <label className="block">
               <span className="text-xs text-muted">終わりの時刻</span>
-              <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="field" />
+              <TimeInput value={endTime} label="終わりの時刻" size="lg" onChange={setEndTime} />
             </label>
           </div>
         )}

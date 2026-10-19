@@ -392,8 +392,15 @@ export async function toggleTodo(id: string, done: boolean) {
   await db.todos.update(id, { done });
 }
 
+/** やることを消す。消したものを返すので、restoreTodo で元に戻せる */
 export async function deleteTodo(id: string) {
+  const t = await db.todos.get(id);
   await db.todos.delete(id);
+  return t;
+}
+
+export async function restoreTodo(t: Todo) {
+  await db.todos.put(t);
 }
 
 // ---- 項目（プロパティ）・選択肢 ----

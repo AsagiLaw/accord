@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Icon } from "@/components/Icon";
+import { DateInput } from "@/components/ui/DateInput";
 import { MenuDivider, MenuItem, MenuLabel } from "@/components/ui/Popover";
 import { BackHead, ChoiceScreen, NavRow, OptionRow, SectionHead, TextField } from "@/components/ui/SettingsMenu";
 import { useSaveView } from "./viewSave";
@@ -83,7 +84,7 @@ function valueLabel(prop: Property | undefined, v: string | undefined, members: 
 /** 条件の値を選ぶ。項目の種類ごとに選びやすい形にする */
 export function FilterValue({ prop, value, onChange, members }: { prop: Property | undefined; value: string | undefined; onChange: (v: string) => void; members: MemberWithProfile[] }) {
   const chip = (v: string, label: React.ReactNode) => (
-    <button key={v} onClick={() => onChange(v)} className={`rounded-full border px-2.5 py-0.5 text-xs ${value === v ? "border-accent bg-accent text-accent-ink" : "border-line hover:bg-tint"}`}>
+    <button key={v} type="button" aria-pressed={value === v} onClick={() => onChange(v)} className={`rounded-full border px-2.5 py-0.5 text-xs ${value === v ? "border-accent bg-tint font-bold" : "border-line hover:bg-tint"}`}>
       {label}
     </button>
   );
@@ -105,12 +106,18 @@ export function FilterValue({ prop, value, onChange, members }: { prop: Property
     );
   }
   const dateLike = prop?.type === "date" || prop?.type === "created" || prop?.type === "edited";
+  if (dateLike)
+    return (
+      <div className="flex items-center gap-1.5">
+        {chip("@today", "今日")}
+        <DateInput value={value?.startsWith("@") ? "" : (value ?? "")} onChange={onChange} label="値" className="min-w-0 flex-1" />
+      </div>
+    );
   return (
     <div className="flex items-center gap-1.5">
-      {dateLike && chip("@today", "今日")}
       <input
         autoFocus
-        type={dateLike ? "date" : prop?.type === "number" ? "number" : "text"}
+        type={prop?.type === "number" ? "number" : "text"}
         value={value?.startsWith("@") ? "" : (value ?? "")}
         onChange={(e) => onChange(e.target.value)}
         placeholder="値を入力"
@@ -178,7 +185,7 @@ function DefaultValueScreen({ database, prop, onBack }: { database: Database; pr
         {choice("", "なし", cur === undefined, () => void set(undefined))}
         {choice("@today", "今日（作った日）", cur === "@today", () => void set("@today"))}
         <div className="px-2 py-1">
-          <input type="date" value={typeof cur === "string" && cur !== "@today" ? cur : ""} onChange={(e) => void set(e.target.value)} className="field py-1" aria-label="決まった日付" />
+          <DateInput value={typeof cur === "string" && cur !== "@today" ? cur : ""} onChange={(v) => void set(v)} label="決まった日付" placeholder="決まった日付" />
         </div>
       </>
     );
@@ -335,8 +342,9 @@ export function PropertyMenu({
       {prop.type === "serial" && <NavRow icon="hash" label="番号の形" value={serialText(prop, 1)} onClick={() => setScreen("serial")} />}
       {prop.type === "page" && (
         <>
-          <NavRow icon="note" label="テンプレート" value={subTemplateText(database, prop)} onClick={() => setScreen("subTemplate")} />
-          <p className="px-2 pb-1 text-xs text-muted">別ページは、はじめて開いたときにこのテンプレートで作ります（作った別ページは、テンプレートを変えても変わりません）</p>
+          <div title="別ページは、はじめて開いたときにこのテンプレートで作ります（作った別ページは、テンプレートを変えても変わりません）">
+            <NavRow icon="note" label="テンプレート" value={subTemplateText(database, prop)} onClick={() => setScreen("subTemplate")} />
+          </div>
         </>
       )}
       {canHaveDefault(prop) && <NavRow icon="add" label="はじめの値" value={defaultLabel(prop, members)} onClick={() => setScreen("default")} />}
@@ -417,8 +425,8 @@ export function AddPropertyMenu({ database, view, onDone }: { database: Database
         <MenuItem
           key={t}
           icon={<PropIcon type={t} size={16} />}
-          // 説明は右に短く（長いと種類の名前が隠れるので、はみ出す分は「…」）
-          right={<span className="max-w-[55%] shrink-0 truncate text-xs text-muted">{PROP_TYPES[t].note}</span>}
+          // 説明はいつもは出さず、カーソルを乗せてしばらくすると出す
+          title={PROP_TYPES[t].note}
           onClick={async () => {
             const prop = await addProperty(database.id, name.trim() || PROP_TYPES[t].label, t);
             // ここから足した項目は、このビューにも出す（チャットの項目も、表に列で出る）

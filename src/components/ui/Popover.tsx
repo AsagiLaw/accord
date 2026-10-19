@@ -81,7 +81,7 @@ export function Popover({
       aria-label={label}
       data-nested-popover={nested ? "" : undefined}
       data-name={label ? `${label}（メニュー）` : undefined}
-      className="fixed z-[58] overflow-y-auto rounded-[12px] border border-line bg-card p-1.5 text-sm shadow-xl"
+      className="anim-pop fixed z-[58] overflow-y-auto rounded-[12px] border border-line bg-card p-1.5 text-sm shadow-xl"
       style={{ left: pos?.left ?? -9999, top: pos?.top ?? -9999, width: Math.min(width, typeof window !== "undefined" ? window.innerWidth - 16 : width), maxHeight: pos?.maxH }}
     >
       {children}
@@ -98,6 +98,7 @@ export function MenuItem({
   danger,
   active,
   right,
+  title,
 }: {
   icon?: React.ReactNode;
   children: React.ReactNode;
@@ -105,10 +106,13 @@ export function MenuItem({
   danger?: boolean;
   active?: boolean;
   right?: React.ReactNode;
+  /** 説明。いつもは出さず、カーソルを乗せてしばらくすると出す */
+  title?: string;
 }) {
   return (
     <button
       role="menuitem"
+      title={title}
       onClick={onClick}
       className={`flex min-h-[34px] w-full items-center gap-2 rounded-[8px] px-2 text-left hover:bg-tint ${danger ? "text-warn" : ""} ${active ? "bg-tint font-bold" : ""}`}
     >

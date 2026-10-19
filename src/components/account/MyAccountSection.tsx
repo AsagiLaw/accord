@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Field, FormError, FormNotice, PasswordInput } from "@/components/auth/AuthParts";
 import { useTurnstile } from "@/components/auth/Turnstile";
 import { Icon } from "@/components/Icon";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { PopupDialog } from "@/components/ui/Dialog";
 import { toast } from "@/components/ui/overlay";
 import { authMode, changeEmail, changePassword, deleteAccount, signOut, useAccountInfo, type AccountInfo } from "@/lib/auth";
@@ -216,7 +217,7 @@ function DeleteDialog({ me, info, onClose }: { me: Profile; info: AccountInfo; o
           </Field>
         ) : (
           <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 h-5 w-5 accent-[var(--warn)]" />
+            <Checkbox checked={agree} onChange={setAgree} danger className="mt-0.5" />
             元に戻せないことをわかったうえで、削除します
           </label>
         )}
@@ -242,7 +243,7 @@ export function MyAccountSection({ me }: { me: Profile }) {
   const [open, setOpen] = useState<"username" | "email" | "password" | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  if (!info) return <p className="text-muted">読み込み中…</p>;
+  if (!info) return <p className="loading text-muted">読み込み中…</p>;
   return (
     <>
       <h1 className="mb-5 text-[28px] font-bold">マイアカウント</h1>
@@ -256,8 +257,9 @@ export function MyAccountSection({ me }: { me: Profile }) {
         title="ID"
         value={
           <>
-            <span className="font-bold">{me.username}</span>
-            <span className="mt-1 block text-xs text-muted">フレンドになりたい人に、この ID を伝えてください。「フレンドを追加」で、この ID を入れると申請が届きます。</span>
+            <span className="font-bold" title="フレンドになりたい人に、この ID を伝えてください。「フレンドを追加」で、この ID を入れると申請が届きます">
+              {me.username}
+            </span>
           </>
         }
         open={open === "username"}

@@ -42,7 +42,6 @@ const HIDDEN_ITEMS = new Set(["image", "video", "audio", "file"]);
 export function slashItems(editor: Editor): DefaultReactSuggestionItem[] {
   const ours: DefaultReactSuggestionItem[] = MENU_KINDS.map((k) => ({
     title: BLOCK_KINDS[k].label,
-    subtext: BLOCK_KINDS[k].note,
     aliases: BLOCK_KINDS[k].aliases,
     group: BLOCK_KINDS[k].group,
     icon: <Icon name={BLOCK_KINDS[k].icon} />,

@@ -21,7 +21,7 @@ export default function DmChatPage() {
   const profiles = useAllProfiles();
   const friendships = useFriendships(me?.id);
 
-  if (chat === undefined || !me || !profiles || !friendships) return <p className="text-muted">読み込み中…</p>;
+  if (chat === undefined || !me || !profiles || !friendships) return <p className="loading text-muted">読み込み中…</p>;
   // 自分が入っていない DM は見られない（サーバー版でも同じ）
   if (!chat || !chat.dm?.includes(me.id)) {
     return (

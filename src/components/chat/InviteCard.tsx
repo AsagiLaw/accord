@@ -31,7 +31,7 @@ export function InviteCard({ inviteId, meId, mine }: { inviteId: string; meId: s
   const [busy, setBusy] = useState(false);
   const box = "w-[min(340px,72vw)] rounded-[14px] border border-line bg-card p-3 text-ink";
 
-  if (data === undefined) return <div className={`${box} text-sm text-muted`}>読み込み中…</div>;
+  if (data === undefined) return <div className={`loading ${box} text-sm text-muted`}>読み込み中…</div>;
   if (!data) {
     return (
       <div data-name="ルームへの招待（使えない）" className={`${box} flex items-center gap-3`}>

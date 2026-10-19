@@ -39,8 +39,8 @@ export async function setInnerKind(noteId: string, kind: "note" | "window") {
   await db.notes.update(noteId, { inner: { kind } });
 }
 
-export async function saveNoteBlocks(noteId: string, blocks: unknown[], userId: string) {
-  const updatedAt = Date.now();
+/** updatedAt：保存する時刻。書き込む前に「自分の保存」と覚えておきたいときに渡す */
+export async function saveNoteBlocks(noteId: string, blocks: unknown[], userId: string, updatedAt = Date.now()) {
   await db.notes.update(noteId, { blocks, updatedAt, updatedBy: userId });
   return updatedAt;
 }

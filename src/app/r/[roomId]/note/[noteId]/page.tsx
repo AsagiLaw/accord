@@ -3,20 +3,22 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect } from "react";
 import { Icon } from "@/components/Icon";
 import { confirmAction } from "@/components/ui/overlay";
-import { deleteNote, renameNote, useNote } from "@/lib/local/notes";
+import { deleteNote, useNote } from "@/lib/local/notes";
 import { setLinkedChat } from "@/lib/local/channelTemplates";
 import { TopBarActions } from "@/components/TopBarSlot";
+import { NoteUpdatesButton } from "@/components/note/NoteUpdates";
 import { useEditMode } from "@/components/window/editMode";
 import { useMembers } from "@/lib/local/rooms";
+import { markNoteSeen } from "@/lib/local/noteSeen";
 import { useCurrentUser } from "@/lib/local/session";
 
 // エディタはブラウザでしか動かないので、サーバーでは描画しない
 const NoteEditor = dynamic(() => import("@/components/note/NoteEditor").then((m) => m.NoteEditor), {
   ssr: false,
-  loading: () => <p className="text-muted">読み込み中…</p>,
+  loading: () => <p className="loading text-muted">読み込み中…</p>,
 });
 
 export default function NotePage() {
@@ -29,7 +31,12 @@ export default function NotePage() {
   const me = useCurrentUser();
   const members = useMembers(roomId);
 
-  if (note === undefined || (note?.sourceId && source === undefined) || !me || !members) return <p className="text-muted">読み込み中…</p>;
+  // 開いている間の更新は、見たことにする（サイドバーの「更新あり」の印を消す）
+  useEffect(() => {
+    if (me && note) markNoteSeen(me.id, note.id, note.updatedAt);
+  }, [me, note]);
+
+  if (note === undefined || (note?.sourceId && source === undefined) || !me || !members) return <p className="loading text-muted">読み込み中…</p>;
   if (!note || note.roomId !== roomId) {
     return (
       <p className="text-muted">
@@ -41,10 +48,12 @@ export default function NotePage() {
   const linked = !!note.sourceId && !!source;
   return (
     <div data-name="ノート画面" className="mx-auto max-w-3xl">
-      <div data-name="ノートの名前" className="mb-3 flex items-start gap-2 px-[42px] sm:px-[54px]">
-        <NoteTitle value={note.title} onSave={(t) => renameNote(note.id, t)} />
+      {/* 名前は上のバーに出る（押すとその場で変えられる）。更新の知らせと削除も、上のバーの右に置く */}
+      <TopBarActions>
+        <NoteUpdatesButton note={linked && source ? source : note} members={members} meId={me.id} />
         <button
-          className="btn-sub mt-1 w-10 shrink-0 px-0"
+          type="button"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-[8px] text-muted hover:bg-tint hover:text-warn md:h-7 md:w-7"
           aria-label="このノートを削除"
           title="このノートを削除"
           onClick={async () => {
@@ -53,13 +62,9 @@ export default function NotePage() {
             router.push(`/r/${roomId}`);
           }}
         >
-          <Icon name="del" />
+          <Icon name="del" size={18} />
         </button>
-      </div>
-      <p className="mb-3 px-[42px] text-xs text-muted sm:px-[54px]">
-        「/」（日本語入力中は「／」）か、行の左の「＋」でブロックのメニューが出ます。「⋮⋮」をドラッグすると並び替えられます。最終更新：
-        {members.find((m) => m.userId === note.updatedBy)?.displayName ?? "—"}（{new Date(note.updatedAt).toLocaleString("ja-JP")}）
-      </p>
+      </TopBarActions>
       {linked && source ? (
         <>
           {editing && (
@@ -85,25 +90,5 @@ export default function NotePage() {
         <NoteEditor key={note.id} note={note} userId={me.id} members={members} template={note.template} />
       )}
     </div>
-  );
-}
-
-function NoteTitle({ value, onSave }: { value: string; onSave: (v: string) => void }) {
-  const [draft, setDraft] = useState(value);
-  const [base, setBase] = useState(value);
-  if (value !== base) {
-    setBase(value);
-    setDraft(value);
-  }
-  return (
-    <input
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => (draft.trim() && draft !== value ? onSave(draft.trim()) : setDraft(value))}
-      onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (e.target as HTMLInputElement).blur()}
-      placeholder="無題"
-      aria-label="ノートの名前"
-      className="min-w-0 flex-1 rounded-[8px] bg-transparent text-[30px] font-bold outline-none hover:bg-tint focus:bg-tint"
-    />
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { createContext, useContext } from "react";
 import { DEFAULT_PAGE_ICON, IconMark } from "@/components/IconMark";
 import { nameSuffixOf } from "@/lib/local/requests";
 import type { CalEvent, Database, DbPage, DbView } from "@/lib/local/db";
@@ -94,6 +95,15 @@ export function CircleGauge({ value, size = 72, label }: { value: number; size?:
   );
 }
 
+/** 何も出ないときに出す、次の一手（条件を外す・追加する など）。データベースの画面が決める */
+export const EmptyHint = createContext<React.ReactNode>(null);
+
 export function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="py-4 text-sm text-muted">{children}</p>;
+  const hint = useContext(EmptyHint);
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-4 text-sm text-muted">
+      <p>{children}</p>
+      {hint}
+    </div>
+  );
 }

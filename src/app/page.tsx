@@ -25,5 +25,5 @@ export default function Home() {
       </main>
     );
   }
-  return <p className="p-8 text-muted">読み込み中…</p>;
+  return <p className="loading p-8 text-muted">読み込み中…</p>;
 }

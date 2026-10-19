@@ -7,8 +7,8 @@ import { db, newId, type Category, type Database, type DbView } from "./db";
 // チャンネルは データベース・チャット・ノート・ウィンドウ の4種類で、それぞれの行に categoryId と navOrder を持たせている。
 
 export type ChannelKind = "db" | "chat" | "note" | "window";
-/** sourceId：ウィンドウ・ノートが、ソースにしているテンプレート */
-export type Channel = { kind: ChannelKind; id: string; name: string; icon?: string; categoryId: string | null; order: number; sourceId?: string | null };
+/** sourceId：ウィンドウ・ノートが、ソースにしているテンプレート。updatedAt・updatedBy：ノートの最終更新（サイドバーの「更新あり」の印に使う） */
+export type Channel = { kind: ChannelKind; id: string; name: string; icon?: string; categoryId: string | null; order: number; sourceId?: string | null; updatedAt?: number; updatedBy?: string };
 
 export const CHANNEL_KINDS: Record<ChannelKind, { label: string; note: string }> = {
   db: { label: "データベース", note: "依頼などを表やカレンダーで管理する" },
@@ -37,7 +37,7 @@ export function useChannels(roomId: string) {
     const list: Channel[] = [
       ...dbs.map((d) => ({ kind: "db" as const, id: d.id, name: d.name, icon: d.icon, categoryId: d.categoryId ?? null, order: d.navOrder ?? d.createdAt })),
       ...chats.map((c) => ({ kind: "chat" as const, id: c.id, name: c.name, icon: c.icon, categoryId: c.categoryId ?? null, order: c.navOrder ?? c.createdAt })),
-      ...notes.map((n) => ({ kind: "note" as const, id: n.id, name: n.title, icon: n.icon, categoryId: n.categoryId ?? null, order: n.navOrder ?? n.createdAt, sourceId: n.sourceId ?? null })),
+      ...notes.map((n) => ({ kind: "note" as const, id: n.id, name: n.title, icon: n.icon, categoryId: n.categoryId ?? null, order: n.navOrder ?? n.createdAt, sourceId: n.sourceId ?? null, updatedAt: n.updatedAt, updatedBy: n.updatedBy })),
       ...windows.map((w) => ({ kind: "window" as const, id: w.id, name: w.name, icon: w.icon, categoryId: w.categoryId ?? null, order: w.navOrder ?? w.createdAt, sourceId: w.sourceId ?? null })),
     ];
     return list.sort((a, b) => a.order - b.order);

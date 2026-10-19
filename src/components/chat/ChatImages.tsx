@@ -36,7 +36,7 @@ function ChatImagesDialog({ chatId, roomId, onClose }: { chatId: string; roomId:
   return (
     <PopupDialog title={`このチャットで送られた画像${sent ? `（${sent.length}）` : ""}`} onClose={onClose} width="max-w-3xl">
       {!sent ? (
-        <p className="text-muted">読み込み中…</p>
+        <p className="loading text-muted">読み込み中…</p>
       ) : sent.length ? (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-3">
           {sent.map((s, i) => (

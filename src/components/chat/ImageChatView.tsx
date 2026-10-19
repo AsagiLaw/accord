@@ -86,7 +86,7 @@ export function ImageChatView({ chat, me, readOnlyNotice, fixedUsers = [] }: { c
     if (stick.current || last?.authorId === me.id) el.scrollTop = el.scrollHeight;
   }, [ready, last?.id, last?.authorId, me.id]);
 
-  if (!messages) return <p className="text-muted">読み込み中…</p>;
+  if (!messages) return <p className="loading text-muted">読み込み中…</p>;
   const userOf = (m: Message) => users.find((u) => u.id === m.speaker);
 
   return (
@@ -178,45 +178,50 @@ function ImageMessage({
       </span>
       <div className={`flex max-w-[min(520px,78%)] flex-col ${right ? "items-end" : "items-start"}`}>
         {!grouped && <span className="mb-0.5 px-1 text-xs font-bold text-muted">{name}</span>}
-        <div className={`rounded-[18px] px-3 py-2 ${right ? "rounded-br-[6px] bg-accent text-accent-ink" : "rounded-bl-[6px] border border-line bg-card"}`}>
-          {images.length > 0 && (
-            <div className={`mb-1 grid gap-1 ${images.length > 1 ? "grid-cols-2" : ""}`}>
-              {images.map((id, i) => (
-                <button key={id} onClick={() => onOpen(i)} className="block h-40 w-40 overflow-hidden rounded-[12px]" aria-label="画像を開く">
-                  <ThumbImage id={id} alt="" />
-                </button>
-              ))}
-            </div>
-          )}
-          {editing ? (
-            <div className="space-y-1">
-              <textarea
-                value={draft}
-                autoFocus
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    void editMessage(m.id, draft.trim()).then(() => setEditing(false));
-                  }
-                  if (e.key === "Escape") setEditing(false);
-                }}
-                rows={Math.min(6, draft.split("\n").length + 1)}
-                className="field min-w-56 text-ink"
-              />
-              <div className="flex justify-end gap-2 text-xs">
-                <button className="underline" onClick={() => setEditing(false)}>
-                  やめる
-                </button>
-                <button className="font-bold underline" onClick={() => editMessage(m.id, draft.trim()).then(() => setEditing(false))}>
-                  保存
-                </button>
+        {/* 画像は吹き出しに入れず、そのまま並べる（LINE と同じ）。文字や編集中の欄があるときだけ、その下に吹き出しを出す */}
+        {images.length > 0 && (
+          <div className={`grid gap-1 ${images.length > 1 ? "grid-cols-2" : ""}`}>
+            {images.map((id, i) => (
+              <button key={id} onClick={() => onOpen(i)} className="block h-40 w-40 overflow-hidden rounded-[12px]" aria-label="画像を開く">
+                <ThumbImage id={id} alt="" />
+              </button>
+            ))}
+          </div>
+        )}
+        {(editing || !!m.text) && (
+          <div
+            className={`${images.length > 0 ? "mt-1 " : ""}rounded-[18px] px-3 py-2 ${right ? "rounded-br-[6px] bg-accent text-accent-ink" : "rounded-bl-[6px] border border-line bg-card"}`}
+          >
+            {editing ? (
+              <div className="space-y-1">
+                <textarea
+                  value={draft}
+                  autoFocus
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      void editMessage(m.id, draft.trim()).then(() => setEditing(false));
+                    }
+                    if (e.key === "Escape") setEditing(false);
+                  }}
+                  rows={Math.min(6, draft.split("\n").length + 1)}
+                  className="field min-w-56 text-ink"
+                />
+                <div className="flex justify-end gap-2 text-xs">
+                  <button className="underline" onClick={() => setEditing(false)}>
+                    やめる
+                  </button>
+                  <button className="font-bold underline" onClick={() => editMessage(m.id, draft.trim()).then(() => setEditing(false))}>
+                    保存
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : (
-            m.text && <LongText text={m.text} />
-          )}
-        </div>
+            ) : (
+              m.text && <LongText text={m.text} />
+            )}
+          </div>
+        )}
       </div>
       {canEdit && (
         <button
@@ -415,7 +420,7 @@ function ImageUserDialog({ roomId, userId, user, onClose }: { roomId: string; us
   const preview: ImageUser = { id: "", roomId, name: name || "？", icon, mediaId, createdAt: 0 };
 
   return (
-    <div className="fixed inset-0 z-[57] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="sheet-backdrop fixed inset-0 z-[57] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <form
         role="dialog"
         aria-modal="true"
@@ -425,27 +430,30 @@ function ImageUserDialog({ roomId, userId, user, onClose }: { roomId: string; us
           if (!name.trim()) return;
           onClose(await saveImageUser({ id: user?.id, roomId, name: name.trim(), icon: mediaId ? undefined : icon, mediaId }));
         }}
-        className="w-full max-w-md space-y-3 rounded-t-[20px] border border-line bg-card p-5 sm:rounded-[14px]"
+        className="flex max-h-[92dvh] w-full max-w-md flex-col rounded-t-[20px] border border-line bg-card sm:rounded-[14px]"
       >
-        <h3 className="font-bold">{user ? "イメージユーザーを直す" : "イメージユーザーを作る"}</h3>
-        <p className="text-sm text-muted">作ったイメージユーザーは、ルームの誰でも、どのイメージチャットでも使えます。</p>
+        {/* 見出しは、ほかのポップアップと同じ形（下に線、右上に「×」） */}
+        <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
+          <h3 className="w-fit font-bold" title="作ったイメージユーザーは、ルームの誰でも、どのイメージチャットでも使えます">
+            {user ? "イメージユーザーを直す" : "イメージユーザーを作る"}
+          </h3>
+          <button type="button" className="grid h-8 w-8 place-items-center rounded-full hover:bg-tint" aria-label="閉じる" onClick={() => onClose()}>
+            <Icon name="x" />
+          </button>
+        </div>
+        <div className="space-y-3 overflow-y-auto p-4">
         <div className="flex items-center gap-3">
           <ImageUserIcon user={preview} size={56} />
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="名前（例：依頼者さん）" className="field" aria-label="名前" />
         </div>
+        {/* アイコン：ほかのアイコン選びと同じく、上のタブで絵文字かメディアの画像を選ぶ */}
         <div className="rounded-[12px] border border-line p-2">
-          <div className="mb-1 flex items-center justify-between text-xs text-muted">
-            アイコン
-            <button type="button" className="btn-sub min-h-[28px] px-3 text-xs" onClick={() => setPicking(true)}>
-              <Icon name="img" size={14} />
-              メディアの画像にする
-            </button>
-          </div>
           <EmojiPicker
             onPick={(e) => {
               setIcon(e);
               setMediaId(undefined);
             }}
+            onMedia={() => setPicking(true)}
             onRemove={icon || mediaId ? () => (setIcon(undefined), setMediaId(undefined)) : undefined}
           />
         </div>
@@ -456,6 +464,7 @@ function ImageUserDialog({ roomId, userId, user, onClose }: { roomId: string; us
           <button className="btn" disabled={!name.trim()}>
             {user ? "保存" : "作る"}
           </button>
+        </div>
         </div>
         {picking && (
           <MediaPicker

@@ -8,6 +8,7 @@ import { P } from "@/lib/requests/defaults";
 import { addDays, isDate, stagesOf, today, valueOf } from "@/lib/requests/logic";
 import { stageDates, stageOf } from "@/lib/requests/stages";
 import { PopupDialog } from "@/components/ui/Dialog";
+import { Segmented } from "@/components/ui/Segmented";
 import type { ViewProps } from "./common";
 import { colorHueOf, tintOf } from "./groups";
 import { PageLink as PeekLink, usePeek } from "../PageLink";
@@ -248,10 +249,13 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
       shown = list.length > Math.min(cap, fitAll) ? list.slice(0, Math.min(cap, fitWithMore)) : list;
     }
     const height = fit ? "min-h-0 overflow-hidden" : size ? "" : weekly ? (compact ? "min-h-40" : "min-h-64") : compact ? "min-h-16" : "min-h-24";
+    // 日付の印（カレンダーのブロックと同じ）：今日は色の付いた丸、日曜は赤、土曜は青
+    const dw = dayOfWeek(d);
+    const dateTone = d === now ? "bg-accent font-bold text-accent-ink" : dw === 0 ? "text-warn" : dw === 6 ? "text-accent" : "text-muted";
     return (
       <div
         key={d}
-        className={`group relative bg-card p-1 ${height} ${d === now ? "outline-2 -outline-offset-2 outline-accent" : ""}`}
+        className={`group relative bg-card p-1 ${height}`}
         // サイズを決めたときは、そのサイズの高さ（ウィンドウでは、それを上限に縮む）
         style={size && !fit ? { height: natural } : undefined}
       >
@@ -260,7 +264,7 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
           <span className="flex min-w-0 items-center gap-1">
             {switchable ? (
               <button
-                className={`rounded px-0.5 hover:bg-tint ${d === now ? "font-bold text-accent" : ""}`}
+                className={`grid h-5 min-w-5 place-items-center rounded-full px-1 ${dateTone} ${d === now ? "" : "hover:bg-tint"}`}
                 title={`${Number(d.slice(5, 7))}月${Number(d.slice(8))}日を1日で開く`}
                 onClick={() => {
                   setDay(d);
@@ -270,10 +274,10 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
                 {label}
               </button>
             ) : (
-              <span className={d === now ? "font-bold text-accent" : ""}>{label}</span>
+              <span className={`grid h-5 min-w-5 place-items-center rounded-full px-1 ${dateTone}`}>{label}</span>
             )}
             {list.length > 0 && (
-              <span className="shrink-0 rounded-full bg-tint px-1.5 text-[10px] leading-4 text-muted" title={`${list.length}件の予定`}>
+              <span className="shrink-0 rounded-full bg-tint px-1.5 text-[11px] leading-4 text-muted" title={`${list.length}件の予定`}>
                 {list.length}件
               </span>
             )}
@@ -291,7 +295,7 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
           {list.length > shown.length && (
             <button
               onClick={() => setDayOpen(d)}
-              className="mx-auto flex w-fit items-center gap-0.5 rounded px-1 text-[10px] text-muted hover:bg-tint hover:text-ink"
+              className="mx-auto flex w-fit items-center gap-0.5 rounded px-1 text-[11px] text-muted hover:bg-tint hover:text-ink"
               title="この日の予定を全部見る"
             >
               <Icon name="rt" size={12} className="rotate-90" />+{list.length - shown.length}件
@@ -310,7 +314,7 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
     for (let i = 1; i <= n; i++) total += items.get(`${key}-${pad(i)}`)?.length ?? 0;
     const title = (
       <>
-        {mm}月{total > 0 && <span className="rounded-full bg-tint px-1.5 text-[10px] leading-4 font-normal text-muted">{total}件</span>}
+        {mm}月{total > 0 && <span className="rounded-full bg-tint px-1.5 text-[11px] leading-4 font-normal text-muted">{total}件</span>}
       </>
     );
     return (
@@ -334,11 +338,11 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
           </span>
         )}
         <div
-          className={`grid gap-px text-center text-[10px] ${fit ? "min-h-0 grow" : "auto-rows-[22px]"}`}
+          className={`grid gap-px text-center text-[11px] ${fit ? "min-h-0 grow" : "auto-rows-[22px]"}`}
           style={{ ...colsStyle, ...(fit ? { gridTemplateRows: "repeat(7, minmax(0, 1fr))" } : {}) }}
         >
           {order.map((d) => (
-            <span key={d} className={`grid place-items-center ${d === 0 ? "text-warn" : "text-muted"}`}>
+            <span key={d} className={`grid place-items-center ${d === 0 ? "text-warn/80" : d === 6 ? "text-accent/80" : "text-muted"}`}>
               {WEEK[d]}
             </span>
           ))}
@@ -396,8 +400,6 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
   const weekEnd = weekAll[6];
   const unit = daily ? "日" : weekly ? "週" : yearly ? "年" : "月";
   const step = (n: number) => (daily ? setDay(addDays(day, n)) : weekly ? setWeekStart(addDays(weekStart, 7 * n)) : move(yearly ? 12 * n : n));
-  // 今の日・週・月・年を出していないときは、そこへ戻るボタンを出す
-  const away = daily ? day !== now : weekly ? weekStart !== thisWeek : yearly ? y !== Number(now.slice(0, 4)) : month !== now.slice(0, 7);
   // 1日のカレンダー：その日の予定。ウィンドウでは入る分だけ出して、残りは「▼ +N件」から
   const dayList = items.get(day) ?? [];
   let dayShown = dayList;
@@ -415,34 +417,20 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
         : `${y}年${m}月`;
   return (
     <div className={`rounded-[14px] border border-line bg-card p-3 ${fit ? "flex min-h-0 grow flex-col" : ""}`}>
-      <div className="mb-2 flex shrink-0 items-center gap-2" data-cal-head="">
-        <button className="btn-sub h-8 min-h-0 w-8 px-0" aria-label={`前の${unit}`} onClick={() => step(-1)}>
-          <Icon name="l" />
+      <div className="mb-2 flex shrink-0 flex-wrap items-center gap-1 text-sm" data-cal-head="">
+        <button className="btn-sub h-7 min-h-0 w-7 px-0" aria-label={`前の${unit}`} onClick={() => step(-1)}>
+          <Icon name="l" size={16} />
         </button>
-        <b className={`min-w-24 text-center ${daily && day === now ? "text-accent" : ""}`}>{heading}</b>
-        <button className="btn-sub h-8 min-h-0 w-8 px-0" aria-label={`次の${unit}`} onClick={() => step(1)}>
-          <Icon name="r" />
+        {/* 今日（今の日・週・月・年）に戻る */}
+        <button className="btn-sub h-7 min-h-0 px-2.5 text-xs" onClick={() => (daily ? setDay(now) : weekly ? setWeekStart(thisWeek) : setMonth(now.slice(0, 7)))}>
+          今日
         </button>
-        {away && (
-          <button className="ml-1 text-sm text-muted underline" onClick={() => (daily ? setDay(now) : weekly ? setWeekStart(thisWeek) : setMonth(now.slice(0, 7)))}>
-            {daily ? "今日" : weekly ? "今週" : yearly ? "今年" : "今月"}
-          </button>
-        )}
+        <button className="btn-sub h-7 min-h-0 w-7 px-0" aria-label={`次の${unit}`} onClick={() => step(1)}>
+          <Icon name="r" size={16} />
+        </button>
+        <b className={`ml-1 whitespace-nowrap ${daily && day === now ? "text-accent" : ""}`}>{heading}</b>
         {/* 切り替えボタン（設定でオンにしたとき）：右上の「日・週・月・年」。その場だけ切り替わる */}
-        {switchable && (
-          <div className="ml-auto flex shrink-0 gap-0.5 rounded-[8px] border border-line p-0.5 text-xs" role="group" aria-label="期間の切り替え">
-            {RANGES.map((r) => (
-              <button
-                key={r.id}
-                aria-pressed={range === r.id}
-                onClick={() => pick(r.id)}
-                className={`rounded-[6px] px-2.5 py-0.5 ${range === r.id ? "bg-tint font-bold text-ink" : "text-muted hover:bg-tint/60 hover:text-ink"}`}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-        )}
+        {switchable && <Segmented size="sm" className="ml-auto" label="期間の切り替え" value={range} onChange={pick} items={RANGES.map((r) => ({ value: r.id, label: r.label }))} />}
       </div>
       {daily ? (
         // デイリー：1日の予定を大きく並べる。下から、この日に予定などを足せる
@@ -477,7 +465,7 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
         <div className={`flex min-h-0 flex-col gap-px overflow-hidden rounded-[10px] border border-line bg-line text-xs ${fit ? "grow" : ""}`}>
           <div className="grid shrink-0 gap-px" style={colsStyle}>
             {order.map((d) => (
-              <div key={d} className={`bg-card py-1 text-center ${d === 0 ? "text-warn" : "text-muted"}`}>
+              <div key={d} className={`bg-card py-1 text-center ${d === 0 ? "text-warn/80" : d === 6 ? "text-accent/80" : "text-muted"}`}>
                 {WEEK[d]}
               </div>
             ))}
@@ -500,14 +488,14 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
         </div>
       )}
       {dayOpen && (
-        <PopupDialog title={`${Number(dayOpen.slice(5, 7))}月${Number(dayOpen.slice(8))}日の予定`} onClose={() => setDayOpen(null)} width="max-w-md">
+        <PopupDialog title={`${Number(dayOpen.slice(5, 7))}月${Number(dayOpen.slice(8))}日（${WEEK[dayOfWeek(dayOpen)]}）の予定`} onClose={() => setDayOpen(null)} width="max-w-md">
           <div className="space-y-1 text-sm">
             {(items.get(dayOpen) ?? []).map(item)}
-            {!items.get(dayOpen)?.length && <p className="text-muted">予定はありません</p>}
+            {!items.get(dayOpen)?.length && <p className="py-4 text-center text-sm text-muted">この日の予定はありません</p>}
           </div>
           {/* この日に予定などを足す（年のカレンダーには「＋」が無いので、ここから） */}
           <button
-            className="btn-sub mt-3"
+            className="btn-sub mt-3 w-full"
             onClick={() => {
               const day = dayOpen;
               setDayOpen(null);

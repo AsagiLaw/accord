@@ -121,6 +121,6 @@ export function MediaProvider({
     editing,
   ]);
 
-  if (!value) return <p className="p-8 text-muted">読み込み中…</p>;
+  if (!value) return <p className="loading p-8 text-muted">読み込み中…</p>;
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

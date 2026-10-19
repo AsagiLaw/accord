@@ -66,7 +66,7 @@ export function AvatarCropper({ source, onCancel, onDone }: { source: Blob; onCa
   return (
     <div
       data-overlay=""
-      className="fixed inset-0 z-[57] flex items-end justify-center bg-black/50 sm:items-center"
+      className="sheet-backdrop fixed inset-0 z-[57] flex items-end justify-center bg-black/50 sm:items-center"
       onClick={(e) => e.target === e.currentTarget && onCancel()}
     >
       <div role="dialog" aria-modal="true" aria-label="アイコンの切り抜き" data-name="アイコンの切り抜き" className="w-full max-w-sm rounded-t-[20px] border border-line bg-card sm:rounded-[14px]">

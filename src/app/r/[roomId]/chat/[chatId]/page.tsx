@@ -17,7 +17,7 @@ export default function ChatPage() {
   const me = useCurrentUser();
   const members = useMembers(roomId);
 
-  if (chat === undefined || !me || !members) return <p className="text-muted">読み込み中…</p>;
+  if (chat === undefined || !me || !members) return <p className="loading text-muted">読み込み中…</p>;
   if (!chat || chat.roomId !== roomId) {
     return (
       <p className="text-muted">

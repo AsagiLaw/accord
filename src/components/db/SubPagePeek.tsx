@@ -16,12 +16,12 @@ import { PeekFrame } from "./PeekFrame";
 
 const BlockEditor = dynamic(() => import("@/components/note/BlockEditor").then((m) => m.BlockEditor), {
   ssr: false,
-  loading: () => <p className="p-4 text-muted">読み込み中…</p>,
+  loading: () => <p className="loading p-4 text-muted">読み込み中…</p>,
 });
 
 const NoteEditor = dynamic(() => import("@/components/note/NoteEditor").then((m) => m.NoteEditor), {
   ssr: false,
-  loading: () => <p className="text-muted">読み込み中…</p>,
+  loading: () => <p className="loading text-muted">読み込み中…</p>,
 });
 
 /**
@@ -70,7 +70,7 @@ export function SubPagePeek({ roomId, dbId, pageId, propId, onClose }: SubPageTa
   const missing = database === null || page === null || (database && !prop) || (prop && prop.type !== "page");
   const body = () => {
     if (missing) return <p className="p-4 text-muted">別ページが見つかりません（項目かページが消えたかもしれません）</p>;
-    if (!database || !page || !note || !me || !members) return <p className="p-4 text-muted">読み込み中…</p>;
+    if (!database || !page || !note || !me || !members) return <p className="loading p-4 text-muted">読み込み中…</p>;
     const scope = { dbId: database.id, pageId: page.id };
     if (!isWindow)
       return (

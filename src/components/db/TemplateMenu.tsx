@@ -98,6 +98,7 @@ export function TemplateMenu({ database, onPick, close }: { database: Database; 
       {list.map((t) => (
         <div
           key={t.id}
+          title="右クリックで、既定・名前・複製・削除"
           className="group flex items-center"
           onContextMenu={(e) => {
             setActing({ id: t.id });
@@ -132,7 +133,6 @@ export function TemplateMenu({ database, onPick, close }: { database: Database; 
           </button>
         </div>
       ))}
-      {list.length > 0 && <p className="px-2 pt-1 text-xs text-muted">右クリックで、既定・名前・複製・削除</p>}
       <MenuDivider />
       <MenuItem
         icon={<Icon name="add" size={16} />}

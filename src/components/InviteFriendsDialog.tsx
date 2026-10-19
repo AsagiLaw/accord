@@ -42,9 +42,14 @@ export function InviteFriendsDialog({ room, me, onClose }: { room: { id: string;
   };
 
   return (
-    <PopupDialog title={`「${room.name}」にフレンドを招待`} onClose={onClose} width="max-w-md">
+    <PopupDialog
+      title={`「${room.name}」にフレンドを招待`}
+      note={`招待は、フレンドとのDMにカードで届きます。相手が「参加する」を押すと、ルームのメンバーになります（招待の期限は${INVITE_DAYS}日です）`}
+      onClose={onClose}
+      width="max-w-md"
+    >
       {loading ? (
-        <p className="text-muted">読み込み中…</p>
+        <p className="loading text-muted">読み込み中…</p>
       ) : !canInvite ? (
         <p className="text-sm text-muted">このルームに招待できるのはホストだけです。ホストがルームの設定で「メンバーもフレンドを招待できる」をオンにすると、メンバーも招待できます。</p>
       ) : !friendships.friends.length ? (
@@ -98,9 +103,6 @@ export function InviteFriendsDialog({ room, me, onClose }: { room: { id: string;
           ) : (
             <p className="py-4 text-center text-sm text-muted">「{query.trim()}」に当てはまるフレンドはいません</p>
           )}
-          <p className="rounded-[10px] bg-tint px-3 py-2 text-xs text-muted">
-            招待は、フレンドとのDMにカードで届きます。相手が「参加する」を押すと、ルームのメンバーになります（招待の期限は{INVITE_DAYS}日です）。
-          </p>
         </div>
       )}
     </PopupDialog>

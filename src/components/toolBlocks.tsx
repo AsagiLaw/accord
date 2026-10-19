@@ -5,14 +5,15 @@ import { PageSourceScreen, PropScreen, sourceText, THIS_PAGE } from "@/component
 import { NewPageDialog } from "@/components/db/NewPageDialog";
 import { InnerPeekContext, SubPeekContext, usePeek } from "@/components/db/PageLink";
 import { collectItems, parseDbs } from "@/components/calendar/CalendarBlock";
-import { confirmAction } from "@/components/ui/overlay";
+import { Checkbox } from "@/components/ui/Checkbox";
+import { confirmAction, toast } from "@/components/ui/overlay";
 import { SettingsButton, useNoteContext } from "@/components/embeds";
 import { MenuDivider, Popover, usePopover } from "@/components/ui/Popover";
 import { Icon } from "@/components/Icon";
 import { ChoiceScreen, EmptyNote, MenuTitle, NavRow, OptionRow, SectionHead, TextField, ToggleRow } from "@/components/ui/SettingsMenu";
 import type { Database, DbPage } from "@/lib/local/db";
 import { createInnerNote, setInnerKind } from "@/lib/local/notes";
-import { addTodo, deleteEvent, deleteTodo, saveCalEvent, setEventDone, toggleTodo, useCalendarEvents, useDatabases, usePage, usePagesOf, useRoomCalendars, useTodos, type RoomCalendar } from "@/lib/local/requests";
+import { addTodo, deleteEvent, deleteTodo, restoreTodo, saveCalEvent, setEventDone, toggleTodo, useCalendarEvents, useDatabases, usePage, usePagesOf, useRoomCalendars, useTodos, type RoomCalendar } from "@/lib/local/requests";
 import { today } from "@/lib/requests/logic";
 
 // ホームなどで使う道具のブロック（ToDo・追加ボタン・ボタン）。ノートにもウィンドウにも置ける
@@ -109,11 +110,14 @@ function RoomTodos({ fill }: { fill?: boolean }) {
       <ul className={`space-y-0.5 ${fill ? "min-h-0 flex-1 overflow-y-auto" : ""}`}>
         {[...open, ...done].map((t) => (
           <li key={t.id} className="group flex items-center gap-2 rounded-[8px] px-1 py-1 hover:bg-tint">
-            <input type="checkbox" checked={t.done} onChange={(e) => toggleTodo(t.id, e.target.checked)} aria-label={t.text} className="h-4 w-4 shrink-0 accent-[var(--accent)]" />
+            <Checkbox checked={t.done} onChange={(on) => toggleTodo(t.id, on)} label={t.text} size="sm" />
             <span className={`min-w-0 flex-1 break-words ${t.done ? "text-muted line-through" : ""}`}>{t.text}</span>
             <button
               aria-label="削除"
-              onClick={() => deleteTodo(t.id)}
+              onClick={async () => {
+                const gone = await deleteTodo(t.id);
+                if (gone) toast(`「${gone.text}」を削除しました`, { label: "元に戻す", run: () => void restoreTodo(gone) });
+              }}
               className="grid h-6 w-6 shrink-0 place-items-center rounded-full opacity-0 group-hover:opacity-100 hover:bg-tint focus:opacity-100 max-md:opacity-50"
             >
               <Icon name="x" size={14} />
@@ -157,7 +161,7 @@ function TodayEvents({ source, cal, fill }: { source: string; cal?: RoomCalendar
         {list.map((it) => (
           <li key={it.key} className="group flex items-center gap-2 rounded-[8px] px-1 py-1 hover:bg-tint">
             {it.event ? (
-              <input type="checkbox" checked={!!it.done} onChange={(e) => void setEventDone(it.event!.id, e.target.checked)} aria-label={it.text} className="h-4 w-4 shrink-0 accent-[var(--accent)]" />
+              <Checkbox checked={!!it.done} onChange={(on) => void setEventDone(it.event!.id, on)} label={it.text} size="sm" />
             ) : (
               <Icon name="db" size={16} className="shrink-0 text-muted" />
             )}

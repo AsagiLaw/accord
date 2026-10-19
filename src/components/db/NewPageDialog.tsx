@@ -33,7 +33,7 @@ export function NewPageDialog({
   const label = "ページ";
 
   return (
-    <div className="fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center">
+    <div className="sheet-backdrop fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center">
       <form
         role="dialog"
         aria-modal="true"
@@ -51,9 +51,9 @@ export function NewPageDialog({
         <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
           <h3 className="min-w-0 font-bold">
             {label}を追加
-            {template && <span className="ml-2 text-sm font-normal text-muted">テンプレート：{template.name}</span>}
+            {template && <span className="block truncate text-sm font-normal text-muted">テンプレート：{template.name}</span>}
           </h3>
-          <div className="flex gap-2">
+          <div className="flex shrink-0 gap-2 whitespace-nowrap">
             <button type="button" className="btn-sub" onClick={onClose}>
               キャンセル
             </button>

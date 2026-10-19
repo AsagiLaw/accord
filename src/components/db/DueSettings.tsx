@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/Select";
 import type { Database } from "@/lib/local/db";
 import { notifyPermission, setDueNotify, useDueNotify } from "@/lib/local/dueNotify";
 import { updateDatabase } from "@/lib/local/requests";
@@ -25,7 +26,7 @@ export function DueSettings({ database, onClose }: { database: Database; onClose
   };
 
   return (
-    <div className="fixed inset-0 z-[56] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => e.target === e.currentTarget && onClose()} data-overlay="">
+    <div className="sheet-backdrop fixed inset-0 z-[56] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => e.target === e.currentTarget && onClose()} data-overlay="">
       <div role="dialog" aria-modal="true" aria-label="納期のお知らせ" data-name="納期のお知らせの設定" className="flex max-h-[92dvh] w-full max-w-md flex-col rounded-t-[20px] border border-line bg-card sm:rounded-[14px]">
         <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
           <h3 className="font-bold">納期のお知らせ</h3>
@@ -41,19 +42,16 @@ export function DueSettings({ database, onClose }: { database: Database; onClose
         <div className="space-y-4 overflow-y-auto px-5 py-4 text-sm">
           <label className="flex items-center gap-2">
             <span className="w-28 shrink-0">納期の項目</span>
-            <select value={prop} onChange={(e) => setProp(e.target.value)} className="field py-1">
-              <option value="">自動（{auto?.name ?? "なし"}）</option>
-              <option value="none">お知らせしない</option>
-              {choices.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+            <Select
+              value={prop}
+              onChange={setProp}
+              label="納期の項目"
+              options={[{ value: "", label: `自動（${auto?.name ?? "なし"}）` }, { value: "none", label: "お知らせしない" }, ...choices.map((p) => ({ value: p.id, label: p.name }))]}
+            />
           </label>
           <label className="flex items-center gap-2">
             <span className="w-28 shrink-0">近いとする日</span>
-            <input type="number" min={0} max={60} value={days} onChange={(e) => setDays(e.target.value)} disabled={prop === "none"} className="field w-20 py-1" />
+            <input type="number" min={0} max={60} value={days} onChange={(e) => setDays(e.target.value)} disabled={prop === "none"} className="field h-9 w-20 py-1" />
             <span>日前から</span>
           </label>
           {/* ブラウザの通知：人と端末ごと（すぐに切り替わる） */}

@@ -9,7 +9,7 @@ import { MenuDivider, MenuItem, MenuLabel, Popover, usePopover } from "@/compone
 import { TabStrip } from "@/components/ui/TabStrip";
 import { choose, promptText } from "@/components/ui/overlay";
 import type { CalEvent, Database, DbPage, DbView, PageTemplate, ViewType } from "@/lib/local/db";
-import { createView, nameSuffixOf, setDatabaseIcon, updateDatabase, useTrash } from "@/lib/local/requests";
+import { createView, nameSuffixOf, saveView, setDatabaseIcon, updateDatabase, useTrash } from "@/lib/local/requests";
 import { dueDaysOf, dueProp } from "@/lib/requests/due";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 import { sortsOf } from "@/lib/requests/logic";
@@ -22,6 +22,7 @@ import { StageSettings } from "./StageSettings";
 import { TrashDialog } from "./TrashDialog";
 import { TemplateMenu } from "./TemplateMenu";
 import { FilterScreens, SortScreens, ViewSettingsMenu } from "./ViewSettings";
+import { EmptyHint } from "./views/common";
 import { ViewRenderer } from "./views/ViewRenderer";
 
 type Pop = { kind: "icon" | "addView" | "more" | "addFilter" | "sort" | "templates" | "view" } | { kind: "filter"; index: number };
@@ -125,7 +126,7 @@ export function DatabaseView({
         <TabStrip
           items={views.map((v) => ({
             id: v.id,
-            title: v.id === view?.id ? "もう一度押すとビューの設定" : v.name,
+            title: v.id === view?.id ? `${v.name}（もう一度押すとビューの設定）` : v.name,
             content: (
               <>
                 <Icon name={VIEW_TYPES[v.type].icon} size={14} className="shrink-0" />
@@ -199,7 +200,27 @@ export function DatabaseView({
       )}
 
       {view ? (
-        <ViewRenderer key={`view:${view.id}`} database={database} view={view} allPages={pages} events={events} members={members} userId={userId} search={search ?? ""} />
+        // 何も出ないときの次の一手：検索中なら検索を消す、条件があれば外す、どちらも無ければ追加する
+        <EmptyHint.Provider
+          value={
+            search ? (
+              <button className="btn-sub h-8 min-h-0 px-3 text-xs" onClick={() => setSearch(null)}>
+                検索を消す
+              </button>
+            ) : view.filters.length > 0 && !view.options.locked ? (
+              <button className="btn-sub h-8 min-h-0 px-3 text-xs" onClick={() => void saveView({ ...view, filters: [] })}>
+                条件を外して全部を見る
+              </button>
+            ) : (
+              <button className="btn-sub h-8 min-h-0 gap-1 px-3 text-xs" onClick={() => (setTemplate(defaultTemplate ?? null), setDialog("new"))}>
+                <Icon name="add" size={14} />
+                {label}を追加
+              </button>
+            )
+          }
+        >
+          <ViewRenderer key={`view:${view.id}`} database={database} view={view} allPages={pages} events={events} members={members} userId={userId} search={search ?? ""} />
+        </EmptyHint.Provider>
       ) : (
         <p className="text-muted">ビューがありません。タブの右の＋から追加してください。</p>
       )}

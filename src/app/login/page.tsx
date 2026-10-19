@@ -6,7 +6,8 @@ import { Suspense, useState } from "react";
 import { AuthCard, AuthLink, Field, FormError, GoogleButton, OrDivider, PasswordInput } from "@/components/auth/AuthParts";
 import { useTurnstile } from "@/components/auth/Turnstile";
 import { Avatar } from "@/components/Avatar";
-import { authMode, signIn, signInWithGoogle } from "@/lib/auth";
+import { signIn, signInWithGoogle } from "@/lib/auth";
+import { devSampleUsers } from "@/lib/auth/mode";
 import { safeNext } from "@/lib/auth/validate";
 import { localSignInSample, useSampleProfiles } from "@/lib/local/accounts";
 
@@ -96,11 +97,12 @@ function LoginForm() {
         }}
       />
 
-      {/* ローカル版だけ：メールとパスワードを設定していない、試し用の利用者で入る */}
-      {authMode === "local" && !!samples?.length && (
+      {/* 開発中のローカル版だけ：メールとパスワードを設定していない、開発の確かめ用の利用者で入る */}
+      {devSampleUsers && !!samples?.length && (
         <div data-name="試し用の利用者" className="border-t border-line pt-4">
-          <p className="mb-1 text-sm font-bold">試し用の利用者で入る</p>
-          <p className="mb-2 text-xs text-muted">ローカル版だけ。パスワードなしで入れます。アカウントの設定で、メールとパスワードを設定することもできます。</p>
+          <p className="mb-2 w-fit text-sm font-bold" title="ローカル版だけ。パスワードなしで入れます。アカウントの設定で、メールとパスワードを設定することもできます">
+            試し用の利用者で入る
+          </p>
           <ul className="space-y-1">
             {samples.map((p) => (
               <li key={p.id}>

@@ -141,8 +141,9 @@ function AddFriend({ me }: { me: Profile }) {
   const others = profiles?.filter((p) => p.id !== me.id) ?? [];
   return (
     <section className="card">
-      <h2 className="font-bold">フレンドを追加</h2>
-      <p className="text-sm text-muted">相手の ID で申請を送ります。相手が承認すると、フレンドになります。</p>
+      <h2 className="w-fit font-bold" title="相手の ID で申請を送ります。相手が承認すると、フレンドになります">
+        フレンドを追加
+      </h2>
       <form
         className="mt-3 flex flex-wrap gap-2"
         onSubmit={(e) => {
@@ -208,7 +209,7 @@ export default function FriendsPage() {
   const shown = useShownPresence(me?.id);
   const now = useNow();
 
-  if (!me || !data) return <p className="text-muted">読み込み中…</p>;
+  if (!me || !data) return <p className="loading text-muted">読み込み中…</p>;
   const { friends, incoming, outgoing } = data;
   const tabs: { id: Exclude<Tab, "add">; label: string; badge?: number }[] = [
     { id: "all", label: `すべて（${friends.length}）` },

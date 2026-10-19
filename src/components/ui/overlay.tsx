@@ -114,7 +114,7 @@ export function OverlayHost() {
     <>
       {top && (
         <div
-          className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center"
+          className="sheet-backdrop fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center"
           onClick={(e) => e.target === e.currentTarget && close(top, null)}
         >
           <div role="dialog" aria-modal="true" data-overlay aria-label={top.title} data-name={`${top.kind === "prompt" ? "入力" : "確認"}ダイアログ「${top.title}」`} className="w-full max-w-md rounded-t-[20px] border border-line bg-card p-5 sm:rounded-[14px]">
@@ -152,7 +152,7 @@ export function OverlayHost() {
         className="pointer-events-none fixed bottom-[calc(env(safe-area-inset-bottom,0px)+16px)] left-1/2 z-[70] flex -translate-x-1/2 flex-col items-center gap-2"
       >
         {snap.toasts.map((t) => (
-          <div key={t.id} data-name="お知らせ" className="pointer-events-auto flex items-center gap-4 rounded-full bg-ink px-5 py-2.5 text-bg shadow-lg">
+          <div key={t.id} data-name="お知らせ" className="anim-rise pointer-events-auto flex items-center gap-4 rounded-full bg-ink px-5 py-2.5 text-bg shadow-lg">
             <span>{t.message}</span>
             {t.action && (
               <button

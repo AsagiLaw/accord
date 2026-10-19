@@ -71,7 +71,7 @@ export function AddToLibraryDialog({ libId }: { libId: string }) {
 
   return (
     <div
-      className="fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center"
+      className="sheet-backdrop fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center"
       onClick={(e) => e.target === e.currentTarget && close()}
     >
       <div
@@ -81,7 +81,9 @@ export function AddToLibraryDialog({ libId }: { libId: string }) {
         className="flex max-h-[92dvh] w-full max-w-4xl flex-col rounded-t-[20px] border border-line bg-card sm:rounded-[14px]"
       >
         <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
-          <h3 className="truncate font-bold">「{lib.name}」に画像を追加</h3>
+          <h3 className="truncate font-bold" title="選んだ画像がライブラリーに入ります。選択を外すと、ライブラリーから外れます">
+            「{lib.name}」に画像を追加
+          </h3>
           <div className="flex shrink-0 gap-2">
             <button className="btn-sub" onClick={close}>
               キャンセル
@@ -92,9 +94,6 @@ export function AddToLibraryDialog({ libId }: { libId: string }) {
           </div>
         </div>
         <div className="space-y-3 overflow-y-auto px-5 py-4">
-          <p className="text-sm text-muted">
-            選んだ画像がライブラリーに入ります。選択を外すと、ライブラリーから外れます。
-          </p>
           <div className="flex flex-wrap gap-1.5">
             {(
               [

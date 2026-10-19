@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Icon } from "@/components/Icon";
 import { confirmAction, toast } from "@/components/ui/overlay";
+import { Select } from "@/components/ui/Select";
 import { countImagesMovedIfRemoved, linkBoxToRoom, removeShare, setShareCanEdit, useMyBoxes, useRoomBox } from "@/lib/local/boxes";
 import type { Profile, Room } from "@/lib/local/db";
 import { useBoxContributors } from "@/lib/local/media";
@@ -57,10 +58,9 @@ export function RoomMediaSettings({ roomId, room, me }: { roomId: string; room: 
   return (
     <section data-name="ルームのメディア" className="card space-y-3">
       <div>
-        <h2 className="mb-1 font-bold">メディア</h2>
-        <p className="text-sm text-muted">
-          このルームに紐づいているメディアのボックスです。変えられるのは、ルームを作ったホスト（{nameOf(room.createdBy)}）だけです。
-        </p>
+        <h2 className="w-fit font-bold" title={`このルームに紐づいているメディアのボックスです。変えられるのは、ルームを作ったホスト（${nameOf(room.createdBy)}）だけです`}>
+          メディア
+        </h2>
       </div>
 
       {link ? (
@@ -101,29 +101,29 @@ export function RoomMediaSettings({ roomId, room, me }: { roomId: string; room: 
         <div data-name="メディアの変更（ホストのみ）" className="flex flex-wrap items-center gap-2 border-t border-line pt-3 text-sm">
           <label className="flex min-w-0 items-center gap-2">
             <span className="shrink-0 text-muted">ボックス</span>
-            <select value={link?.box.id ?? ""} disabled={busy} onChange={(e) => changeBox(e.target.value)} className="field w-auto min-w-0 py-1" aria-label="紐づけるボックス">
-              <option value="">紐づけない</option>
-              {choices.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                  {b.ownerId !== me.id ? `（${nameOf(b.ownerId)}）` : ""}
-                </option>
-              ))}
-            </select>
+            <Select
+              value={link?.box.id ?? ""}
+              disabled={busy}
+              onChange={changeBox}
+              label="紐づけるボックス"
+              className="w-52 max-w-full"
+              options={[{ value: "", label: "紐づけない" }, ...choices.map((b) => ({ value: b.id, label: `${b.name}${b.ownerId !== me.id ? `（${nameOf(b.ownerId)}）` : ""}` }))]}
+            />
           </label>
           {link && (
             <label className="flex items-center gap-2">
               <span className="shrink-0 text-muted">メンバーは</span>
-              <select
+              <Select
                 value={link.share.canEdit ? "edit" : "view"}
                 disabled={busy}
-                onChange={(e) => setShareCanEdit(link.share.id, e.target.value === "edit")}
-                className="field w-auto py-1"
-                aria-label="メンバーの権限"
-              >
-                <option value="edit">編集もできる</option>
-                <option value="view">見るだけ</option>
-              </select>
+                onChange={(v) => setShareCanEdit(link.share.id, v === "edit")}
+                label="メンバーの権限"
+                className="w-36"
+                options={[
+                  { value: "edit", label: "編集もできる" },
+                  { value: "view", label: "見るだけ" },
+                ]}
+              />
             </label>
           )}
           {!myBoxes?.own.length && !link && <span className="text-xs text-muted">DMの「メディア」でボックスを作ると、ここで選べます。</span>}

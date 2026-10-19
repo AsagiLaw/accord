@@ -1,6 +1,7 @@
 "use client";
 
 import { Icon } from "@/components/Icon";
+import { Select } from "@/components/ui/Select";
 import { useMyBoxes } from "@/lib/local/boxes";
 import type { RoomMediaChoice } from "@/lib/local/rooms";
 
@@ -17,12 +18,15 @@ export function toMediaChoice(d: RoomMediaDraft, roomName: string): RoomMediaCho
 
 function Option({ checked, onSelect, title, note, children }: { checked: boolean; onSelect: () => void; title: string; note: string; children?: React.ReactNode }) {
   return (
-    <label className={`block cursor-pointer rounded-[12px] border px-3 py-2.5 transition ${checked ? "border-accent bg-tint" : "border-line hover:bg-tint"}`}>
+    <label title={note} className={`block cursor-pointer rounded-[12px] border px-3 py-2.5 transition ${checked ? "border-accent bg-tint" : "border-line hover:bg-tint"}`}>
       <span className="flex items-start gap-2">
-        <input type="radio" name="room-media" checked={checked} onChange={onSelect} className="mt-1.5 accent-[var(--accent)]" />
+        {/* 丸の印は自分で描く（ブラウザのラジオボタンは見えないようにして、読み上げとキーボードのためだけに残す） */}
+        <input type="radio" name="room-media" checked={checked} onChange={onSelect} className="peer sr-only" />
+        <span aria-hidden className={`mt-1 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full border transition-colors peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent ${checked ? "border-accent" : "border-muted"}`}>
+          {checked && <span className="h-2.5 w-2.5 rounded-full bg-accent" />}
+        </span>
         <span className="min-w-0 flex-1">
           <span className="block font-bold">{title}</span>
-          <span className="block text-xs text-muted">{note}</span>
           {checked && children && <span className="mt-2 block">{children}</span>}
         </span>
       </span>
@@ -57,13 +61,7 @@ export function RoomMediaFields({ userId, value, onChange }: { userId: string; v
         note={own.length ? "作ってあるボックスを紐づけます。ほかのルームと同じボックスも使えます。" : "まだ自分のボックスがありません（DMの「メディア」で作れます）。"}
       >
         {own.length > 0 && (
-          <select value={value.boxId} onChange={(e) => set({ boxId: e.target.value })} aria-label="紐づけるボックス" className="field py-1.5">
-            {own.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
+          <Select value={value.boxId} onChange={(boxId) => set({ boxId })} label="紐づけるボックス" size="lg" options={own.map((b) => ({ value: b.id, label: b.name }))} />
         )}
       </Option>
       <Option
@@ -75,10 +73,16 @@ export function RoomMediaFields({ userId, value, onChange }: { userId: string; v
       {value.kind !== "none" && (
         <label className="flex items-center gap-2 px-1 pt-1 text-sm">
           <span className="text-muted">メンバーは</span>
-          <select value={value.canEdit ? "edit" : "view"} onChange={(e) => set({ canEdit: e.target.value === "edit" })} aria-label="メンバーの権限" className="field w-auto py-1">
-            <option value="edit">編集もできる</option>
-            <option value="view">見るだけ</option>
-          </select>
+          <Select
+            value={value.canEdit ? "edit" : "view"}
+            onChange={(v) => set({ canEdit: v === "edit" })}
+            label="メンバーの権限"
+            className="w-36"
+            options={[
+              { value: "edit", label: "編集もできる" },
+              { value: "view", label: "見るだけ" },
+            ]}
+          />
         </label>
       )}
       <p className="flex items-center gap-1.5 px-1 text-xs text-muted">

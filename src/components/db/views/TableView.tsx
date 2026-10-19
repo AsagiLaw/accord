@@ -7,6 +7,7 @@ import { DEFAULT_PAGE_ICON, IconMark } from "@/components/IconMark";
 import { IconPicker } from "@/components/IconPicker";
 import { PageMenu } from "../PageMenu";
 import { PropChatPopup } from "../PropChat";
+import { DatePicker } from "@/components/ui/DateInput";
 import { Popover, MenuItem, usePopover } from "@/components/ui/Popover";
 import type { CalcType, DbPage, Property } from "@/lib/local/db";
 import { createBlankPage, setPageIcon, updatePageTitle, updatePageValue } from "@/lib/local/requests";
@@ -17,7 +18,7 @@ import { PropIcon } from "../meta";
 import { PropInput } from "../PropInput";
 import { StageSettings } from "../StageSettings";
 import { PropValue, SelectEditor, StageEditor } from "../values";
-import { PageName, pageHref, type ViewProps } from "./common";
+import { Empty, PageName, pageHref, type ViewProps } from "./common";
 import { PageLink as PeekLink, SubPeekContext } from "../PageLink";
 import { asValueProp, valueTypeOf } from "@/lib/requests/formula";
 import { GroupHead, colorHueOf, groupPages, groupPropOf, groupSumText, useCollapsed } from "./groups";
@@ -401,7 +402,11 @@ export function TableView({ database, view, pages, members, userId }: ViewProps)
             </tr>
           </tbody>
         </table>
-        {!pages.length && <p className="px-3 py-2 text-sm text-muted">該当するものはありません。右上の＋で追加できます。</p>}
+        {!pages.length && (
+          <div className="px-3">
+            <Empty>該当するものはありません</Empty>
+          </div>
+        )}
         {popovers}
       </div>
     );
@@ -594,6 +599,23 @@ function CellEditor({
     return <SelectEditor database={database} prop={prop} value={value} onChange={set} onDone={onDone} />;
   }
   if (prop.type === "stage") return <StageEditor database={database} prop={prop} page={page} onChange={set} onDone={onDone} />;
+  // 日付とユーザーは、セルを押したらすぐカレンダー・一覧を出す（入力欄をもう一度押さなくてよい）
+  if (prop.type === "date")
+    return (
+      <div className="p-1">
+        <DatePicker value={String(value ?? "")} onPick={(d) => (set(d), onDone())} onClear={() => (set(""), onDone())} />
+      </div>
+    );
+  if (prop.type === "user")
+    return (
+      <div>
+        {[{ userId: "", displayName: "—" }, ...members].map((m) => (
+          <MenuItem key={m.userId} active={value === m.userId || (!value && !m.userId)} icon={value === m.userId || (!value && !m.userId) ? <Icon name="ok" size={14} /> : <span />} onClick={() => (set(m.userId), onDone())}>
+            {m.displayName}
+          </MenuItem>
+        ))}
+      </div>
+    );
   return (
     <div className="p-1" onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && prop.type !== "media" && onDone()}>
       <PropInput database={database} prop={prop} value={value} onChange={set} members={members} userId={userId} page={page} />

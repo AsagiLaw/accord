@@ -15,6 +15,7 @@ import { MenuDivider, MenuItem, MenuLabel, Popover, usePopover, type Anchor } fr
 import { confirmAction, promptText } from "@/components/ui/overlay";
 import { openSourceEdit, pickTemplateForNew, SourceMenu, SourceName, type SourceTarget } from "@/components/window/channelSource";
 import { useUnreadCounts } from "@/lib/local/chat";
+import { hasUnseenUpdate, useNoteSeen } from "@/lib/local/noteSeen";
 import {
   CHANNEL_KINDS,
   channelHref,
@@ -61,6 +62,7 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
   const channels = useChannels(roomId) ?? [];
   const templates = useChannelTemplates(roomId) ?? [];
   const unread = useUnreadCounts(roomId, userId);
+  const noteSeen = useNoteSeen(userId);
   const pathname = usePathname();
   const router = useRouter();
   const menu = usePopover();
@@ -168,6 +170,8 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
     const href = channelHref(roomId, ch);
     const active = pathname === href;
     const n = ch.kind === "chat" ? (unread?.get(ch.id) ?? 0) : 0;
+    // ノート：ほかの人が直して、まだ開いていない更新があれば、名前を太くして印を出す
+    const updated = ch.kind === "note" && !active && hasUnseenUpdate(noteSeen, userId, ch);
     const showLine = drop?.type === "channel" && drop.categoryId === ch.categoryId && drop.index === index;
     return (
       <div key={`${ch.kind}:${ch.id}`}>
@@ -185,7 +189,7 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
           data-name={`チャンネル「${ch.name || "無題"}」（${CHANNEL_KINDS[ch.kind].label}）`}
           className={`group flex min-h-[36px] items-center rounded-[10px] transition ${active ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"} ${drag?.type === "channel" && drag.ch.id === ch.id ? "opacity-40" : ""}`}
         >
-          <Link href={href} draggable={false} className={`flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-3 ${n && !active ? "font-bold" : ""}`}>
+          <Link href={href} draggable={false} className={`flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-3 ${(n && !active) || updated ? "font-bold" : ""}`}>
             {ch.icon ? (
               <span className="w-4 shrink-0 text-center">
                 <IconMark icon={ch.icon} />
@@ -202,6 +206,7 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
           </Link>
           {ch.kind === "db" && <DbUnread dbId={ch.id} roomId={roomId} userId={userId} hide={active} />}
           {n > 0 && !active && <UnreadBadge n={n} className="mr-1" />}
+          {updated && <UpdatedDot />}
           <button
             aria-label={`「${ch.name || "無題"}」のメニュー`}
             onClick={(e) => openMenu({ type: "channel", ch }, "main", e.currentTarget)}
@@ -404,13 +409,24 @@ function ChannelMenu({
   };
 
   if (step === "kinds") {
+    // カテゴリーの＋では、そのカテゴリーに合う種類を一番上に出す（名前が種類と同じ「ノート」なら、ノート。そうでなければ、中に一番多い種類）
+    const kinds = Object.keys(CHANNEL_KINDS) as ChannelKind[];
+    let first: ChannelKind | undefined;
+    if (target.type === "category") {
+      const cat = target.cat;
+      first = kinds.find((k) => CHANNEL_KINDS[k].label === cat.name);
+      if (!first) {
+        const count = (k: ChannelKind) => channels.filter((c) => c.categoryId === cat.id && c.kind === k).length;
+        first = [...kinds].sort((a, b) => count(b) - count(a)).find((k) => count(k) > 0);
+      }
+    }
+    const ordered = first ? [first, ...kinds.filter((k) => k !== first)] : kinds;
     return (
       <div>
         <MenuLabel>{target.type === "category" ? `「${target.cat.name}」に作るチャンネル` : "作るチャンネル"}</MenuLabel>
-        {(Object.keys(CHANNEL_KINDS) as ChannelKind[]).map((k) => (
-          <MenuItem key={k} icon={<Icon name={KIND_ICON[k]} size={16} />} onClick={() => onNewChannel(k, categoryId)}>
-            <span className="block">{CHANNEL_KINDS[k].label}</span>
-            <span className="block truncate text-xs text-muted">{CHANNEL_KINDS[k].note}</span>
+        {ordered.map((k) => (
+          <MenuItem key={k} icon={<Icon name={KIND_ICON[k]} size={16} />} title={CHANNEL_KINDS[k].note} onClick={() => onNewChannel(k, categoryId)}>
+            <span className={k === first ? "font-bold" : ""}>{CHANNEL_KINDS[k].label}</span>
           </MenuItem>
         ))}
       </div>
@@ -573,6 +589,12 @@ function ChannelMenu({
       </MenuItem>
     </div>
   );
+}
+
+/** ノートの「更新あり」の印（未読の数と同じ色の点）。取り込み中は灰色で控えめにする */
+function UpdatedDot() {
+  const quiet = useDoNotDisturb();
+  return <span role="img" aria-label="更新あり" title="ほかの人が更新しました" className={`mr-2.5 h-2 w-2 shrink-0 rounded-full ${badgeTone(quiet)}`} />;
 }
 
 /** 未読の数。取り込み中は灰色で控えめにする */

@@ -107,6 +107,10 @@
   --color-idle: var(--idle);
   --color-dnd: var(--dnd);
   --font-sans: var(--font-zen), system-ui, sans-serif;
+  /* 動き（Apple の HIG に合わせる）：短く、はじめ速く終わりをゆっくり。iOS のシートと同じ曲線 */
+  --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+  --default-transition-duration: 200ms;
+  --default-transition-timing-function: var(--ease-ios);
 }
 
 html,
@@ -129,6 +133,92 @@ body {
 @keyframes fade {
   from {
     opacity: 0;
+  }
+}
+
+/* ---- 出てくるときの動き（HIG：どこから来て、どこへ行くかがわかる動き） ---- */
+/* 下から出るシート（スマホ）。PC では、その場で少し大きくなりながら出る */
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+/* 右から出るパネル */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+}
+/* 下から少し浮き上がるお知らせ */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+/* 暗い背景＋シートのダイアログ（「fixed inset-0 … bg-black/50」の外側に付ける） */
+.sheet-backdrop {
+  animation: fade 0.2s ease-out;
+}
+.sheet-backdrop > * {
+  animation: sheet-up 0.4s var(--ease-ios);
+}
+@media (min-width: 640px) {
+  .sheet-backdrop > * {
+    animation: pop-in 0.2s var(--ease-ios);
+  }
+}
+.anim-pop {
+  animation: pop-in 0.15s var(--ease-ios);
+}
+.anim-panel {
+  animation: slide-in-right 0.35s var(--ease-ios);
+}
+.anim-rise {
+  animation: rise-in 0.3s var(--ease-ios);
+}
+
+/* 「読み込み中…」は、ふつうの読み込み（エディタの読み込みなど 0.5 秒くらいまで）では出さない（画面を切り替えるたびに出て、ちらついて見えるため）。
+   1.5 秒かかったときだけ、ふわっと出す */
+.loading {
+  animation: fade 0.2s ease-out 1.5s both;
+}
+
+/* 動きを減らす設定（iPhone・Mac の「視差効果を減らす」など）のときは、動かさずに、ふわっと出すだけにする */
+@media (prefers-reduced-motion: reduce) {
+  .sheet-backdrop > *,
+  .anim-pop,
+  .anim-panel,
+  .anim-rise {
+    animation: fade 0.2s ease-out;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-property: color, background-color, border-color, opacity, box-shadow, fill, stroke !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* 指で触る端末では、小さなアイコンのボタンも 44pt 四方まで押せるようにする（見た目の大きさは変えない） */
+@media (pointer: coarse) {
+  :is(button, a).grid.place-items-center:not(.absolute, .fixed, .sticky) {
+    position: relative;
+  }
+  :is(button, a).grid.place-items-center::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
   }
 }
 
@@ -309,3 +399,8 @@ body {
 .tab-active::before, .tab-active::after { content: ""; position: absolute; bottom: 0; width: 8px; height: 8px; pointer-events: none; }
 .tab-active::before { left: -8px; border-bottom-right-radius: 8px; box-shadow: 4px 4px 0 4px var(--card); }
 .tab-active::after { right: -8px; border-bottom-left-radius: 8px; box-shadow: -4px 4px 0 4px var(--card); }
+
+/* 「/」メニューの項目の下の説明は出さない（説明はいつも出さない決まり。項目の名前だけで選ぶ） */
+.bn-mt-suggestion-menu-item-subtitle {
+  display: none;
+}

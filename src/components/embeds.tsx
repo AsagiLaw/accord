@@ -165,12 +165,12 @@ export function MediaImageView({
         />
       ) : (
         <div className="grid aspect-video w-full place-items-center rounded-[10px] border border-dashed border-line text-sm text-muted">
-          {media && !m ? "この画像はメディアから削除されました" : "読み込み中…"}
+          {media && !m ? "この画像はメディアから削除されました" : <span className="loading">読み込み中…</span>}
         </div>
       )}
       {m && <figcaption className="mt-1 text-xs text-muted">{m.name}</figcaption>}
       {!locked && (
-        <div className="absolute top-2 right-2 flex gap-1 rounded-full bg-black/60 p-1 text-xs text-white opacity-0 transition group-hover:opacity-100">
+        <div className="absolute top-2 right-2 flex gap-1 rounded-full bg-black/60 p-1 text-xs text-white opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 max-md:opacity-80">
           {onWidth &&
             (Object.keys(WIDTHS) as Width[]).map((w) => (
               <button key={w} onClick={() => onWidth(w)} className={`rounded-full px-2 py-0.5 ${width === w ? "bg-white text-black" : "hover:bg-white/20"}`}>
@@ -685,7 +685,7 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
           {page && database && prop ? (
             <PropChatView database={database} page={page} prop={prop} />
           ) : (
-            <p className="grid h-full place-items-center text-sm text-muted">{ctx.template ? "ページを作ると、ここにそのページのチャットが出ます" : "読み込み中…"}</p>
+            <p className="loading grid h-full place-items-center text-sm text-muted">{ctx.template ? "ページを作ると、ここにそのページのチャットが出ます" : "読み込み中…"}</p>
           )}
         </div>
       </div>
@@ -1037,7 +1037,7 @@ export function DbViewEmbed({
             <ViewRenderer key={view.id} database={database} view={view} allPages={pages} events={events} members={members} userId={userId} compact />
           )
         ) : (
-          <p className="text-sm text-muted">読み込み中…</p>
+          <p className="loading text-sm text-muted">読み込み中…</p>
         )}
         {addPop.anchor && (
           <Popover anchor={addPop.anchor} onClose={addPop.close} width={280} label="ビューを追加">

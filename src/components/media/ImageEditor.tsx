@@ -842,7 +842,7 @@ export function ImageEditor({ id }: { id: string }) {
         onPointerLeave={() => !pan.current && stopHold()}
         onPointerCancel={stopPan}
       >
-        {!preview && <p className="text-white/60">読み込み中…</p>}
+        {!preview && <p className="loading text-white/60">読み込み中…</p>}
         <div
           className="absolute"
           style={{
@@ -1082,9 +1082,7 @@ function AdjustPanel({
           }
         />
       ) : (
-        <div className="grid h-12 place-items-center text-xs text-white/60">
-          写真に合わせて、明るさや色を自動で整えます
-        </div>
+        <div className="h-12" title="写真に合わせて、明るさや色を自動で整えます" />
       )}
       <CenterRow selected={tool} className="gap-2.5">
         <ToolButton
@@ -1412,7 +1410,7 @@ function FilterPanel({
               )}
             </span>
             <span
-              className={`w-full truncate text-center text-[10px] ${edit.filter === f.id ? "font-bold text-white" : "text-white/60"}`}
+              className={`w-full truncate text-center text-[11px] ${edit.filter === f.id ? "font-bold text-white" : "text-white/60"}`}
             >
               {f.label}
             </span>
@@ -1836,7 +1834,7 @@ function MarkupPanel({
             key={t.k}
             aria-pressed={ink.tool === t.k}
             onClick={() => setInk({ ...ink, tool: t.k })}
-            className={`flex w-16 flex-col items-center gap-0.5 rounded-[12px] py-1 text-[10px] font-bold ${ink.tool === t.k ? "bg-white/10" : "text-white/55 hover:text-white/80"}`}
+            className={`flex w-16 flex-col items-center gap-0.5 rounded-[12px] py-1 text-[11px] font-bold ${ink.tool === t.k ? "bg-white/10" : "text-white/55 hover:text-white/80"}`}
             style={ink.tool === t.k ? { color: YELLOW } : undefined}
           >
             <MarkToolGlyph k={t.k} />
@@ -1881,14 +1879,10 @@ function MarkupPanel({
             </button>
           </div>
         ) : (
-          <p className="grid h-[52px] place-items-center px-2 text-center text-xs leading-snug text-white/60">
-            線や文字を押してつかみます。Shift+クリックや、何もない所からドラッグして囲むと、いくつも選べます
-          </p>
+          <div className="h-[52px]" title="線や文字を押してつかみます。Shift+クリックや、何もない所からドラッグして囲むと、いくつも選べます" />
         )
       ) : ink.tool === "eraser" ? (
-        <p className="grid h-[52px] place-items-center text-xs text-white/60">
-          なぞった線や文字を消します
-        </p>
+        <div className="h-[52px]" title="なぞった線や文字を消します" />
       ) : (
         <div className="flex h-[52px] items-center justify-center gap-3 overflow-x-auto [scrollbar-width:none]">
           <div className="flex shrink-0 gap-1.5">

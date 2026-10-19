@@ -96,7 +96,7 @@ export function ChatView({
     if (stick.current || last?.authorId === me.id) el.scrollTop = el.scrollHeight;
   }, [ready, last?.id, last?.authorId, me.id]);
 
-  if (!messages || !byId) return <p className="text-muted">読み込み中…</p>;
+  if (!messages || !byId) return <p className="loading text-muted">読み込み中…</p>;
 
   const open = (ids: string[], i: number) => {
     const items = ids.map((id) => byId.get(id)).filter((m): m is Media => !!m);
@@ -118,9 +118,12 @@ export function ChatView({
         className={`min-h-0 flex-1 overflow-y-auto pb-2 ${reenact ? "rounded-[14px] bg-tint/40 px-3" : ""}`}
       >
         {reenact && (
-          <p className="sticky top-0 z-10 -mx-3 mb-2 flex items-center gap-1.5 border-b border-dashed border-accent bg-bg/90 px-3 py-1.5 text-xs text-muted backdrop-blur">
+          <p
+            title="依頼者とのやり取りを写して残す場所です。名前を押すと話者を、編集ボタンで文章を直せます"
+            className="sticky top-0 z-10 -mx-3 mb-2 flex items-center gap-1.5 border-b border-dashed border-accent bg-bg/90 px-3 py-1.5 text-xs text-muted backdrop-blur"
+          >
             <Icon name="ppl" size={14} />
-            やり取り再現：依頼者とのやり取りを写して残す場所です。名前を押すと話者を、編集ボタンで文章を直せます。
+            やり取り再現
           </p>
         )}
         {win.hasOlder && (
@@ -341,17 +344,10 @@ function MessageItem({
           {m.inviteId ? (
             <InviteCard inviteId={m.inviteId} meId={meId} mine={mine} />
           ) : (
-            <div
-              className={`rounded-[16px] px-3 py-2 ${
-                speakerTone !== undefined
-                  ? SPEAKER_TONES[Math.max(0, speakerTone) % SPEAKER_TONES.length]
-                  : mine
-                    ? "bg-accent text-accent-ink"
-                    : "border border-line bg-card"
-              }`}
-            >
+            // 画像は吹き出しに入れず、そのまま並べる（LINE と同じ）。文字や編集中の欄があるときだけ、その下に吹き出しを出す
+            <div className={`flex flex-col gap-1 ${mine ? "items-end" : "items-start"}`}>
               {images.length > 0 && (
-                <div className={`mb-1 grid gap-1 ${images.length > 1 ? "grid-cols-2" : ""}`}>
+                <div className={`grid gap-1 ${images.length > 1 ? "grid-cols-2" : ""}`}>
                   {images.map((id, i) => (
                     <button key={id} onClick={() => onOpen(i)} className="block h-40 w-40 overflow-hidden rounded-[10px] sm:h-48 sm:w-48" aria-label={`画像を開く：${media.get(id)?.name}`}>
                       <ThumbImage id={id} alt={media.get(id)?.name ?? ""} />
@@ -359,36 +355,48 @@ function MessageItem({
                   ))}
                 </div>
               )}
-              {missing > 0 && <p className="text-xs opacity-70">（削除された画像 {missing}枚）</p>}
-              {editing ? (
-                <div className="space-y-1">
-                  <textarea
-                    value={draft}
-                    autoFocus
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                        e.preventDefault();
-                        save();
-                      }
-                      if (e.key === "Escape") setEditing(false);
-                    }}
-                    rows={Math.min(6, draft.split("\n").length + 1)}
-                    className="field min-w-56 text-ink"
-                  />
-                  <div className="flex justify-end gap-1 text-xs">
-                    <button className="rounded-full px-2 py-0.5 underline" onClick={() => setEditing(false)}>
-                      やめる
-                    </button>
-                    <button className="rounded-full px-2 py-0.5 font-bold underline" onClick={save}>
-                      保存
-                    </button>
-                  </div>
+              {(missing > 0 || editing || !!m.text) && (
+                <div
+                  className={`rounded-[16px] px-3 py-2 ${
+                    speakerTone !== undefined
+                      ? SPEAKER_TONES[Math.max(0, speakerTone) % SPEAKER_TONES.length]
+                      : mine
+                        ? "bg-accent text-accent-ink"
+                        : "border border-line bg-card"
+                  }`}
+                >
+                  {missing > 0 && <p className="text-xs opacity-70">（削除された画像 {missing}枚）</p>}
+                  {editing ? (
+                    <div className="space-y-1">
+                      <textarea
+                        value={draft}
+                        autoFocus
+                        onChange={(e) => setDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                            e.preventDefault();
+                            save();
+                          }
+                          if (e.key === "Escape") setEditing(false);
+                        }}
+                        rows={Math.min(6, draft.split("\n").length + 1)}
+                        className="field min-w-56 text-ink"
+                      />
+                      <div className="flex justify-end gap-1 text-xs">
+                        <button className="rounded-full px-2 py-0.5 underline" onClick={() => setEditing(false)}>
+                          やめる
+                        </button>
+                        <button className="rounded-full px-2 py-0.5 font-bold underline" onClick={save}>
+                          保存
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    m.text && (
+                      <LongText text={m.text}>{m.editedAt && <span className="ml-1 text-[11px] opacity-70">（編集済み）</span>}</LongText>
+                    )
+                  )}
                 </div>
-              ) : (
-                m.text && (
-                  <LongText text={m.text}>{m.editedAt && <span className="ml-1 text-[11px] opacity-70">（編集済み）</span>}</LongText>
-                )
               )}
             </div>
           )}

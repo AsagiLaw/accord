@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Icon } from "@/components/Icon";
 import { toast } from "@/components/ui/overlay";
+import { Select } from "@/components/ui/Select";
 import type { Database } from "@/lib/local/db";
 import { addOption, createPage, newPageDefaults } from "@/lib/local/requests";
 import { convertCell, guessProp, parseCsv } from "@/lib/requests/csv";
@@ -79,7 +80,7 @@ export function ImportDialog({ database, userId, onClose }: { database: Database
   };
 
   return (
-    <div className="fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center">
+    <div className="sheet-backdrop fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center">
       <div role="dialog" aria-modal="true" aria-label="Notion から取り込む" className="flex max-h-[92dvh] w-full max-w-3xl flex-col rounded-t-[20px] border border-line bg-card sm:rounded-[14px]">
         <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
           <h3 className="font-bold">Notion から取り込む</h3>
@@ -93,12 +94,14 @@ export function ImportDialog({ database, userId, onClose }: { database: Database
           </div>
         </div>
         <div className="space-y-4 overflow-y-auto px-5 py-4">
-          <ol className="list-decimal space-y-1 pl-5 text-sm text-muted">
-            <li>Notion で依頼のデータベースを開き、右上の「…」→「エクスポート」→ 形式「Markdown と CSV」で書き出す</li>
-            <li>届いた zip を開き、中の CSV ファイルをここで選ぶ</li>
-            <li>列ごとに、どの項目に入れるかを確認する（名前から自動で選んであります）</li>
-          </ol>
-          <label className="btn-sub cursor-pointer">
+          <label
+            className="btn-sub cursor-pointer"
+            title={[
+              "1. Notion で依頼のデータベースを開き、右上の「…」→「エクスポート」→ 形式「Markdown と CSV」で書き出す",
+              "2. 届いた zip を開き、中の CSV ファイルをここで選ぶ",
+              "3. 列ごとに、どの項目に入れるかを確認する（名前から自動で選んであります）",
+            ].join("\n")}
+          >
             <Icon name="upload" />
             CSV ファイルを選ぶ
             <input
@@ -126,20 +129,17 @@ export function ImportDialog({ database, userId, onClose }: { database: Database
                         {h || `（${col + 1}列目）`}
                       </span>
                       <Icon name="r" size={14} className="shrink-0 text-muted" />
-                      <select
+                      <Select
                         value={map[col] ?? ""}
-                        onChange={(e) => setMap(map.map((x, k) => (k === col ? e.target.value : x === e.target.value && e.target.value ? "" : x)))}
-                        className="field"
-                      >
-                        <option value="">取り込まない</option>
-                        {database.props
-                          .filter((p) => p.type !== "media" && p.type !== "user")
-                          .map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.name}
-                            </option>
-                          ))}
-                      </select>
+                        onChange={(v) => setMap(map.map((x, k) => (k === col ? v : x === v && v ? "" : x)))}
+                        label={`「${h || `${col + 1}列目`}」を入れる項目`}
+                        size="lg"
+                        className="min-w-0 flex-1"
+                        options={[
+                          { value: "", label: "取り込まない" },
+                          ...database.props.filter((p) => p.type !== "media" && p.type !== "user").map((p) => ({ value: p.id, label: p.name })),
+                        ]}
+                      />
                     </label>
                   ))}
                 </div>
@@ -173,7 +173,6 @@ export function ImportDialog({ database, userId, onClose }: { database: Database
                     </tbody>
                   </table>
                 </div>
-                <p className="mt-1 text-xs text-muted">取り込まない項目は、新しく追加したときと同じ初期値になります。チャットは空の状態で作られます。</p>
               </section>
             </>
           )}

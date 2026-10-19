@@ -114,11 +114,11 @@ export function MemberList({
       )}
       {mobileOpen && (
         <div className="md:hidden">
-          <div className="fixed inset-0 z-40 bg-black/40" onClick={onCloseMobile} />
+          <div className="fixed inset-0 z-40 animate-[fade_.2s] bg-black/40" onClick={onCloseMobile} />
           <aside
             data-name="メンバー一覧"
             aria-label="メンバー"
-            className="fixed inset-y-0 right-0 z-40 flex w-[min(300px,85vw)] flex-col border-l border-line bg-sidebar backdrop-blur-xl"
+            className="anim-panel fixed inset-y-0 right-0 z-40 flex w-[min(300px,85vw)] flex-col border-l border-line bg-sidebar backdrop-blur-xl"
           >
             <div className="flex h-[52px] shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
               <Icon name="ppl" size={18} />

@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
-import { MenuItem, Popover, usePopover } from "@/components/ui/Popover";
+import { Select } from "@/components/ui/Select";
 import type { DbView } from "@/lib/local/db";
 import { P } from "@/lib/requests/defaults";
 import { addDays, daysBetween, isDate, stagesOf, today, valueOf } from "@/lib/requests/logic";
@@ -149,7 +149,6 @@ export function TimelineView({ database, pages, view, members, compact, fit }: V
       setExt({ ...more, before: more.before + pad });
     } else if (el.scrollLeft + el.clientWidth > el.scrollWidth - 200) setExt({ ...more, after: more.after + pad });
   };
-  const scaleMenu = usePopover();
   const goToday = () => {
     const el = box.current;
     // 今日をビューの真ん中に
@@ -193,35 +192,18 @@ export function TimelineView({ database, pages, view, members, compact, fit }: V
     <div className={`rounded-[14px] border border-line bg-card py-2 ${fit ? "flex min-h-0 grow flex-col" : ""}`}>
       {/* ‹ 今日 › と、幅の切り替え */}
       <div className="mb-1 flex shrink-0 flex-wrap items-center gap-1 px-3">
-        <button className="btn-sub h-8 min-h-0 w-8 px-0" aria-label="前へ" onClick={() => turn(-1)}>
-          <Icon name="l" size={18} />
+        {/* カレンダーと同じ並び（‹ 今日 ›） */}
+        <button className="btn-sub h-7 min-h-0 w-7 px-0" aria-label="前へ" onClick={() => turn(-1)}>
+          <Icon name="l" size={16} />
         </button>
-        <button className="btn-sub h-8 min-h-0 px-3 text-sm" onClick={goToday}>
+        <button className="btn-sub h-7 min-h-0 px-2.5 text-xs" onClick={goToday}>
           今日
         </button>
-        <button className="btn-sub h-8 min-h-0 w-8 px-0" aria-label="次へ" onClick={() => turn(1)}>
-          <Icon name="r" size={18} />
+        <button className="btn-sub h-7 min-h-0 w-7 px-0" aria-label="次へ" onClick={() => turn(1)}>
+          <Icon name="r" size={16} />
         </button>
         {/* 幅のドロップダウン（Notion と同じ） */}
-        <button className="btn-sub ml-auto h-8 min-h-0 gap-1 px-3 text-sm" aria-haspopup="menu" aria-expanded={!!scaleMenu.anchor} aria-label="タイムラインの幅" onClick={scaleMenu.toggle}>
-          {TIMELINE_SCALES.find((s) => s.id === scale)!.label}
-          <Icon name="dn" size={14} />
-        </button>
-        <Popover anchor={scaleMenu.anchor} onClose={scaleMenu.close} width={160} align="end" label="タイムラインの幅">
-          {TIMELINE_SCALES.map((s) => (
-            <MenuItem
-              key={s.id}
-              active={scale === s.id}
-              right={scale === s.id ? <Icon name="ok" size={14} /> : undefined}
-              onClick={() => {
-                scaleMenu.close();
-                pickScale(s.id);
-              }}
-            >
-              {s.label}
-            </MenuItem>
-          ))}
-        </Popover>
+        <Select size="sm" className="ml-auto w-28" label="タイムラインの幅" value={scale} onChange={pickScale} options={TIMELINE_SCALES.map((s) => ({ value: s.id, label: s.label }))} />
       </div>
       <div className={`flex ${fit ? "min-h-0 grow" : ""}`}>
       {/* 帯の左の表：見出しの高さと行の高さを、右の目盛り・帯とそろえる */}

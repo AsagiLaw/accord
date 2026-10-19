@@ -85,11 +85,10 @@ export function ProfileCard({ me, onEdit, onEditStatus, onDone }: { me: Profile;
             icon={<Dot p={p} />}
             active={p === presence}
             right={p === presence ? <Icon name="check" size={16} className="text-accent" /> : undefined}
+            title={p === "dnd" ? "未読の印を灰色にして、通知を控えます" : p === "invisible" ? "ほかの人にはオフラインに見えます" : undefined}
             onClick={() => updateProfile(me.id, { presence: p })}
           >
             {PRESENCE[p].label}
-            {p === "dnd" && <span className="block text-xs font-normal text-muted">未読の印を灰色にして、通知を控えます</span>}
-            {p === "invisible" && <span className="block text-xs font-normal text-muted">ほかの人にはオフラインに見えます</span>}
           </MenuItem>
         ))}
       </div>

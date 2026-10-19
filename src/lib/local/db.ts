@@ -1,5 +1,7 @@
 import Dexie, { type EntityTable, type Table, type Transaction } from "dexie";
 import { newId } from "@/lib/id";
+import { presetRecords } from "./roomPresetRecords";
+import { devSampleUsers } from "@/lib/auth/mode";
 import type { ImageEdit } from "@/lib/media/edit";
 import { makeUsername } from "@/lib/username";
 import { DEFAULT_STAGES as REQUEST_DEFAULT_STAGES, requestDatabase, stepsFromPcts, stepsFromRatios } from "@/lib/requests/defaults";
@@ -1079,18 +1081,6 @@ export function defaultCategories(roomId: string): Category[] {
   return ["データベース", "チャット", "ノート"].map((name, i) => ({ id: newId(), roomId, name, order: i + 1, createdAt: now + i }));
 }
 
-/** 新しいルームの最初の中身：カテゴリー3つ、依頼データベース、チャット「雑談」 */
-export function defaultRoomContents(roomId: string) {
-  const categories = defaultCategories(roomId);
-  const { database, views } = requestDatabase(roomId);
-  return {
-    categories,
-    database: { ...database, categoryId: categories[0].id, navOrder: 1 },
-    views,
-    chat: { ...defaultChat(roomId), categoryId: categories[1].id, navOrder: 1 },
-  };
-}
-
 /** アカウントごとに1つの「マイメディア」 */
 export function newMyMediaBox(userId: string, now = Date.now()): MediaBox {
   return { id: newId(), ownerId: userId, name: "マイメディア", kind: "mine", createdAt: now };
@@ -1110,8 +1100,14 @@ export function defaultChat(roomId: string): Chat {
 /** 最初に用意する2人の ID */
 const SEED_USERNAMES: Record<string, string> = { マネージャー: "manager", イラストレーター: "illustrator" };
 
-// 初回起動時に、2人（マネージャー・イラストレーター）と最初のルームを用意する
+/** 初回起動で用意する、試し用の最初のルームの名前 */
+const SEED_ROOM_NAME = "依頼管理";
+
+// 初回起動時に、開発の確かめ用の2人（マネージャー・イラストレーター）と、2人だけのルームを用意する。
+// ルームは、ルームを作るときのテンプレート「依頼管理」と同じ中身（データベース・ビュー・テンプレート・ウィンドウ「HOME」・チャット）にする。
+// 開発中のローカル版のときだけ（devSampleUsers）。それ以外では何も作らない（新しく登録した人も、このルームには入らない）
 db.on("populate", (tx) => {
+  if (!devSampleUsers) return;
   const now = Date.now();
   const manager = newId();
   const illustrator = newId();
@@ -1120,20 +1116,21 @@ db.on("populate", (tx) => {
     { id: manager, displayName: "マネージャー", username: SEED_USERNAMES["マネージャー"], createdAt: now },
     { id: illustrator, displayName: "イラストレーター", username: SEED_USERNAMES["イラストレーター"], createdAt: now + 1 },
   ]);
-  tx.table("rooms").add({ id: room, name: "依頼ノート", createdBy: manager, createdAt: now });
+  tx.table("rooms").add({ id: room, name: SEED_ROOM_NAME, createdBy: manager, createdAt: now });
   tx.table("mediaBoxes").bulkAdd([newMyMediaBox(manager, now), newMyMediaBox(illustrator, now)]);
-  const roomMedia = newRoomMediaBox({ id: room, name: "依頼ノート", createdBy: manager }, now);
+  const roomMedia = newRoomMediaBox({ id: room, name: SEED_ROOM_NAME, createdBy: manager }, now);
   tx.table("mediaBoxes").add(roomMedia.box);
   tx.table("boxShares").add(roomMedia.share);
   tx.table("roomMembers").bulkAdd([
     { roomId: room, userId: manager, role: "host", joinedAt: now },
     { roomId: room, userId: illustrator, role: "member", joinedAt: now + 1 },
   ]);
-  const c = defaultRoomContents(room);
-  tx.table("categories").bulkAdd(c.categories);
-  tx.table("chats").add(c.chat);
-  tx.table("databases").add(c.database);
-  tx.table("dbViews").bulkAdd(c.views);
+  const preset = presetRecords(room, now);
+  tx.table("categories").bulkAdd(preset.categories);
+  tx.table("databases").bulkAdd(preset.databases);
+  tx.table("dbViews").bulkAdd(preset.views);
+  tx.table("chats").bulkAdd(preset.chats);
+  tx.table("windows").bulkAdd(preset.windows);
 });
 
 // 開発中だけ、ブラウザのコンソールから中身を確かめられるようにする

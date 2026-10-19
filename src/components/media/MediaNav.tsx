@@ -374,7 +374,7 @@ export function MediaNav({
 
       <h6
         data-lib-root
-        title="ここにライブラリーをドラッグすると、一番上の階層に出せます"
+        title={canEdit ? "右クリックでメニュー。ドラッグで並べ替え。行の真ん中に落とすと中に入れる・合体、ここ（見出し）に落とすと一番上の階層へ" : undefined}
         className={`mx-1 mt-5 mb-1 flex items-center justify-between rounded-[8px] px-2 text-xs text-muted ${zone?.zone === "root" ? "text-accent outline-2 outline-accent outline-dashed" : ""}`}
       >
         ライブラリー
@@ -397,11 +397,6 @@ export function MediaNav({
         {childrenOf(libs, null).map((l) => libNode(l, 0))}
         {!libs.length && (
           <p className="px-3 text-xs text-muted">{canEdit ? "右の＋で作れます" : "ライブラリーはありません"}</p>
-        )}
-        {libs.length > 0 && canEdit && (
-          <p className="px-3 pt-2 text-[11px] text-muted">
-            右クリックでメニュー。ドラッグで並べ替え。行の真ん中に落とすと中に入れる・合体、見出しに落とすと一番上へ
-          </p>
         )}
         <Popover
           anchor={libMenu.anchor}

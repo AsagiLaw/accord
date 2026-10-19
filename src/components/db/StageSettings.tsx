@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
+import { MenuItem, Popover, usePopover } from "@/components/ui/Popover";
+import { Select } from "@/components/ui/Select";
 import type { Database, Property, StageStep } from "@/lib/local/db";
 import { updateProperty } from "@/lib/local/requests";
 import { withPct } from "@/lib/requests/stages";
@@ -63,7 +65,7 @@ export function StageSettings({ database, prop, onClose }: { database: Database;
   };
 
   return (
-    <div className="fixed inset-0 z-[56] flex items-end justify-center bg-black/50 sm:items-center">
+    <div className="sheet-backdrop fixed inset-0 z-[56] flex items-end justify-center bg-black/50 sm:items-center">
       <div role="dialog" aria-modal="true" aria-label="工程の設定" data-name="工程の設定ダイアログ" className="flex max-h-[92dvh] w-full max-w-xl flex-col rounded-t-[20px] border border-line bg-card sm:rounded-[14px]">
         <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
           <h3 className="font-bold">工程の設定（{prop.name}）</h3>
@@ -79,14 +81,13 @@ export function StageSettings({ database, prop, onClose }: { database: Database;
         <div className="space-y-5 overflow-y-auto px-5 py-4 text-sm">
           <label className="flex items-center gap-2">
             <span className="w-40 shrink-0">工程を切り替える項目</span>
-            <select value={basedOn} onChange={(e) => setBasedOn(e.target.value)} className="field">
-              <option value="">切り替えない（工程は1通り）</option>
-              {choices.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+            <Select
+              value={basedOn}
+              onChange={setBasedOn}
+              label="工程を切り替える項目"
+              size="lg"
+              options={[{ value: "", label: "切り替えない（工程は1通り）" }, ...choices.map((p) => ({ value: p.id, label: p.name }))]}
+            />
           </label>
           {(
             [
@@ -96,14 +97,7 @@ export function StageSettings({ database, prop, onClose }: { database: Database;
           ).map(([label, value, setValue]) => (
             <label key={label} className="flex items-center gap-2">
               <span className="w-40 shrink-0">{label}</span>
-              <select value={value} onChange={(e) => setValue(e.target.value)} className="field" aria-label={label}>
-                <option value="">選択なし</option>
-                {dates.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+              <Select value={value} onChange={setValue} label={label} size="lg" options={[{ value: "", label: "選択なし" }, ...dates.map((p) => ({ value: p.id, label: p.name }))]} />
             </label>
           ))}
           {!dates.length && <p className="text-muted">日付の項目がまだありません。</p>}
@@ -113,23 +107,7 @@ export function StageSettings({ database, prop, onClose }: { database: Database;
             <section key={k || "__all"} className="rounded-[12px] border border-line p-3">
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 {base ? <Tag color={colorOf(base, k)}>{k}</Tag> : <b>工程</b>}
-                {base && keys.length > 1 && (
-                  <select
-                    value=""
-                    onChange={(e) => e.target.value && set(k, structuredClone(listOf(e.target.value)))}
-                    className="ml-auto rounded-[8px] border border-line bg-bg px-2 py-0.5 text-xs"
-                    aria-label="ほかの選択肢からコピー"
-                  >
-                    <option value="">ほかからコピー…</option>
-                    {keys
-                      .filter((x) => x !== k)
-                      .map((x) => (
-                        <option key={x} value={x}>
-                          {x}
-                        </option>
-                      ))}
-                  </select>
-                )}
+                {base && keys.length > 1 && <CopyFrom options={keys.filter((x) => x !== k)} onPick={(x) => set(k, structuredClone(listOf(x)))} />}
               </div>
               <div className="space-y-1.5" ref={(el) => void (sections.current[k] = el)}>
                 {listOf(k).length > 0 && (
@@ -213,5 +191,31 @@ export function StageSettings({ database, prop, onClose }: { database: Database;
         </div>
       </div>
     </div>
+  );
+}
+
+/** ほかの選択肢の工程をコピーするボタン。押すと、コピー元の一覧が出る */
+function CopyFrom({ options, onPick }: { options: string[]; onPick: (option: string) => void }) {
+  const pop = usePopover();
+  return (
+    <>
+      <button type="button" onClick={pop.toggle} aria-expanded={!!pop.anchor} className="btn-sub ml-auto min-h-[30px] gap-1 px-3 text-xs">
+        <Icon name="copy" size={14} />
+        ほかからコピー
+      </button>
+      <Popover anchor={pop.anchor} onClose={pop.close} width={200} align="end" label="工程のコピー元">
+        {options.map((x) => (
+          <MenuItem
+            key={x}
+            onClick={() => {
+              pop.close();
+              onPick(x);
+            }}
+          >
+            {x}
+          </MenuItem>
+        ))}
+      </Popover>
+    </>
   );
 }

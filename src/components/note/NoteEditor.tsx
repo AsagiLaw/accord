@@ -3,17 +3,18 @@
 import "@blocknote/mantine/style.css";
 import { BlockNoteView } from "@blocknote/mantine";
 import { useEffect, useRef, useState } from "react";
+import { mergeBlocks } from "@/lib/note/mergeBlocks";
 import type { Note } from "@/lib/local/db";
 import { saveNoteBlocks } from "@/lib/local/notes";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 import { useIsDark } from "@/lib/theme";
-import { TopBarActions } from "@/components/TopBarSlot";
 import { NoteContext } from "./blocks";
 import { dropImages, EditorMenus, useBlockEditor, type Blocks } from "./editorKit";
 
 /**
  * ブロック式のノート。入力が止まって少ししたら自動で保存する。
- * 他の人（別のタブ）が更新したときは、編集していなければそのまま取り込む。
+ * 他の人（別のタブ）が更新したときは、書いていなければすぐに、書いている途中なら書くのを止めたとき（保存のとき）に、
+ * ブロックごとにまとめて取り込む（自分が直したブロックは自分の内容を残す）。
  */
 /**
  * page：データベースのページの本文（メモ）のとき。ページのブロックがそのページを出す。
@@ -41,14 +42,68 @@ export function NoteEditor({
   const isDark = useIsDark();
   const editor = useBlockEditor(note.blocks, note.roomId, userId, [note.id]);
   const lastSaved = useRef(note.updatedAt);
+  // 前にそろえたときの本文（自分がどのブロックを直したかを見分けるのに使う）
+  const base = useRef<Blocks>([]);
+  // エディタは読み込んだ本文の形を少し整えるので、比べる元はエディタの中身にする
+  useEffect(() => {
+    base.current = editor.document as Blocks;
+  }, [editor]);
+  // ほかの人の本文を入れている間は、入力として扱わない（保存しない。2人で開いているときに保存し合わないように）
+  const applying = useRef(false);
+  // 保存のときに見る、いちばん新しいノート（ほかの人の更新が来ていれば、ここに入っている）
+  const latest = useRef(note);
+  useEffect(() => {
+    latest.current = note;
+  });
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [saving, setSaving] = useState<"idle" | "pending" | "saved">("idle");
-  const [remoteChanged, setRemoteChanged] = useState(false);
   const wrapper = useRef<HTMLDivElement>(null);
+
+  /** ほかの人の本文を、今の本文とブロックごとにまとめてエディタに入れ、まとめた本文を返す */
+  const pull = (remote: Note) => {
+    const local = editor.document as Blocks;
+    const merged = mergeBlocks(base.current as { id?: string }[], local as { id?: string }[], ((remote.blocks.length ? remote.blocks : [{ type: "paragraph" }]) as Blocks) as { id?: string }[]) as Blocks;
+    // カーソルのあるブロックを覚えておき、入れ替えたあとに戻す
+    let cursor: string | undefined;
+    try {
+      cursor = editor.getTextCursorPosition().block.id;
+    } catch {
+      cursor = undefined;
+    }
+    applying.current = true;
+    try {
+      editor.replaceBlocks(editor.document, merged.length ? merged : [{ type: "paragraph" }]);
+    } finally {
+      applying.current = false;
+    }
+    if (cursor && wrapper.current?.contains(document.activeElement)) {
+      try {
+        editor.setTextCursorPosition(cursor, "end");
+      } catch {
+        // そのブロックがほかの人に消されていれば、戻さない
+      }
+    }
+    lastSaved.current = remote.updatedAt;
+    base.current = editor.document as Blocks;
+    return merged;
+  };
 
   const save = async () => {
     timer.current = null;
-    lastSaved.current = await saveNoteBlocks(note.id, editor.document, userId);
+    // 書いている間にほかの人の更新が来ていたら、保存の前に取り込んで、まとめた本文を保存する
+    const remote = latest.current;
+    const pulled = remote.updatedAt > lastSaved.current;
+    if (pulled) pull(remote);
+    // 取り込んでいなくて、中身が前にそろえたときと同じなら、書き込まない
+    if (!pulled && JSON.stringify(editor.document) === JSON.stringify(base.current)) {
+      setSaving("saved");
+      return;
+    }
+    // 書き込む前に「自分の保存」の時刻を覚える（書き込みの知らせが先に届いても、他の人の更新と間違えないように）
+    const at = Date.now();
+    lastSaved.current = at;
+    base.current = editor.document as Blocks;
+    await saveNoteBlocks(note.id, editor.document, userId, at);
     setSaving("saved");
   };
 
@@ -57,22 +112,23 @@ export function NoteEditor({
     () => () => {
       if (timer.current) {
         clearTimeout(timer.current);
-        void saveNoteBlocks(note.id, editor.document, userId);
+        // 書いている間にほかの人の更新が来ていたら、ブロックごとにまとめてから書き込む
+        const remote = latest.current;
+        const blocks =
+          remote.updatedAt > lastSaved.current
+            ? mergeBlocks(base.current as { id?: string }[], editor.document as { id?: string }[], remote.blocks as { id?: string }[])
+            : editor.document;
+        void saveNoteBlocks(note.id, blocks, userId);
       }
     },
     [editor, note.id, userId],
   );
 
-  // 別のタブ・別の人の更新を取り込む
+  // 別のタブ・別の人の更新を取り込む。書いている途中（保存待ち）なら、書くのを止めたとき（save）に取り込む
   useEffect(() => {
-    if (note.updatedAt <= lastSaved.current) return;
-    const editing = wrapper.current?.contains(document.activeElement) || timer.current;
-    if (editing) {
-      setRemoteChanged(true);
-      return;
-    }
-    lastSaved.current = note.updatedAt;
-    editor.replaceBlocks(editor.document, note.blocks.length ? (note.blocks as Blocks) : [{ type: "paragraph" }]);
+    if (note.updatedAt <= lastSaved.current || timer.current) return;
+    pull(note);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pull は毎回作り直されるが、中で使うものは ref とエディタだけ
   }, [note.updatedAt, note.blocks, editor]);
 
   return (
@@ -83,25 +139,6 @@ export function NoteEditor({
         className="note-editor"
         onDropCapture={dropImages(editor, note.roomId, userId)}
       >
-        {/* 他の人が更新したら、上のバーの右に「更新する」（押すと最新を読み込む。自分の未保存の変更は消える） */}
-        {remoteChanged && (
-          <TopBarActions>
-            <button
-              className="btn h-7 min-h-0 px-3 text-sm"
-              data-name="最新に更新"
-              title="他の人がこのノートを更新しました。押すと最新を読み込みます（自分の未保存の変更は消えます）"
-              onClick={() => {
-                setRemoteChanged(false);
-                if (timer.current) clearTimeout(timer.current);
-                timer.current = null;
-                lastSaved.current = note.updatedAt;
-                editor.replaceBlocks(editor.document, note.blocks.length ? (note.blocks as Blocks) : [{ type: "paragraph" }]);
-              }}
-            >
-              更新する
-            </button>
-          </TopBarActions>
-        )}
         <BlockNoteView
           editor={editor}
           theme={isDark ? "dark" : "light"}
@@ -109,7 +146,7 @@ export function NoteEditor({
           sideMenu={false}
           editable={editable}
           onChange={() => {
-            if (!editable) return;
+            if (!editable || applying.current) return;
             setSaving("pending");
             if (timer.current) clearTimeout(timer.current);
             timer.current = setTimeout(save, 700);

@@ -44,7 +44,7 @@ export function MediaSettingsDialog({ onClose }: { onClose: () => void }) {
   // サイドバー（ぼかし・移動の効果が付いている）の外に出す。中に置くと、画面全体を覆えない
   return createPortal(
     <div
-      className="fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center"
+      className="sheet-backdrop fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div

@@ -61,7 +61,7 @@ export function CoverCard({
   // 大きさをそろえるときは画像一覧と同じ見せ方：内側の余白を付けず、カーソルで少し浮き、押すと縮む
   const cls = `relative block w-full rounded-[12px] text-left transition ${
     size
-      ? "duration-300 select-none hover:-translate-y-[3px] active:scale-95"
+      ? "duration-300 select-none motion-safe:hover:-translate-y-[3px] active:scale-95"
       : "p-1.5 hover:bg-tint"
     // 選んでいる印の枠：余白のあるカードは内側に描く（横スクロールの並びの中でも枠が切れないように）
   } ${active ? (size ? "bg-tint ring-2 ring-accent" : "bg-tint ring-2 ring-accent ring-inset") : ""}`;

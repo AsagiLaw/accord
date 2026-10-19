@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Icon, type IconName } from "@/components/Icon";
 import { TopBarSlot } from "@/components/TopBarSlot";
+import { usePageFade } from "@/components/usePageFade";
 import { useChat } from "@/lib/local/chat";
 import type { Profile } from "@/lib/local/db";
 import { dmOther } from "@/lib/local/dm";
@@ -42,9 +43,12 @@ export default function DmLayout({ children }: { children: React.ReactNode }) {
   const myRooms = useMyRooms(me?.id);
   // 上のバーの右（画面ごとの操作を置く場所）
   const [slot, setSlot] = useState<HTMLElement | null>(null);
+  // 画面を切り替えたら、中身をふわっと出す
+  const content = useRef<HTMLDivElement>(null);
+  usePageFade(content);
 
   if (me === undefined || myRooms === undefined) {
-    return <p className="p-8 text-muted">読み込み中…</p>;
+    return <p className="loading p-8 text-muted">読み込み中…</p>;
   }
   if (!me) {
     return (
@@ -90,7 +94,7 @@ export default function DmLayout({ children }: { children: React.ReactNode }) {
             <div ref={setSlot} data-name="上部バーの操作" className={`flex items-center gap-2 ${inBox ? "min-w-0 flex-1" : "shrink-0"}`} />
           </header>
           <TopBarSlot.Provider value={slot}>
-            <div data-name="メイン画面の中身" className="min-h-0 flex-1 overflow-auto px-[clamp(16px,4vw,40px)] pt-4 pb-7 [scrollbar-gutter:stable]">
+            <div ref={content} data-name="メイン画面の中身" className="min-h-0 flex-1 overflow-auto px-[clamp(16px,4vw,40px)] pt-4 pb-7 [scrollbar-gutter:stable]">
               {children}
             </div>
           </TopBarSlot.Provider>

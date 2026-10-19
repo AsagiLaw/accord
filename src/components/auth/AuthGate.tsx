@@ -28,6 +28,6 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     else if (me && matches(GUEST_ONLY, pathname) && !search.has("add")) router.replace(safeNext(search.get("next")));
   }, [isPublic, me, pathname, router]);
 
-  if (!isPublic && !me) return <p className="p-8 text-muted">{me === null ? "ログインの画面へ移っています…" : "読み込み中…"}</p>;
+  if (!isPublic && !me) return <p className="loading p-8 text-muted">{me === null ? "ログインの画面へ移っています…" : "読み込み中…"}</p>;
   return children;
 }

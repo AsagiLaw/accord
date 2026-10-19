@@ -99,7 +99,6 @@ function ChatSearchDialog({ chatId, roomId, onClose }: { chatId: string; roomId:
           </button>
         ))}
         {query && hits && !hits.length && <p className="py-6 text-center text-sm text-muted">見つかりませんでした</p>}
-        {!query && <p className="py-6 text-center text-sm text-muted">言葉を入れると、このチャットの発言から探します</p>}
       </div>
     </PopupDialog>
   );

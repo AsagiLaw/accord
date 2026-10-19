@@ -101,7 +101,9 @@ export function FilterScreens({ database, view, members, start, onExit }: { data
     return (
       <div>
         <BackHead title="フィルター" onBack={list} />
-        <EmptyNote>読み込み中…</EmptyNote>
+        <EmptyNote>
+          <span className="loading">読み込み中…</span>
+        </EmptyNote>
       </div>
     );
   const prop = database.props.find((p) => p.id === f.prop);
@@ -216,7 +218,9 @@ export function SortScreens({ database, view, onBack }: { database: Database; vi
       return (
         <div>
           <BackHead title="並び替え" onBack={top} />
-          <EmptyNote>読み込み中…</EmptyNote>
+          <EmptyNote>
+            <span className="loading">読み込み中…</span>
+          </EmptyNote>
         </div>
       );
     const set = (patch: Partial<Sort>) => put(sorts.map((x, i) => (i === index ? { ...x, ...patch } : x)));

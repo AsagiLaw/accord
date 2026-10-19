@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Avatar, PRESENCE, PRESENCE_CHOICES } from "@/components/Avatar";
 import { Icon, type IconName } from "@/components/Icon";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { toast } from "@/components/ui/overlay";
+import { Segmented } from "@/components/ui/Segmented";
 import { NotifyBlocked, NotifySwitch } from "@/components/chat/ChatNotify";
 import { setChatNotify, useChatNotify } from "@/lib/local/chatNotify";
 import { setDueNotify, useDueNotify } from "@/lib/local/dueNotify";
@@ -138,7 +140,9 @@ function ProfileSection({ me }: { me: Profile }) {
       <h1 className="mb-5 text-[28px] font-bold">プロフィール</h1>
 
       <section data-name="アイコン" className="card">
-        <h2 className="mb-3 font-bold">アイコン</h2>
+        <h2 className="mb-3 w-fit font-bold" title="選んだ画像は、丸の中に入る場所と大きさを決めてから使います。画像が無いときは、名前の最初の1文字を出します">
+          アイコン
+        </h2>
         <div className="flex flex-wrap items-center gap-4">
           <Avatar name={name || me.displayName} src={me.avatar} size={80} presence={shown} />
           <div className="flex flex-wrap gap-2">
@@ -168,7 +172,6 @@ function ProfileSection({ me }: { me: Profile }) {
             }}
           />
         </div>
-        <p className="mt-3 text-sm text-muted">選んだ画像は、丸の中に入る場所と大きさを決めてから使います。画像が無いときは、名前の最初の1文字を出します。</p>
       </section>
       {/* マイメディアから1枚選ぶ（ほかのボックスや共有されたボックスからは選ばない） */}
       {picking && (
@@ -214,9 +217,8 @@ function ProfileSection({ me }: { me: Profile }) {
           <span className="mb-1 block font-bold">表示名</span>
           <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} className="field" />
         </label>
-        <label className="block">
+        <label className="block" title="左下の名前の下や、フレンドの一覧に出ます">
           <span className="mb-1 block font-bold">ひとこと</span>
-          <span className="mb-1.5 block text-sm text-muted">左下の名前の下や、フレンドの一覧に出ます。</span>
           <input value={status} onChange={(e) => setStatus(e.target.value)} maxLength={60} placeholder="例：作業中・〇日まで返信が遅れます" className="field" />
         </label>
         {/* ひとことを自動で消すまで（ひとことがあるときだけ） */}
@@ -249,7 +251,12 @@ function ProfileSection({ me }: { me: Profile }) {
       <WorkSection key={me.id} me={me} />
 
       <section data-name="状態" className="card">
-        <h2 className="mb-3 font-bold">状態</h2>
+        <h2
+          className="mb-3 w-fit font-bold"
+          title={`サイトを開いている間だけ、この状態で見えます（閉じているときはオフライン）。「オンライン」のとき、${IDLE_AFTER / 60_000}分操作しないと自動で退席中になります。「取り込み中」の間は、未読の数を灰色にし、タブの題名にも出さず、通知を控えます。「オフライン表示」にすると、ほかの人にはオフラインに見えます`}
+        >
+          状態
+        </h2>
         <div className="grid gap-1 sm:grid-cols-2" role="radiogroup" aria-label="状態">
           {PRESENCE_CHOICES.map((p) => (
             <button
@@ -265,9 +272,6 @@ function ProfileSection({ me }: { me: Profile }) {
             </button>
           ))}
         </div>
-        <p className="mt-3 text-sm text-muted">
-          サイトを開いている間だけ、この状態で見えます（閉じているときはオフライン）。「オンライン」のとき、{IDLE_AFTER / 60_000}分操作しないと自動で退席中になります。「取り込み中」の間は、未読の数を灰色にし、タブの題名にも出さず、通知を控えます。「オフライン表示」にすると、ほかの人にはオフラインに見えます。
-        </p>
       </section>
     </>
   );
@@ -305,8 +309,9 @@ function WorkSection({ me }: { me: Profile }) {
       }}
     >
       <div>
-        <h2 className="mb-1 font-bold">依頼の受付状況</h2>
-        <p className="mb-2 text-sm text-muted">プロフィールのカードの名前の下に出ます。</p>
+        <h2 className="mb-2 w-fit font-bold" title="プロフィールのカードの名前の下に出ます">
+          依頼の受付状況
+        </h2>
         <div className="grid gap-1 sm:grid-cols-4" role="radiogroup" aria-label="依頼の受付状況">
           {[...(Object.keys(WORK_STATUS) as WorkStatus[]), undefined].map((w) => (
             <button
@@ -342,8 +347,9 @@ function WorkSection({ me }: { me: Profile }) {
       </label>
 
       <div>
-        <h2 className="mb-1 font-bold">リンク</h2>
-        <p className="mb-2 text-sm text-muted">ポートフォリオや SNS など（{LINKS_MAX}つまで）。名前を空にすると、サイトの名前を出します。</p>
+        <h2 className="mb-2 w-fit font-bold" title={`ポートフォリオや SNS など（${LINKS_MAX}つまで）。名前を空にすると、サイトの名前を出します`}>
+          リンク
+        </h2>
         <ul className="space-y-2">
           {links.map((l, i) => {
             const wrong = !!l.url.trim() && !normalizeUrl(l.url);
@@ -417,12 +423,22 @@ function NotifySection({ me }: { me: Profile }) {
       <h1 className="mb-5 text-[28px] font-bold">通知</h1>
       <section className="card space-y-4 text-sm">
         <div>
-          <NotifySwitch on={chatOn} label="チャットの通知" disabled={unsupported} onClick={async () => setDenied(!chatOn && !(await setChatNotify(me.id, !chatOn)))} />
-          <p className="mt-1 text-muted">開いていないチャットに、ほかの人の発言が届いたら知らせます。チャットごとに切るときは、チャットの上のベルから。</p>
+          <NotifySwitch
+            on={chatOn}
+            label="チャットの通知"
+            note="開いていないチャットに、ほかの人の発言が届いたら知らせます。チャットごとに切るときは、チャットの上のベルから"
+            disabled={unsupported}
+            onClick={async () => setDenied(!chatOn && !(await setChatNotify(me.id, !chatOn)))}
+          />
         </div>
         <div className="border-t border-line pt-4">
-          <NotifySwitch on={dueOn} label="納期の通知" disabled={unsupported} onClick={async () => setDenied(!dueOn && !(await setDueNotify(me.id, !dueOn)))} />
-          <p className="mt-1 text-muted">納期が近い・今日・過ぎたページを、1日1回知らせます。何日前からかは、データベースの納期の設定で決めます。</p>
+          <NotifySwitch
+            on={dueOn}
+            label="納期の通知"
+            note="納期が近い・今日・過ぎたページを、1日1回知らせます。何日前からかは、データベースの納期の設定で決めます"
+            disabled={unsupported}
+            onClick={async () => setDenied(!dueOn && !(await setDueNotify(me.id, !dueOn)))}
+          />
         </div>
         <NotifyBlocked denied={denied} />
         <p className="border-t border-line pt-4 text-muted">
@@ -442,36 +458,31 @@ function DisplaySection() {
       <h1 className="mb-5 text-[28px] font-bold">表示</h1>
 
       <section className="card">
-        <h2 className="mb-1 font-bold">表示モード</h2>
-        <p className="mb-3 text-sm text-muted">この端末だけの設定です。</p>
-        <div className="grid grid-cols-3 gap-1 rounded-full bg-bg p-1" role="radiogroup" aria-label="表示モード">
-          {(
-            [
-              ["system", "端末に合わせる"],
-              ["light", "ホワイト"],
-              ["dark", "ダーク"],
-            ] as const
-          ).map(([v, label]) => (
-            <button
-              key={v}
-              role="radio"
-              aria-checked={theme === v}
-              onClick={() => setTheme(v)}
-              className={`min-h-[36px] rounded-full px-2 text-sm ${theme === v ? "bg-accent font-bold text-accent-ink" : "text-muted hover:text-ink"}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <h2 className="mb-3 w-fit font-bold" title="この端末だけの設定です">
+          表示モード
+        </h2>
+        <Segmented
+          value={theme}
+          onChange={setTheme}
+          label="表示モード"
+          className="w-full"
+          items={[
+            { value: "system", label: "端末に合わせる" },
+            { value: "light", label: "ホワイト" },
+            { value: "dark", label: "ダーク" },
+          ]}
+        />
       </section>
 
       <section className="card">
-        <h2 className="mb-1 font-bold">名称表示</h2>
-        <p className="mb-3 text-sm text-muted">
-          カーソルをしばらく置くと、その場所やボタンの名前を「サイドバー › チャット一覧 › リンク「雑談」」のように表示します。改善の指示を出すときに、名前を確かめるのに使えます。この端末だけの設定です。
-        </p>
+        <h2
+          className="mb-3 w-fit font-bold"
+          title="カーソルをしばらく置くと、その場所やボタンの名前を「サイドバー › チャット一覧 › リンク「雑談」」のように表示します。改善の指示を出すときに、名前を確かめるのに使えます。この端末だけの設定です"
+        >
+          名称表示
+        </h2>
         <label className="flex items-center gap-2">
-          <input type="checkbox" checked={nameHints} onChange={(e) => setNameHints(e.target.checked)} className="h-5 w-5 accent-[var(--accent)]" />
+          <Checkbox checked={nameHints} onChange={setNameHints} />
           名称を表示する
         </label>
       </section>

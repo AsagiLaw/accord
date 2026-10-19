@@ -13,7 +13,7 @@ export default function BoxLayout({ children }: { children: React.ReactNode }) {
   const box = useBox(boxId);
   const access = useBoxAccess(boxId, me?.id);
   const members = useBoxMembers(boxId);
-  if (!me || box === undefined || access === undefined || !members) return <p className="text-muted">読み込み中…</p>;
+  if (!me || box === undefined || access === undefined || !members) return <p className="loading text-muted">読み込み中…</p>;
   if (!box || !access) {
     return (
       <p className="text-muted">

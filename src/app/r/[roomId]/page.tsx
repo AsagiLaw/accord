@@ -17,6 +17,6 @@ export default function RoomTop() {
   useEffect(() => {
     if (first) router.replace(channelHref(roomId, first));
   }, [first, roomId, router]);
-  if (!channels || !categories || first) return <p className="text-muted">読み込み中…</p>;
+  if (!channels || !categories || first) return <p className="loading text-muted">読み込み中…</p>;
   return <p className="text-muted">チャンネルがまだありません。サイドバーの「＋」から作ってください。</p>;
 }

@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FormulaSettingsHost } from "@/components/db/FormulaSettings";
 import { PagePeekProvider } from "@/components/db/PagePeek";
 import { TopBarSlot } from "@/components/TopBarSlot";
+import { usePageFade } from "@/components/usePageFade";
 import { useMembers, useMyRooms, useRoom } from "@/lib/local/rooms";
 import { useCurrentUser } from "@/lib/local/session";
 import { setMemberListOpen, useIsDesktop, useMemberListOpen } from "@/lib/member-list";
@@ -27,9 +28,12 @@ export default function RoomLayout({ children }: { children: React.ReactNode }) 
   const desktopMembers = useMemberListOpen();
   const [mobileMembersAt, setMobileMembersAt] = useState<string | null>(null);
   const mobileMembers = mobileMembersAt === pathname;
+  // 画面を切り替えたら、中身をふわっと出す
+  const content = useRef<HTMLDivElement>(null);
+  usePageFade(content);
 
   if (me === undefined || room === undefined || members === undefined || myRooms === undefined) {
-    return <p className="p-8 text-muted">読み込み中…</p>;
+    return <p className="loading p-8 text-muted">読み込み中…</p>;
   }
   // サーバー版ではメンバー以外にはルームが見えない。ローカル版でも同じ動きにする
   if (!room || !me || !members.some((m) => m.userId === me.id)) {
@@ -75,7 +79,7 @@ export default function RoomLayout({ children }: { children: React.ReactNode }) 
           {/* Discord と同じく、上のバーの下で、中身の右にメンバー一覧を並べる */}
           <div className="flex min-h-0 flex-1">
             {/* スクロールバーの場所はいつも空けておく（出たり消えたりで幅が変わり、画像の大きさが揺れ続けないように） */}
-            <div data-name="メイン画面の中身" className="min-h-0 min-w-0 flex-1 overflow-auto px-[clamp(16px,4vw,40px)] pt-4 pb-7 [scrollbar-gutter:stable]">
+            <div ref={content} data-name="メイン画面の中身" className="min-h-0 min-w-0 flex-1 overflow-auto px-[clamp(16px,4vw,40px)] pt-4 pb-7 [scrollbar-gutter:stable]">
               {/* ビューからページを押すと、ポップアップで開く（ページのポップアップ） */}
               <PagePeekProvider>{children}</PagePeekProvider>
               {/* 数式の項目の設定（項目のメニューなどから開く） */}

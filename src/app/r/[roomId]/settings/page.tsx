@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Icon } from "@/components/Icon";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { confirmAction, promptText, toast } from "@/components/ui/overlay";
 import { deleteChannelTemplate, renameChannelTemplate, useChannelTemplates } from "@/lib/local/channelTemplates";
 import { useState } from "react";
@@ -59,9 +60,10 @@ export default function SettingsPage() {
 
   return (
     <div data-name="設定画面" className="max-w-2xl space-y-4">
-      <h1 className="text-[28px] font-bold">ルームの設定</h1>
+      <h1 className="mb-5 w-fit text-[28px] font-bold" title="自分の表示名やアイコン、表示モードは、左下の歯車（アカウントの設定）で変えられます">
+        ルームの設定
+      </h1>
       {/* 自分の表示名・アイコンや、表示モードなどの端末の設定は、左下のアカウントの欄の歯車から開く */}
-      <p className="mb-5 text-sm text-muted">自分の表示名やアイコン、表示モードは、左下の歯車（アカウントの設定）で変えられます。</p>
 
       <TemplatesSection roomId={roomId} />
 
@@ -104,19 +106,12 @@ export default function SettingsPage() {
       {/* だれが招待できるか（ホストだけが変えられる） */}
       {isHost && (
         <section data-name="招待できる人" className="card">
-          <h2 className="mb-1 font-bold">招待できる人</h2>
-          <p className="mb-3 text-sm text-muted">フレンドとのDMに招待のカードを送り、相手が「参加する」を押すとメンバーになります。ホストはいつでも招待できます。</p>
-          <label className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              checked={!!room.membersCanInvite}
-              onChange={(e) => void setMembersCanInvite(roomId, me.id, e.target.checked)}
-              className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--accent)]"
-            />
-            <span>
-              メンバーもフレンドを招待できる
-              <span className="block text-xs text-muted">オフにすると、招待できるのはホストだけになります（送ってあった招待は、そのまま使えます）。</span>
-            </span>
+          <h2 className="mb-3 w-fit font-bold" title="フレンドとのDMに招待のカードを送り、相手が「参加する」を押すとメンバーになります。ホストはいつでも招待できます">
+            招待できる人
+          </h2>
+          <label className="flex w-fit items-center gap-2" title="オフにすると、招待できるのはホストだけになります（送ってあった招待は、そのまま使えます）">
+            <Checkbox checked={!!room.membersCanInvite} onChange={(on) => void setMembersCanInvite(roomId, me.id, on)} />
+            メンバーもフレンドを招待できる
           </label>
         </section>
       )}
@@ -157,10 +152,9 @@ function TemplatesSection({ roomId }: { roomId: string }) {
   const templates = useChannelTemplates(roomId) ?? [];
   return (
     <section className="card" data-name="テンプレートの一覧">
-      <h2 className="mb-1 font-bold">ウィンドウ・ノートのテンプレート</h2>
-      <p className="mb-3 text-sm text-muted">
-        サイドバーのウィンドウ・ノートを右クリック →「ソース」で選べます。テンプレートを直すと、使っているところ全部が変わります。
-      </p>
+      <h2 className="mb-3 w-fit font-bold" title="サイドバーのウィンドウ・ノートを右クリック →「ソース」で選べます。テンプレートを直すと、使っているところ全部が変わります">
+        ウィンドウ・ノートのテンプレート
+      </h2>
       {templates.length ? (
         <ul className="divide-y divide-line">
           {templates.map((t) => (

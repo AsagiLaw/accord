@@ -17,7 +17,7 @@ export function TrashDialog({ database, onClose }: { database: Database; onClose
     <PopupDialog title={`ゴミ箱（${database.name}）`} onClose={onClose} width="max-w-xl">
       <div className="space-y-1 text-sm" data-name="ゴミ箱">
         {pages === undefined ? (
-          <p className="text-muted">読み込み中…</p>
+          <p className="loading text-muted">読み込み中…</p>
         ) : !pages.length ? (
           <p className="text-muted">ゴミ箱は空です</p>
         ) : (

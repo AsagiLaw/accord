@@ -20,7 +20,7 @@ import { setTemplateValue, updateTemplate } from "@/lib/local/templates";
 // 本文のエディタはブラウザでしか動かないので、サーバーでは描画しない
 const BlockEditor = dynamic(() => import("@/components/note/BlockEditor").then((m) => m.BlockEditor), {
   ssr: false,
-  loading: () => <p className="p-4 text-muted">読み込み中…</p>,
+  loading: () => <p className="loading p-4 text-muted">読み込み中…</p>,
 });
 
 /**
@@ -80,7 +80,7 @@ export default function TemplateScreen() {
     };
   }, [dirty, router]);
 
-  if (database === undefined || !me || !members) return <p className="text-muted">読み込み中…</p>;
+  if (database === undefined || !me || !members) return <p className="loading text-muted">読み込み中…</p>;
   const t = database?.templates?.find((x) => x.id === templateId);
   if (!database || !t) {
     return (
@@ -151,8 +151,7 @@ function ValuesDialog({ database, template, members, userId, onClose }: { databa
   const label = "ページ";
   return (
     <PopupDialog title={`初期値：テンプレート「${template.name}」`} onClose={onClose} width="max-w-2xl">
-      <p className="mb-3 text-sm text-muted">このテンプレートで{label}を作ったときに、最初から入る値です。空のままの項目は、ふつうの追加と同じです。</p>
-      <div className="grid gap-x-5 gap-y-3 sm:grid-cols-2">
+      <div className="grid gap-x-5 gap-y-3 sm:grid-cols-2" title={`このテンプレートで${label}を作ったときに、最初から入る値です。空のままの項目は、ふつうの追加と同じです`}>
         {valueProps(database).map((p) => (
           <label key={p.id} className="block" htmlFor={`tv-${p.id}`}>
             <span className="mb-0.5 flex items-center gap-1 text-xs text-muted">

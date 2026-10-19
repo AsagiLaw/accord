@@ -33,8 +33,12 @@ export function AuthCard({ title, lead, children, footer }: { title: string; lea
           ))}
         </nav>
         {authMode === "local" && (
-          <p data-name="ローカル版の説明" className="mt-6 text-center text-xs text-muted">
-            ローカル版：アカウントはこのブラウザの中だけに保存されます。Supabase につなぐと、同じ画面で本物のログインになります。
+          <p
+            data-name="ローカル版の説明"
+            title="アカウントはこのブラウザの中だけに保存されます。Supabase につなぐと、同じ画面で本物のログインになります"
+            className="mt-6 text-center text-xs text-muted"
+          >
+            ローカル版
           </p>
         )}
       </div>
@@ -45,10 +49,10 @@ export function AuthCard({ title, lead, children, footer }: { title: string; lea
 /** 入力欄と見出し */
 export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <label className="block">
+    // 説明（hint）はいつもは出さず、カーソルを乗せてしばらくすると出す
+    <label className="block" title={hint}>
       <span className="mb-1 block text-sm font-bold">{label}</span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-muted">{hint}</span>}
     </label>
   );
 }
@@ -127,7 +131,8 @@ export function OrDivider() {
 export function GoogleButton({ label, onClick, busy }: { label: string; onClick: () => void; busy?: boolean }) {
   const off = authMode === "local";
   return (
-    <div>
+    // 押せない理由は、カーソルを乗せてしばらくすると出す（押せないボタンには出ないので、外側に付ける）
+    <div title={off ? "Google でのログインは、Supabase につなぐと使えます" : undefined}>
       <button type="button" onClick={onClick} disabled={off || busy} className="btn-sub w-full disabled:opacity-50">
         <svg aria-hidden viewBox="0 0 24 24" width="18" height="18">
           <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -137,7 +142,6 @@ export function GoogleButton({ label, onClick, busy }: { label: string; onClick:
         </svg>
         {label}
       </button>
-      {off && <p className="mt-1 text-center text-xs text-muted">Google でのログインは、Supabase につなぐと使えます</p>}
     </div>
   );
 }

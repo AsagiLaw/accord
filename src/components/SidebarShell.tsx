@@ -30,7 +30,7 @@ export function SidebarShell({ me, children }: { me: Profile; children: React.Re
       </button>
       {open && (
         <div
-          className="fixed inset-0 z-10 bg-black/40 md:hidden"
+          className="fixed inset-0 z-10 animate-[fade_.2s] bg-black/40 md:hidden"
           onClick={() => setOpen(false)}
         />
       )}

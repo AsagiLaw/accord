@@ -27,7 +27,7 @@ export default function DatabasePage() {
     if (wantsNew) setOpenNew(true);
   }
 
-  if (database === undefined || !pages || !views || !events || !members || !me) return <p className="text-muted">読み込み中…</p>;
+  if (database === undefined || !pages || !views || !events || !members || !me) return <p className="loading text-muted">読み込み中…</p>;
   if (!database || database.roomId !== roomId) {
     return (
       <p className="text-muted">

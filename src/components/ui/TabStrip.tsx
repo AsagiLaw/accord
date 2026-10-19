@@ -76,7 +76,8 @@ export function TabStrip({
               onDragStart={draggable && onDragStartTab ? (e) => onDragStartTab(e, t.id) : undefined}
               onClick={() => onSelect(t.id)}
               onContextMenu={onContextMenuTab ? (e) => onContextMenuTab(e, t.id) : undefined}
-              // 幅はふだん同じ（144px）で、タブが増えると全部が収まるまで同じだけ縮む（アイコンが見える幅まで）
+              // 幅は選んでいるタブも含めて全部同じ（144px）で、タブが増えると全部が収まるまで同じだけ縮む（アイコンが見える幅まで）。
+              // 押しても幅は変わらない。切れた名前は、カーソルを乗せるか、左の一覧ボタンで見られる
               className={`relative -mb-px flex h-8 w-36 min-w-9 shrink items-center gap-1.5 rounded-t-[8px] px-2.5 text-xs ${on ? "tab-active z-[1] bg-card font-bold" : "text-muted hover:bg-tint"}`}
             >
               {/* 選んでいるタブは、下の両側を内側へ丸くして（tab-active）、下の中身とつなげる */}

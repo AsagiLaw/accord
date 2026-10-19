@@ -139,7 +139,7 @@ export function Thumb({
           onClick(e as unknown as React.MouseEvent);
         }
       }}
-      className={`group relative aspect-square cursor-pointer overflow-hidden rounded-[12px] border border-line bg-card transition duration-300 select-none hover:-translate-y-[3px] active:scale-95 ${
+      className={`group relative aspect-square cursor-pointer overflow-hidden rounded-[12px] border border-line bg-card transition duration-300 select-none motion-safe:hover:-translate-y-[3px] active:scale-95 ${
         selected ? "outline-[3px] -outline-offset-1 outline-accent" : ""
       }`}
     >

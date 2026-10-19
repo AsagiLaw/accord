@@ -17,12 +17,12 @@ import { daysLeft } from "./TrashDialog";
 
 const BlockEditor = dynamic(() => import("@/components/note/BlockEditor").then((m) => m.BlockEditor), {
   ssr: false,
-  loading: () => <p className="p-4 text-muted">読み込み中…</p>,
+  loading: () => <p className="loading p-4 text-muted">読み込み中…</p>,
 });
 
 const NoteEditor = dynamic(() => import("@/components/note/NoteEditor").then((m) => m.NoteEditor), {
   ssr: false,
-  loading: () => <p className="text-muted">読み込み中…</p>,
+  loading: () => <p className="loading text-muted">読み込み中…</p>,
 });
 
 /**
@@ -44,7 +44,7 @@ export function PageBody({ roomId, dbId, pageId, peek }: { roomId: string; dbId:
     void createNote(roomId, me.id, page.title, page.id);
   }, [database, page, me, memo, roomId]);
 
-  if (database === undefined || page === undefined || !me || !members) return <p className="text-muted">読み込み中…</p>;
+  if (database === undefined || page === undefined || !me || !members) return <p className="loading text-muted">読み込み中…</p>;
   const dbHref = `/r/${roomId}/db/${dbId}`;
   if (!database || !page || page.dbId !== dbId) {
     return (
@@ -92,7 +92,7 @@ export function PageBody({ roomId, dbId, pageId, peek }: { roomId: string; dbId:
         ) : memo ? (
           <NoteEditor key={memo.id} note={memo} userId={me.id} members={members} page={{ dbId, pageId: page.id }} />
         ) : (
-          <p className="text-muted">読み込み中…</p>
+          <p className="loading text-muted">読み込み中…</p>
         )}
       </div>
     </NoteContext.Provider>
@@ -153,7 +153,7 @@ function PageWindow({
           ) : note ? (
             <BlockEditor key={note.id} id={note.id} blocks={note.blocks} roomId={page.roomId} userId={userId} editable={editing} mode="window" onSave={(blocks) => saveNoteBlocks(note.id, blocks, userId)} />
           ) : (
-            <p className="p-4 text-muted">読み込み中…</p>
+            <p className="loading p-4 text-muted">読み込み中…</p>
           )}
         </div>
       </div>

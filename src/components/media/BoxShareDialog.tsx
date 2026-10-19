@@ -3,6 +3,7 @@
 import { Icon } from "@/components/Icon";
 import { PopupDialog } from "@/components/ui/Dialog";
 import { confirmAction, toast } from "@/components/ui/overlay";
+import { Select } from "@/components/ui/Select";
 import {
   countImagesMovedIfRemoved,
   linkBoxToRoom,
@@ -22,11 +23,17 @@ const levelOf = (s: BoxShare | undefined): Level => (!s ? "none" : s.canEdit ? "
 /** 共有の段階を選ぶ。none のときの文字は、フレンドは「共有しない」、ルームは「紐づけない」 */
 function LevelSelect({ value, noneLabel, label, onChange }: { value: Level; noneLabel: string; label: string; onChange: (v: Level) => void }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value as Level)} aria-label={label} className="field w-auto shrink-0 py-1 text-sm">
-      <option value="none">{noneLabel}</option>
-      <option value="view">見るだけ</option>
-      <option value="edit">編集もできる</option>
-    </select>
+    <Select
+      value={value}
+      onChange={onChange}
+      label={label}
+      className="w-36 shrink-0"
+      options={[
+        { value: "none", label: noneLabel },
+        { value: "view", label: "見るだけ" },
+        { value: "edit", label: "編集もできる" },
+      ]}
+    />
   );
 }
 
@@ -69,9 +76,14 @@ export function BoxShareDialog({ box, me, onClose }: { box: MediaBox; me: Profil
 
   const loading = !shares || !friendships || !rooms || !links;
   return (
-    <PopupDialog title={`「${box.name}」の共有`} onClose={onClose} width="max-w-lg">
+    <PopupDialog
+      title={`「${box.name}」の共有`}
+      note="1つのルームに紐づけられるボックスは1つだけです。共有をやめると、使えなくなった人が入れた画像は、その人のマイメディアに移ります"
+      onClose={onClose}
+      width="max-w-lg"
+    >
       {loading ? (
-        <p className="text-muted">読み込み中…</p>
+        <p className="loading text-muted">読み込み中…</p>
       ) : (
         <div data-name="ボックスの共有" className="space-y-5">
           <section>
@@ -137,10 +149,6 @@ export function BoxShareDialog({ box, me, onClose }: { box: MediaBox; me: Profil
               <p className="text-sm text-muted">参加しているルームがありません。</p>
             )}
           </section>
-
-          <p className="rounded-[10px] bg-tint px-3 py-2 text-xs text-muted">
-            1つのルームに紐づけられるボックスは1つだけです。共有をやめると、使えなくなった人が入れた画像は、その人のマイメディアに移ります。
-          </p>
         </div>
       )}
     </PopupDialog>

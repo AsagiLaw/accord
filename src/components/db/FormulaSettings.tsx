@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState, useSyncExternalStore } from "react";
+import { Segmented } from "@/components/ui/Segmented";
+import { Select } from "@/components/ui/Select";
 import type { Database, Property } from "@/lib/local/db";
 import { updateProperty, useDatabase, usePages } from "@/lib/local/requests";
 import { FUNCTIONS, evalFormula, formulaToSimple, simpleToFormula, type SimpleFormula, type SimpleOp } from "@/lib/requests/formula";
@@ -105,9 +107,8 @@ function FormulaEditor({ database, prop }: { database: Database; prop: Property 
     close();
   };
 
-  const select = "field py-1";
   return (
-    <div className="fixed inset-0 z-[56] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => e.target === e.currentTarget && close()} data-overlay="">
+    <div className="sheet-backdrop fixed inset-0 z-[56] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => e.target === e.currentTarget && close()} data-overlay="">
       <div role="dialog" aria-modal="true" aria-label="数式の設定" data-name="数式の設定ダイアログ" className="flex max-h-[92dvh] w-full max-w-xl flex-col rounded-t-[20px] border border-line bg-card sm:rounded-[14px]">
         <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
           <h3 className="font-bold">数式の設定（{prop.name}）</h3>
@@ -122,57 +123,39 @@ function FormulaEditor({ database, prop }: { database: Database; prop: Property 
         </div>
         <div className="space-y-4 overflow-y-auto px-5 py-4 text-sm">
           {/* かんたん・式の切り替え */}
-          <div className="flex w-fit gap-0.5 rounded-[10px] border border-line p-0.5" role="tablist">
-            {(
-              [
-                ["simple", "かんたん"],
-                ["text", "式"],
-              ] as const
-            ).map(([id, label]) => (
-              <button key={id} role="tab" aria-selected={tab === id} onClick={() => toTab(id)} className={`rounded-[8px] px-4 py-1 ${tab === id ? "bg-tint font-bold" : "text-muted hover:bg-tint/60"}`}>
-                {label}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            value={tab}
+            onChange={toTab}
+            label="数式の作り方"
+            className="w-fit"
+            items={[
+              { value: "simple", label: "かんたん" },
+              { value: "text", label: "式" },
+            ]}
+          />
           {notice && <p className="text-warn">{notice}</p>}
 
           {tab === "simple" ? (
             <div className="grid gap-2 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
-              <select value={simple.a} onChange={(e) => setSimple({ ...simple, a: e.target.value })} className={select} aria-label="A">
-                {!usable.some((p) => p.name === simple.a) && <option value={simple.a}>{simple.a || "項目を選ぶ"}</option>}
-                {usable.map((p) => (
-                  <option key={p.id} value={p.name}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <select value={simple.op} onChange={(e) => setSimple({ ...simple, op: e.target.value as SimpleOp })} className={select} aria-label="計算">
-                {OPS.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={simple.a}
+                onChange={(a) => setSimple({ ...simple, a })}
+                label="A"
+                placeholder={simple.a || "項目を選ぶ"}
+                options={usable.map((p) => ({ value: p.name, label: p.name }))}
+              />
+              <Select value={simple.op} onChange={(op) => setSimple({ ...simple, op })} label="計算" options={OPS.map((o) => ({ value: o.id, label: o.label }))} />
               <div className="flex gap-1.5">
-                <select
+                <Select
                   value={simple.b.kind === "prop" ? `p:${simple.b.name}` : simple.b.kind}
-                  onChange={(e) => {
-                    const v = e.target.value;
+                  onChange={(v) => {
                     setSimple({ ...simple, b: v === "num" ? { kind: "num", value: simple.b.kind === "num" ? simple.b.value : "1" } : v === "today" ? { kind: "today" } : { kind: "prop", name: v.slice(2) } });
                   }}
-                  className={select}
-                  aria-label="B"
-                >
-                  <option value="num">数を入れる</option>
-                  <option value="today">今日</option>
-                  {usable.map((p) => (
-                    <option key={p.id} value={`p:${p.name}`}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
+                  label="B"
+                  options={[{ value: "num", label: "数を入れる" }, { value: "today", label: "今日" }, ...usable.map((p) => ({ value: `p:${p.name}`, label: p.name }))]}
+                />
                 {simple.b.kind === "num" && (
-                  <input type="number" step="any" value={simple.b.value} onChange={(e) => setSimple({ ...simple, b: { kind: "num", value: e.target.value } })} className="field w-24 py-1" aria-label="数" />
+                  <input type="number" step="any" value={simple.b.value} onChange={(e) => setSimple({ ...simple, b: { kind: "num", value: e.target.value } })} className="field h-9 w-24 py-1 text-sm" aria-label="数" />
                 )}
               </div>
             </div>
@@ -230,13 +213,7 @@ function FormulaEditor({ database, prop }: { database: Database; prop: Property 
 
           <label className="flex items-center gap-2">
             <span className="w-24 shrink-0">数の表示</span>
-            <select value={format} onChange={(e) => setFormat(e.target.value)} className={select}>
-              {FORMATS.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
+            <Select value={format} onChange={setFormat} label="数の表示" options={FORMATS.map((f) => ({ value: f.id, label: f.label }))} />
           </label>
 
           {/* 試しの計算 */}

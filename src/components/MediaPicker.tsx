@@ -1,17 +1,27 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Icon } from "@/components/Icon";
+import { useMemo, useRef, useState } from "react";
+import { Icon, type IconName } from "@/components/Icon";
 import { toast } from "@/components/ui/overlay";
-import { ensureMyMedia, useMyBoxes, useRoomBox } from "@/lib/local/boxes";
+import { Select } from "@/components/ui/Select";
+import { ensureMyMedia, useBoxMembers, useMyBoxes, useRoomBox } from "@/lib/local/boxes";
+import type { Library, Media } from "@/lib/local/db";
 import { useLibraries, useMedia, uploadFiles } from "@/lib/local/media";
 import { IMAGE_ACCEPT } from "@/lib/media/image";
-import { chain, isUnsorted } from "@/lib/media/logic";
+import { arrange, chain, childrenOf, coverOf, isUnsorted, libraryView, searchMedia, shownName, THUMB_SIZES } from "@/lib/media/logic";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
+import { useMediaPrefs } from "@/lib/media/prefs";
 import { ThumbImage } from "@/components/ThumbImage";
+import { CoverCard } from "@/components/media/LibraryCard";
+import { SortMenu } from "@/components/media/SortMenu";
+
+/** 左のサイドバーで選んでいる場所（メディアの画面と同じ並び） */
+type Place = "home" | "unsorted" | "fav" | `lib:${string}`;
 
 /**
  * メディアから画像を選ぶダイアログ。チャットやノートに画像を貼るときは必ずここを通る。
+ * 見た目と使い方はメディアの画面を小さくしたもの：左にサイドバー（ボックス・ホーム・未整理・お気に入り・ライブラリー）、
+ * 上に検索と「並べ替えと表示」（メディアの画面と同じ設定。変えるとメディアの画面にも効く）、真ん中に画像。ライブラリーへの整理はここではできない。
  * はじめはルームに紐づいたボックス（ルームの外や、紐づいていなければマイメディア）を出し、使えるほかのボックスにも切り替えられる。
  * 新しい画像もここからアップロードでき、開いているボックスの「未整理」に入る（見るだけのボックスなら、マイメディアに入る）。
  */
@@ -44,17 +54,44 @@ export function MediaPicker({
   const canAdd = ["owner", "edit"].includes(boxes?.access.get(boxId) ?? "");
   const media = useMedia(boxId);
   const libs = useLibraries(boxId);
-  const [filter, setFilter] = useState<string>("recent");
+  const members = useBoxMembers(boxId);
+  const prefs = useMediaPrefs();
+  const [place, setPlace] = useState<Place>("home");
+  const [query, setQuery] = useState("");
   const [chosen, setChosen] = useState<string[]>([]);
+  // 選んだ画像の名前（ほかのボックスへ移っても、選択中の欄に名前を出せるように）
+  const [names, setNames] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  // スマホでは、サイドバーを画像の上に重ねて出す（押すと出る）
+  const [navOpen, setNavOpen] = useState(false);
 
+  const allLibs = useMemo(() => libs ?? [], [libs]);
+  const libId = place.startsWith("lib:") ? place.slice(4) : null;
+  const lib = libId ? allLibs.find((l) => l.id === libId) : undefined;
+  const alive = useMemo(() => (media ?? []).filter((m) => !m.trashed), [media]);
+  const unsortedCount = alive.filter(isUnsorted).length;
+
+  // 今の場所に並べる画像（メディアの画面と同じ並べ方）。検索中は、ホームならボックス全体、ライブラリーなら子ライブラリーの画像も探す
   const list = useMemo(() => {
-    const alive = (media ?? []).filter((m) => !m.trashed).reverse();
-    if (filter === "unsorted") return alive.filter(isUnsorted);
-    if (filter === "fav") return alive.filter((m) => m.fav);
-    if (filter.startsWith("lib:")) return alive.filter((m) => m.libIds.includes(filter.slice(4)));
-    return alive;
-  }, [media, filter]);
+    const q = query.trim();
+    let pool: Media[];
+    if (place === "unsorted") pool = alive.filter(isUnsorted);
+    else if (place === "fav") pool = alive.filter((m) => m.fav);
+    else if (lib) pool = q ? alive.filter((m) => m.libIds.includes(lib.id)) : libraryView(alive, allLibs, lib.id, prefs.libMode);
+    else pool = alive;
+    const sorted = arrange(pool, prefs);
+    if (!q) return sorted;
+    return searchMedia(sorted, q, (id) => members?.find((x) => x.userId === id)?.displayName ?? "");
+  }, [place, alive, lib, allLibs, prefs, query, members]);
+
+  // ホームとライブラリーでは、すぐ下のライブラリーをカードで先に並べる（検索中は出さない）
+  const cards = query.trim() || (place !== "home" && !lib) ? [] : childrenOf(allLibs, lib?.id ?? null);
+
+  const go = (p: Place) => {
+    setPlace(p);
+    setQuery("");
+    setNavOpen(false);
+  };
 
   const upload = async (files: File[]) => {
     if (!files.length) return;
@@ -67,18 +104,52 @@ export function MediaPicker({
       toast("このボックスは見るだけなので、マイメディアに追加しました");
     }
     if (failed) toast(`${failed}枚は読み込めない形式のため追加できませんでした`);
-    // アップロードした画像は、そのまま選んだ状態にする
+    // アップロードした画像は「未整理」に入るので、そこを開いて、選んだ状態にする
     setChosen((c) => (single ? ids.slice(0, 1) : [...c, ...ids]));
-    setFilter("recent");
+    go("unsorted");
   };
 
+  // Shift を押しながら押したときの起点（最後にふつうに押した画像）。メディアの画面と同じ
+  const anchor = useRef<string | null>(null);
+
+  const remember = (ids: string[]) => {
+    const add = Object.fromEntries(alive.filter((m) => ids.includes(m.id)).map((m) => [m.id, m.name]));
+    setNames((n) => ({ ...n, ...add }));
+  };
+
+  const toggle = (id: string) => {
+    remember([id]);
+    const i = chosen.indexOf(id);
+    setChosen(i >= 0 ? chosen.filter((x) => x !== id) : single ? [id] : [...chosen, id]);
+  };
+
+  /** 画像を押したとき。Shift を押していれば、起点からここまでを並んでいる順にまとめて選ぶ（選んでいるものに足す） */
+  const onTile = (e: React.MouseEvent, id: string) => {
+    const ids = list.map((m) => m.id);
+    if (e.shiftKey && !single && anchor.current && ids.includes(anchor.current)) {
+      const a = ids.indexOf(anchor.current);
+      const b = ids.indexOf(id);
+      const range = ids.slice(Math.min(a, b), Math.max(a, b) + 1);
+      if (a > b) range.reverse();
+      remember(range);
+      setChosen((c) => [...c, ...range.filter((x) => !c.includes(x))]);
+      return;
+    }
+    anchor.current = id;
+    toggle(id);
+  };
+
+  const size = THUMB_SIZES[prefs.level - 1] ?? THUMB_SIZES[2];
+  const placeName = place === "home" ? "ホーム" : place === "unsorted" ? "未整理" : place === "fav" ? "お気に入り" : (lib?.name ?? "");
+
   return (
-    <div className="fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="sheet-backdrop fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div
         role="dialog"
         aria-modal="true"
         aria-label={mineOnly ? "マイメディアから選ぶ" : "メディアから選ぶ"}
-        className="flex max-h-[88dvh] w-full max-w-3xl flex-col rounded-t-[20px] border border-line bg-card sm:rounded-[14px]"
+        data-name="メディアから選ぶ"
+        className="flex h-[92dvh] w-full max-w-5xl flex-col overflow-hidden rounded-t-[20px] border border-line bg-card sm:h-[min(88dvh,760px)] sm:rounded-[14px]"
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
@@ -87,9 +158,9 @@ export function MediaPicker({
           upload([...e.dataTransfer.files]);
         }}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
-          <h3 className="font-bold">{mineOnly ? "マイメディアから選ぶ" : "メディアから選ぶ"}</h3>
-          <div className="flex gap-2">
+        <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3 sm:px-5">
+          <h3 className="min-w-0 truncate font-bold">{mineOnly ? "マイメディアから選ぶ" : "メディアから選ぶ"}</h3>
+          <div className="flex shrink-0 gap-2 whitespace-nowrap">
             <button className="btn-sub" onClick={onClose}>
               キャンセル
             </button>
@@ -98,85 +169,274 @@ export function MediaPicker({
             </button>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-2">
-          <label className={`btn-sub cursor-pointer ${busy ? "opacity-50" : ""}`}>
-            <Icon name="upload" />
-            {busy ? "読み込み中…" : "新しくアップロード"}
-            <input
-              type="file"
-              accept={IMAGE_ACCEPT}
-              multiple
-              className="sr-only"
-              disabled={busy}
-              onChange={(e) => {
-                const files = [...(e.target.files ?? [])];
-                e.target.value = "";
-                upload(files);
-              }}
-            />
-          </label>
-          {boxes && !mineOnly && (
-            <select
-              value={boxId}
-              onChange={(e) => {
-                setPicked(e.target.value);
-                setFilter("recent");
-              }}
-              className="field w-auto max-w-full"
-              aria-label="ボックス"
-            >
-              {[...(boxes.mine ? [boxes.mine] : []), ...boxes.own, ...boxes.shared].map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                  {b.id === roomBox?.box.id ? "（このルーム）" : ""}
-                </option>
-              ))}
-            </select>
-          )}
-          <select value={filter} onChange={(e) => setFilter(e.target.value)} className="field w-auto" aria-label="表示する画像">
-            <option value="recent">新しい順にすべて</option>
-            <option value="unsorted">未整理</option>
-            <option value="fav">お気に入り</option>
-            {(libs ?? []).length > 0 && (
-              <optgroup label="ライブラリー">
-                {(libs ?? []).map((l) => (
-                  <option key={l.id} value={`lib:${l.id}`}>
-                    {chain(libs ?? [], l.id)
-                      .map((x) => x.name)
-                      .join(" / ")}
-                  </option>
-                ))}
-              </optgroup>
+
+        <div className="relative flex min-h-0 flex-1">
+          {/* スマホでサイドバーを出している間は、画像の側を暗くする（押すと閉じる） */}
+          {navOpen && <div className="absolute inset-0 z-10 animate-[fade_.2s] bg-black/30 md:hidden" onClick={() => setNavOpen(false)} />}
+          <aside
+            data-name="メディアから選ぶのサイドバー"
+            className={`flex w-60 shrink-0 flex-col gap-2 border-r border-line bg-sidebar p-2 max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-20 max-md:w-[min(260px,80%)] max-md:shadow-xl ${navOpen ? "max-md:animate-[fade_.2s]" : "max-md:hidden"}`}
+          >
+            {boxes && !mineOnly && (
+              <Select
+                value={boxId}
+                onChange={(v) => {
+                  setPicked(v);
+                  go("home");
+                }}
+                label="ボックス"
+                className="w-full shrink-0 font-bold"
+                options={[...(boxes.mine ? [boxes.mine] : []), ...boxes.own, ...boxes.shared].map((b) => ({ value: b.id, label: `${b.name}${b.id === roomBox?.box.id ? "（このルーム）" : ""}` }))}
+              />
             )}
-          </select>
-        </div>
-        <div className="overflow-y-auto px-5 py-4">
-          {list.length ? (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
-              {list.map((m) => {
-                const i = chosen.indexOf(m.id);
-                return (
-                  <button
-                    key={m.id}
-                    aria-pressed={i >= 0}
-                    aria-label={m.name}
-                    onClick={() => setChosen(i >= 0 ? chosen.filter((x) => x !== m.id) : single ? [m.id] : [...chosen, m.id])}
-                    className={`relative aspect-square overflow-hidden rounded-[10px] border ${i >= 0 ? "border-accent ring-2 ring-accent" : "border-line"}`}
-                  >
-                    <ThumbImage id={m.id} alt={m.name} />
-                    {i >= 0 && (
-                      <span className="absolute top-1.5 left-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-accent px-1 text-xs font-bold text-accent-ink">
-                        {i + 1}
+            {canAdd ? (
+              <label className={`btn-sub cursor-pointer font-bold ${busy ? "opacity-50" : ""}`}>
+                <Icon name="upload" />
+                {busy ? "読み込み中…" : "メディアを追加"}
+                <input
+                  type="file"
+                  accept={IMAGE_ACCEPT}
+                  multiple
+                  className="sr-only"
+                  disabled={busy}
+                  onChange={(e) => {
+                    const files = [...(e.target.files ?? [])];
+                    e.target.value = "";
+                    upload(files);
+                  }}
+                />
+              </label>
+            ) : (
+              <p className="flex items-center gap-1.5 rounded-[10px] bg-tint px-3 py-1.5 text-xs text-muted">
+                <Icon name="eye" size={14} className="shrink-0" />
+                見るだけのボックスです
+              </p>
+            )}
+            <PickerNav libs={allLibs} place={place} unsorted={unsortedCount} onGo={go} />
+          </aside>
+
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex items-center gap-2 border-b border-line px-3 py-2">
+              <button
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted hover:bg-tint hover:text-ink md:hidden"
+                aria-label="場所を選ぶ"
+                aria-expanded={navOpen}
+                onClick={() => setNavOpen(!navOpen)}
+              >
+                <Icon name="menu" />
+              </button>
+              {/* 今いる場所。ライブラリーなら、上のライブラリーへ戻れる */}
+              <nav aria-label="今いる場所" className="flex min-w-0 flex-1 items-center gap-1 text-sm">
+                {lib ? (
+                  <>
+                    <button className="shrink-0 rounded-[6px] px-1 text-muted hover:bg-tint hover:text-ink" onClick={() => go("home")}>
+                      ホーム
+                    </button>
+                    {chain(allLibs, lib.id).map((l) => (
+                      <span key={l.id} className="flex min-w-0 items-center gap-1">
+                        <Icon name="rt" size={14} className="shrink-0 text-muted" />
+                        {l.id === lib.id ? (
+                          <b className="truncate">{l.name}</b>
+                        ) : (
+                          <button className="truncate rounded-[6px] px-1 text-muted hover:bg-tint hover:text-ink" onClick={() => go(`lib:${l.id}`)}>
+                            {l.name}
+                          </button>
+                        )}
                       </span>
-                    )}
-                  </button>
-                );
-              })}
+                    ))}
+                  </>
+                ) : (
+                  <b className="truncate">{placeName}</b>
+                )}
+              </nav>
+              <label className="flex h-9 w-[min(220px,40%)] items-center gap-1.5 rounded-full border border-line bg-bg px-3 text-sm focus-within:border-accent">
+                <Icon name="search" size={16} className="shrink-0 text-muted" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    // 検索だけを消す（ダイアログは閉じない）
+                    if (e.key === "Escape" && query) {
+                      e.stopPropagation();
+                      setQuery("");
+                    }
+                  }}
+                  placeholder={`${placeName}を検索`}
+                  aria-label={`${placeName}の中を検索`}
+                  className="min-w-0 flex-1 bg-transparent outline-none"
+                />
+              </label>
+              <SortMenu showLibMode={!!lib} iconOnly />
             </div>
-          ) : (
-            <p className="py-6 text-center text-sm text-muted">画像がありません。「新しくアップロード」か、ここに画像をドラッグしてください。</p>
-          )}
+
+            {/* 選んでいる画像（ライブラリーやボックスを移っても、何を選んでいるかがわかるように）。左から選んだ順 */}
+            {chosen.length > 0 && (
+              <div data-name="選んでいる画像" className="flex items-center gap-2 border-b border-line bg-bg px-3 py-2">
+                <ol className="flex min-w-0 flex-1 gap-3 overflow-x-auto px-1.5 pt-2 pb-1">
+                  {chosen.map((id, i) => {
+                    const name = alive.find((m) => m.id === id)?.name ?? names[id] ?? "";
+                    return (
+                      <li key={id} className="anim-pop relative shrink-0" title={name}>
+                        <span className="block h-11 w-11 overflow-hidden rounded-[8px] border border-accent bg-card">
+                          <ThumbImage id={id} alt={name} />
+                        </span>
+                        {!single && (
+                          <span className="pointer-events-none absolute -top-1 -left-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-0.5 text-[11px] leading-none font-bold text-accent-ink">{i + 1}</span>
+                        )}
+                        <button
+                          aria-label={name ? `「${name}」を選ぶのをやめる` : "選ぶのをやめる"}
+                          title="選ぶのをやめる"
+                          onClick={() => toggle(id)}
+                          className="absolute -top-1.5 -right-1.5 grid h-5 w-5 place-items-center rounded-full border border-line bg-card text-muted shadow-sm hover:text-ink"
+                        >
+                          <Icon name="x" size={12} />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ol>
+                {/* 右の端に「すべて外す」と、その下に枚数（場所を取らないように縦に重ねる） */}
+                <div className="flex shrink-0 flex-col items-center gap-0.5">
+                  {chosen.length > 1 && (
+                    <button className="rounded-full px-2 py-0.5 text-xs text-muted hover:bg-tint hover:text-ink" onClick={() => setChosen([])}>
+                      すべて外す
+                    </button>
+                  )}
+                  <span className="text-xs text-muted" aria-live="polite">
+                    <b className="text-ink">{chosen.length}</b>枚
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
+              {cards.length > 0 && (
+                <div className="mb-4 grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${Math.min(size * 1.5, 200)}px, 1fr))` }}>
+                  {cards.map((l) => (
+                    <CoverCard key={l.id} name={l.name} covers={coverOf(alive, l)} count={alive.filter((m) => m.libIds.includes(l.id)).length} onClick={() => go(`lib:${l.id}`)} />
+                  ))}
+                </div>
+              )}
+              {list.length ? (
+                <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(${size}px, 40%), 1fr))` }}>
+                  {list.map((m) => {
+                    const i = chosen.indexOf(m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        aria-pressed={i >= 0}
+                        aria-label={m.name}
+                        title={single ? "ダブルクリックで、すぐに決める" : "Shift を押しながら押すと、まとめて選べます"}
+                        // マウスで押したときは、画像にフォーカスを移さない。Shift を押したときにフォーカスの四角い枠が出たり、
+                        // Shift＋クリックで文字が選ばれたりしないように（キーボードの Tab で移ったときの枠は、そのまま出る）
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={(e) => onTile(e, m.id)}
+                        // 1枚だけ選ぶときは、ダブルクリックでそのまま決める（メディアの画面でダブルクリックで開くのと同じ手ざわり）
+                        onDoubleClick={single ? () => onPick([m.id]) : undefined}
+                        className="group min-w-0 text-left select-none"
+                      >
+                        <span
+                          className={`relative block aspect-square overflow-hidden rounded-[12px] border bg-card transition duration-300 group-active:scale-95 motion-safe:group-hover:-translate-y-[3px] ${i >= 0 ? "border-accent ring-2 ring-accent" : "border-line"}`}
+                        >
+                          <ThumbImage id={m.id} alt="" />
+                          {i >= 0 && (
+                            <span className="absolute top-1.5 left-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-accent px-1 text-xs font-bold text-accent-ink">
+                              {single ? <Icon name="ok" size={14} /> : i + 1}
+                            </span>
+                          )}
+                          {m.fav && <Icon name="star" size={14} className="absolute right-1.5 bottom-1.5 text-yellow-300 drop-shadow" />}
+                        </span>
+                        <span className={`mt-1 block truncate px-0.5 text-xs ${i >= 0 ? "font-bold text-ink" : "text-muted"}`}>{shownName(m, prefs.showExt)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                !cards.length && (
+                  <p className="py-10 text-center text-sm text-muted">
+                    {query.trim()
+                      ? `「${query.trim()}」に合う画像はありません`
+                      : canAdd
+                        ? "画像がありません。「メディアを追加」か、ここに画像をドラッグしてください。"
+                        : "画像がありません"}
+                  </p>
+                )
+              )}
+            </div>
+          </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** 選ぶ画面のサイドバーの一覧（メディアの画面のサイドバーと同じ見た目。並べ替えやメニューは無い） */
+function PickerNav({ libs, place, unsorted, onGo }: { libs: Library[]; place: Place; unsorted: number; onGo: (p: Place) => void }) {
+  const [toggled, setToggled] = useState<Record<string, boolean>>({});
+  const current = place.startsWith("lib:") ? place.slice(4) : null;
+  // 今開いているライブラリーの上の階層は、はじめから開いておく
+  const openByDefault = new Set(
+    chain(libs, current)
+      .map((l) => l.id)
+      .slice(0, -1),
+  );
+  const isOpen = (id: string) => toggled[id] ?? openByDefault.has(id);
+
+  const row = (p: Place, icon: IconName, label: string, depth: number, toggle?: React.ReactNode, extra?: React.ReactNode) => {
+    const active = place === p;
+    return (
+      <div
+        key={p}
+        className={`flex min-h-[38px] items-center rounded-[10px] transition ${active ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"}`}
+        style={{ paddingLeft: 4 + depth * 14 }}
+      >
+        <span className="grid w-7 shrink-0 place-items-center">{toggle}</span>
+        <button onClick={() => onGo(p)} aria-current={active ? "page" : undefined} className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left">
+          <Icon name={icon} size={16} className="shrink-0" />
+          <span className="truncate">{label}</span>
+        </button>
+        {extra}
+      </div>
+    );
+  };
+
+  const libNode = (l: Library, depth: number): React.ReactNode => {
+    const kids = childrenOf(libs, l.id);
+    const open = isOpen(l.id);
+    return (
+      <div key={l.id}>
+        {row(
+          `lib:${l.id}`,
+          "folder",
+          l.name,
+          depth,
+          kids.length > 0 && (
+            <button
+              aria-label={open ? "たたむ" : "開く"}
+              aria-expanded={open}
+              onClick={() => setToggled({ ...toggled, [l.id]: !open })}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-full hover:bg-tint"
+            >
+              <Icon name={open ? "dn" : "rt"} size={16} />
+            </button>
+          ),
+        )}
+        {open && kids.map((k) => libNode(k, depth + 1))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div data-name="メディアの一覧" className="space-y-0.5">
+        {row("home", "home", "ホーム", 0)}
+        {row("unsorted", "img", "未整理", 1, undefined, unsorted > 0 && <span className="mr-2 rounded-full bg-warn px-2 text-xs text-white">{unsorted}</span>)}
+        {row("fav", "star", "お気に入り", 1)}
+      </div>
+      <h6 className="mx-1 mt-5 mb-1 px-2 text-xs text-muted">ライブラリー</h6>
+      <div data-name="ライブラリー一覧" className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
+        {childrenOf(libs, null).map((l) => libNode(l, 0))}
+        {!libs.length && <p className="px-3 text-xs text-muted">ライブラリーはありません</p>}
       </div>
     </div>
   );

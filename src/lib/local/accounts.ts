@@ -1,6 +1,7 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
+import { devSampleUsers } from "@/lib/auth/mode";
 import { checkEmail, checkPassword, normalizeEmail, type AuthResult } from "@/lib/auth/validate";
 import { checkUsername, normalizeUsername } from "@/lib/username";
 import { deleteBox } from "./boxes";
@@ -56,8 +57,9 @@ export async function localSignIn(email: string, password: string): Promise<Auth
   return { ok: true };
 }
 
-/** 試し用の利用者（メールとパスワードを設定していない人）として入る。ローカル版だけ */
+/** 試し用の利用者（メールとパスワードを設定していない人）として入る。開発中のローカル版だけ */
 export async function localSignInSample(userId: string): Promise<AuthResult> {
+  if (!devSampleUsers) return { ok: false, error: "試し用の利用者は、開発中だけ使えます" };
   if (await db.accounts.get(userId)) return { ok: false, error: "この人はメールとパスワードでログインしてください" };
   if (!(await db.profiles.get(userId))) return { ok: false, error: "この利用者は見つかりません" };
   signInLocalSession(userId);

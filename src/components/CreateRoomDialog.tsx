@@ -18,6 +18,7 @@ function Choice({ icon, title, description, onClick, disabled }: { icon: IconNam
       type="button"
       disabled={disabled}
       onClick={onClick}
+      title={description}
       className="flex w-full items-center gap-3 rounded-[12px] border border-line px-4 py-3 text-left transition hover:bg-tint disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
     >
       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-tint text-accent">
@@ -25,7 +26,6 @@ function Choice({ icon, title, description, onClick, disabled }: { icon: IconNam
       </span>
       <span className="min-w-0 flex-1">
         <span className="block font-bold">{title}</span>
-        {description && <span className="block text-sm text-muted">{description}</span>}
       </span>
       {!disabled && <Icon name="r" className="text-muted" />}
     </button>
@@ -81,7 +81,6 @@ export function CreateRoomDialog({ userId, onClose }: { userId: string; onClose:
             router.push(`/r/${id}`);
           }}
         >
-          <p className="text-sm text-muted">ルーム「{name.trim()}」で、画像をどこに入れて共有するかを決めます。</p>
           <RoomMediaFields userId={userId} value={media} onChange={setMedia} />
           <div className="flex justify-between gap-2">
             <button type="button" className="btn-sub" onClick={() => setMedia(null)}>
@@ -134,7 +133,6 @@ export function CreateRoomDialog({ userId, onClose }: { userId: string; onClose:
               </button>
             )}
           </div>
-          <p className="text-xs text-muted">画像が無ければ、名前の最初の1文字がアイコンになります</p>
           <input
             ref={fileRef}
             type="file"
