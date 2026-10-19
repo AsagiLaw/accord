@@ -144,7 +144,7 @@ function ColumnTabs({ editor, listId }: { editor: Editor; listId: string }) {
       {/* タブのブロックと同じく、タブの名前に使ったブロックの見出しは出さない（読むだけのときは見出しの段ごと）。スマホの幅のときだけ */}
       {ids.length > 0 && (
         <style>{`@media (max-width: 767.98px) { ${ids
-          .map((id) => `[data-id="${id}"] > .bn-block > .react-renderer [data-block-title], [data-id="${id}"] > .bn-block > .react-renderer [data-block-head][data-locked]`)
+          .map((id) => `[data-id="${id}"] > .bn-block > .react-renderer [data-block-title], [data-id="${id}"] > .bn-block > .react-renderer [data-block-head][data-locked]:not(:has([data-block-keep]))`)
           .join(", ")} { display: none !important; } }`}</style>
       )}
       <TabStrip

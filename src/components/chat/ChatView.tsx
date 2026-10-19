@@ -9,7 +9,7 @@ import { MediaPicker } from "@/components/MediaPicker";
 import { ThumbImage } from "@/components/ThumbImage";
 import { choose, confirmAction, promptText, toast } from "@/components/ui/overlay";
 import { Popover, usePopover } from "@/components/ui/Popover";
-import { addSpeaker, changeSpeaker, deleteMessage, editMessage, markRead, sendMessage, useChatReads, useMessages } from "@/lib/local/chat";
+import { addSpeaker, changeSpeaker, deleteMessage, editMessage, sendMessage, useChatReads, useMessagesByIds } from "@/lib/local/chat";
 import type { Chat, Media, Message, Profile, RoomRole } from "@/lib/local/db";
 import { ensureMyMedia } from "@/lib/local/boxes";
 import { ensureInBox, uploadToRoom, useMediaByIds } from "@/lib/local/media";
@@ -17,6 +17,9 @@ import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { isImageFile } from "@/lib/media/image";
 import { useAllProfiles, type MemberWithProfile } from "@/lib/local/rooms";
 import { InviteCard } from "./InviteCard";
+import { LongText } from "./LongText";
+import { jumpToMessage, useMessageWindow } from "./useMessageWindow";
+import { useReadProgress } from "./useReadProgress";
 
 const WEEK = "日月火水木金土";
 const dayLabel = (t: number) => {
@@ -40,7 +43,13 @@ export function ChatView({
   /** 書き込めないときに、入力欄の代わりに出す説明 */
   readOnlyNotice?: string;
 }) {
-  const messages = useMessages(chat.id);
+  // 発言は新しい方から少しずつ読み込む（上の端まで戻ると、その前を足す）
+  const win = useMessageWindow(chat.id, me.id);
+  const messages = win.messages;
+  const list = useRef<HTMLDivElement>(null);
+  // 読み込んでいない古い発言への返信は、引用する発言だけを ID で引く
+  const loadedIds = useMemo(() => new Set((messages ?? []).map((m) => m.id)), [messages]);
+  const replies = useMessagesByIds(useMemo(() => [...new Set((messages ?? []).flatMap((m) => (m.replyTo && !loadedIds.has(m.replyTo) ? [m.replyTo] : [])))], [messages, loadedIds]));
   // 添付した画像は、どのボックスに入っていても ID で引く（チャットを見られる人なら必ず見られる）
   const byId = useMediaByIds(useMemo(() => (messages ?? []).flatMap((m) => m.mediaIds), [messages]));
   const nameOf = (id: string) => members.find((m) => m.userId === id)?.displayName ?? "退出した人";
@@ -63,33 +72,29 @@ export function ChatView({
   const readersOf = (m: Message) => audience.filter((id) => (reads?.get(id) ?? 0) >= m.createdAt);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [viewer, setViewer] = useState<{ items: Media[]; start: number } | null>(null);
-  const list = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  const placed = useRef(false);
   const last = messages?.at(-1);
+  const ready = !!messages && !!byId;
+  // 既読は、画面に出た発言の分だけ付ける
+  const read = useReadProgress(chat.id, me.id, list, ready ? messages : undefined);
 
-  // 一番下を見ているときは、新しい発言が来ても一番下に付いていく
+  // 開いたとき：読んでいない発言が溜まっていれば「ここから未読」の線を上の方に出す。無ければ一番下から。
+  // そのあとは、一番下を見ているときだけ、新しい発言が来ても一番下に付いていく
   useLayoutEffect(() => {
     const el = list.current;
-    if (el && (stick.current || last?.authorId === me.id)) el.scrollTop = el.scrollHeight;
-  }, [last?.id, last?.authorId, me.id]);
-
-  // 画面に見えている間は既読にする。タブの裏や、スマホでタブにした列の隠れた方にあるときは既読にしない（既読を正しく出すため）
-  useEffect(() => {
-    const el = list.current;
-    if (!last || !el) return;
-    let onScreen = false;
-    const read = () => onScreen && document.visibilityState === "visible" && void markRead(chat.id, me.id, last.createdAt);
-    const io = new IntersectionObserver(([e]) => {
-      onScreen = e.isIntersecting;
-      read();
-    });
-    io.observe(el);
-    document.addEventListener("visibilitychange", read);
-    return () => {
-      io.disconnect();
-      document.removeEventListener("visibilitychange", read);
-    };
-  }, [chat.id, me.id, last]);
+    if (!el || !ready) return;
+    if (!placed.current) {
+      placed.current = true;
+      const line = el.querySelector<HTMLElement>("[data-unread-line]");
+      if (line) {
+        el.scrollTop += line.getBoundingClientRect().top - el.getBoundingClientRect().top - 40;
+        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        return;
+      }
+    }
+    if (stick.current || last?.authorId === me.id) el.scrollTop = el.scrollHeight;
+  }, [ready, last?.id, last?.authorId, me.id]);
 
   if (!messages || !byId) return <p className="text-muted">読み込み中…</p>;
 
@@ -100,12 +105,15 @@ export function ChatView({
 
   return (
     <div data-name={reenact ? "やり取り再現チャット" : "チャット"} className="flex h-full min-h-0 flex-col">
+      <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={list}
         data-name="発言一覧"
         onScroll={(e) => {
           const el = e.currentTarget;
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          win.onScroll(el);
+          read.measure();
         }}
         className={`min-h-0 flex-1 overflow-y-auto pb-2 ${reenact ? "rounded-[14px] bg-tint/40 px-3" : ""}`}
       >
@@ -115,13 +123,19 @@ export function ChatView({
             やり取り再現：依頼者とのやり取りを写して残す場所です。名前を押すと話者を、編集ボタンで文章を直せます。
           </p>
         )}
+        {win.hasOlder && (
+          <button type="button" onClick={(e) => void win.loadOlder(e.currentTarget.parentElement)} className="mx-auto my-2 block rounded-full px-3 py-1 text-xs text-muted hover:bg-tint hover:text-ink">
+            さらに前の発言を読み込む
+          </button>
+        )}
         {!messages.length && <p className="py-10 text-center text-sm text-muted">まだ発言はありません。最初のメッセージを送ってみましょう。</p>}
         {messages.map((m, i) => {
           const prev = messages[i - 1];
           const newDay = !prev || !sameDay(prev.createdAt, m.createdAt);
-          const grouped = !newDay && who(prev) === who(m) && prev.authorId === m.authorId && m.createdAt - prev.createdAt < 5 * 60_000 && !m.replyTo;
+          const firstUnread = m.id === win.unreadId;
+          const grouped = !newDay && !firstUnread && who(prev) === who(m) && prev.authorId === m.authorId && m.createdAt - prev.createdAt < 5 * 60_000 && !m.replyTo;
           return (
-            <div key={m.id} data-msg={m.id}>
+            <div key={m.id} data-msg={m.id} data-at={m.createdAt}>
               {newDay && (
                 <div className="my-4 flex items-center gap-3 text-xs text-muted">
                   <span className="h-px flex-1 bg-line" />
@@ -129,6 +143,7 @@ export function ChatView({
                   <span className="h-px flex-1 bg-line" />
                 </div>
               )}
+              {firstUnread && <UnreadLine />}
               <MessageItem
                 m={m}
                 meId={me.id}
@@ -151,7 +166,8 @@ export function ChatView({
                     : undefined
                 }
                 readMark={!reenact && m.authorId === me.id ? <ReadMark readers={readersOf(m)} audience={audience} nameOf={nameOf} /> : undefined}
-                reply={m.replyTo ? messages.find((x) => x.id === m.replyTo) : undefined}
+                reply={m.replyTo ? (messages.find((x) => x.id === m.replyTo) ?? replies?.get(m.replyTo)) : undefined}
+                onJumpReply={(r) => jumpToMessage(chat.id, r)}
                 replyName={(r) => who(r)}
                 media={byId}
                 onReply={() => setReplyTo(m)}
@@ -161,10 +177,20 @@ export function ChatView({
           );
         })}
       </div>
+      {read.newBelow > 0 && <NewBelowButton count={read.newBelow} list={list} />}
+      </div>
       {readOnlyNotice ? (
         <p className="border-t border-line pt-2 text-center text-sm text-muted">{readOnlyNotice}</p>
       ) : (
-        <Composer chat={chat} me={me} speakers={reenact ? speakers : null} replyTo={replyTo} replyName={replyTo ? who(replyTo) : ""} onClearReply={() => setReplyTo(null)} />
+        <Composer
+          chat={chat}
+          me={me}
+          speakers={reenact ? speakers : null}
+          replyTo={replyTo}
+          replyName={replyTo ? who(replyTo) : ""}
+          onClearReply={() => setReplyTo(null)}
+          onSent={win.dismissUnread}
+        />
       )}
       {viewer && <ImageViewer items={viewer.items} start={viewer.start} roomId={chat.roomId} onClose={() => setViewer(null)} />}
     </div>
@@ -179,6 +205,37 @@ const SPEAKER_TONES = [
   "border-2 border-dashed border-purple-500/70 bg-purple-500/10",
   "border-2 border-dashed border-pink-500/70 bg-pink-500/10",
 ];
+
+/** 開いたときの最初の未読の上に引く線（Discord と同じ） */
+export function UnreadLine() {
+  return (
+    <div data-unread-line="" className="my-3 flex items-center gap-2 text-xs font-bold text-red-500">
+      <span className="h-px flex-1 bg-red-500/70" />
+      ここから未読
+      <span className="h-px flex-1 bg-red-500/70" />
+    </div>
+  );
+}
+
+/** 下にまだ見ていない発言があるときに出すボタン。押すと一番下へ */
+export function NewBelowButton({ count, list }: { count: number; list: React.RefObject<HTMLElement | null> }) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        const el = list.current;
+        if (!el) return;
+        // 遠いときは、なめらかに動くと時間がかかるので、すぐに動く
+        const far = el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight * 3;
+        el.scrollTo({ top: el.scrollHeight, behavior: far ? "instant" : "smooth" });
+      }}
+      className="absolute bottom-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full bg-accent px-3 py-1 text-xs font-bold text-accent-ink shadow-md hover:opacity-90"
+    >
+      新しい発言 {count}件
+      <Icon name="dn" size={14} />
+    </button>
+  );
+}
 
 /** 発言した人（アイコンとプロフィールのカード用） */
 type Author = { id: string; avatar?: string; role?: RoomRole };
@@ -199,6 +256,7 @@ function MessageItem({
   media,
   onReply,
   onOpen,
+  onJumpReply,
 }: {
   m: Message;
   meId: string;
@@ -216,6 +274,8 @@ function MessageItem({
   media: Map<string, Media>;
   onReply: () => void;
   onOpen: (index: number) => void;
+  /** 引用した発言まで動く */
+  onJumpReply: (r: Message) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(m.text);
@@ -261,15 +321,18 @@ function MessageItem({
           </div>
         )}
         {reply !== undefined || m.replyTo ? (
-          <div className="mb-0.5 max-w-full truncate rounded-[10px] border-l-4 border-accent bg-tint px-2 py-0.5 text-xs text-muted">
-            {reply ? (
-              <>
-                <b>{replyName(reply)}</b>：{previewOf(reply)}
-              </>
-            ) : (
-              "削除された発言"
-            )}
-          </div>
+          reply ? (
+            <button
+              type="button"
+              onClick={() => onJumpReply(reply)}
+              title="引用した発言へ"
+              className="mb-0.5 block max-w-full truncate rounded-[10px] border-l-4 border-accent bg-tint px-2 py-0.5 text-left text-xs text-muted hover:text-ink"
+            >
+              <b>{replyName(reply)}</b>：{previewOf(reply)}
+            </button>
+          ) : (
+            <div className="mb-0.5 max-w-full truncate rounded-[10px] border-l-4 border-accent bg-tint px-2 py-0.5 text-xs text-muted">削除された発言</div>
+          )
         ) : null}
         <div className="flex items-end gap-1">
           {mine && <Actions canEdit={canEdit} onReply={onReply} onEdit={m.inviteId ? undefined : () => setEditing(true)} invite={!!m.inviteId} id={m.id} />}
@@ -324,10 +387,7 @@ function MessageItem({
                 </div>
               ) : (
                 m.text && (
-                  <p className="break-words whitespace-pre-wrap">
-                    {m.text}
-                    {m.editedAt && <span className="ml-1 text-[11px] opacity-70">（編集済み）</span>}
-                  </p>
+                  <LongText text={m.text}>{m.editedAt && <span className="ml-1 text-[11px] opacity-70">（編集済み）</span>}</LongText>
                 )
               )}
             </div>
@@ -420,6 +480,7 @@ function Composer({
   replyTo,
   replyName,
   onClearReply,
+  onSent,
 }: {
   chat: Chat;
   me: Profile;
@@ -428,6 +489,8 @@ function Composer({
   replyTo: Message | null;
   replyName: string;
   onClearReply: () => void;
+  /** 送ったあと（「ここから未読」の線を消す） */
+  onSent: () => void;
 }) {
   const [text, setText] = useState("");
   const [attached, setAttached] = useState<string[]>([]);
@@ -454,6 +517,7 @@ function Composer({
     setText("");
     setAttached([]);
     onClearReply();
+    onSent();
   };
 
   // 貼り付け・ドロップした画像も、まずメディアに入れてから添付する

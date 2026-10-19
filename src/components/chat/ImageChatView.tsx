@@ -9,9 +9,13 @@ import { EmojiPicker } from "@/components/db/meta";
 import { IconMark } from "@/components/IconMark";
 import { MenuDivider, MenuItem, MenuLabel, Popover, usePopover } from "@/components/ui/Popover";
 import { confirmAction } from "@/components/ui/overlay";
-import { deleteImageUser, deleteMessage, editMessage, changeSpeaker, saveImageUser, sendMessage, useImageUsers, useMessages } from "@/lib/local/chat";
+import { deleteImageUser, deleteMessage, editMessage, changeSpeaker, saveImageUser, sendMessage, useImageUsers } from "@/lib/local/chat";
 import type { Chat, ImageUser, Media, Message, Profile } from "@/lib/local/db";
 import { useMediaByIds } from "@/lib/local/media";
+import { LongText } from "./LongText";
+import { NewBelowButton, UnreadLine } from "./ChatView";
+import { useMessageWindow } from "./useMessageWindow";
+import { useReadProgress } from "./useReadProgress";
 
 /** イメージユーザーのアイコン（絵文字かメディアの画像。無ければ名前の1文字目） */
 export function ImageUserIcon({ user, size = 32 }: { user: ImageUser | undefined; size?: number }) {
@@ -34,7 +38,10 @@ export function ImageChatView({ chat, me, readOnlyNotice, fixedUsers = [] }: { c
   // fixedUsers：最初から入っている話す人（依頼者・参加者など）。名前はページやメンバーから取るので、ここでは直せない
   const roomUsers = useImageUsers(chat.roomId);
   const users = [...fixedUsers, ...(roomUsers ?? [])];
-  const messages = useMessages(chat.id);
+  // 発言は新しい方から少しずつ読み込む（上の端まで戻ると、その前を足す）
+  const win = useMessageWindow(chat.id, me.id);
+  const messages = win.messages;
+  const list = useRef<HTMLDivElement>(null);
   // 添付した画像は、どのボックスに入っていても ID で引く
   const media = useMediaByIds(useMemo(() => (messages ?? []).flatMap((m) => m.mediaIds), [messages]));
   const byId = useMemo(() => media ?? new Map<string, Media>(), [media]);
@@ -55,26 +62,61 @@ export function ImageChatView({ chat, me, readOnlyNotice, fixedUsers = [] }: { c
     }
   };
   const [viewer, setViewer] = useState<{ items: Media[]; start: number } | null>(null);
-  const list = useRef<HTMLDivElement>(null);
   const last = messages?.at(-1);
+  const stick = useRef(true);
+  const placed = useRef(false);
+  const ready = !!messages;
+  // 既読は、画面に出た発言の分だけ付ける
+  const read = useReadProgress(chat.id, me.id, list, messages);
 
+  // 開いたとき：読んでいない発言が溜まっていれば「ここから未読」の線を上の方に出す。無ければ一番下から。
+  // そのあとは、一番下を見ているときだけ、新しい発言が来ても一番下に付いていく
   useLayoutEffect(() => {
-    if (list.current) list.current.scrollTop = list.current.scrollHeight;
-  }, [last?.id]);
+    const el = list.current;
+    if (!el || !ready) return;
+    if (!placed.current) {
+      placed.current = true;
+      const line = el.querySelector<HTMLElement>("[data-unread-line]");
+      if (line) {
+        el.scrollTop += line.getBoundingClientRect().top - el.getBoundingClientRect().top - 40;
+        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        return;
+      }
+    }
+    if (stick.current || last?.authorId === me.id) el.scrollTop = el.scrollHeight;
+  }, [ready, last?.id, last?.authorId, me.id]);
 
   if (!messages) return <p className="text-muted">読み込み中…</p>;
   const userOf = (m: Message) => users.find((u) => u.id === m.speaker);
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-name="イメージチャット">
-      <div ref={list} data-name="発言一覧" className="min-h-0 flex-1 space-y-2 overflow-y-auto pb-2">
+      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div
+        ref={list}
+        data-name="発言一覧"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          win.onScroll(el);
+          read.measure();
+        }}
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto pb-2"
+      >
+        {win.hasOlder && (
+          <button type="button" onClick={(e) => void win.loadOlder(e.currentTarget.parentElement)} className="mx-auto block rounded-full px-3 py-1 text-xs text-muted hover:bg-tint hover:text-ink">
+            さらに前の発言を読み込む
+          </button>
+        )}
         {!messages.length && <p className="py-8 text-center text-sm text-muted">イメージユーザーを選んで、会話を書いていきましょう。</p>}
         {messages.map((m, i) => {
           const u = userOf(m);
           const right = !!speaker && m.speaker === speaker;
-          const grouped = messages[i - 1]?.speaker === m.speaker;
+          const firstUnread = m.id === win.unreadId;
+          const grouped = !firstUnread && messages[i - 1]?.speaker === m.speaker;
           return (
-            <div key={m.id} data-msg={m.id}>
+            <div key={m.id} data-msg={m.id} data-at={m.createdAt}>
+            {firstUnread && <UnreadLine />}
             <ImageMessage
               m={m}
               user={u}
@@ -92,10 +134,12 @@ export function ImageChatView({ chat, me, readOnlyNotice, fixedUsers = [] }: { c
           );
         })}
       </div>
+      {read.newBelow > 0 && <NewBelowButton count={read.newBelow} list={list} />}
+      </div>
       {readOnlyNotice ? (
         <p className="border-t border-line pt-2 text-center text-sm text-muted">{readOnlyNotice}</p>
       ) : (
-        <ImageComposer chat={chat} me={me} users={users} speaker={speaker} onSpeaker={setSpeaker} />
+        <ImageComposer chat={chat} me={me} users={users} speaker={speaker} onSpeaker={setSpeaker} onSent={win.dismissUnread} />
       )}
       {viewer && <ImageViewer items={viewer.items} start={viewer.start} roomId={chat.roomId} onClose={() => setViewer(null)} />}
     </div>
@@ -170,7 +214,7 @@ function ImageMessage({
               </div>
             </div>
           ) : (
-            m.text && <p className="break-words whitespace-pre-wrap">{m.text}</p>
+            m.text && <LongText text={m.text} />
           )}
         </div>
       </div>
@@ -212,7 +256,22 @@ function ImageMessage({
   );
 }
 
-function ImageComposer({ chat, me, users, speaker, onSpeaker }: { chat: Chat; me: Profile; users: ImageUser[]; speaker: string | null; onSpeaker: (id: string) => void }) {
+function ImageComposer({
+  chat,
+  me,
+  users,
+  speaker,
+  onSpeaker,
+  onSent,
+}: {
+  chat: Chat;
+  me: Profile;
+  users: ImageUser[];
+  speaker: string | null;
+  onSpeaker: (id: string) => void;
+  /** 送ったあと（「ここから未読」の線を消す） */
+  onSent: () => void;
+}) {
   const [text, setText] = useState("");
   const [attached, setAttached] = useState<string[]>([]);
   const [picking, setPicking] = useState(false);
@@ -226,6 +285,7 @@ function ImageComposer({ chat, me, users, speaker, onSpeaker }: { chat: Chat; me
     await sendMessage(chat, me.id, { text: text.trim(), mediaIds: attached, replyTo: null, speaker });
     setText("");
     setAttached([]);
+    onSent();
   };
 
   return (

@@ -1,11 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { PopupDialog } from "@/components/ui/Dialog";
-import { useImageUsers, useMessages } from "@/lib/local/chat";
+import { searchMessages, useImageUsers } from "@/lib/local/chat";
 import type { Message } from "@/lib/local/db";
 import { useMembers } from "@/lib/local/rooms";
+import { jumpToMessage } from "./useMessageWindow";
+
+/** 一度に出す検索結果の数 */
+const MAX_HITS = 200;
 
 /**
  * チャットの上のバー（とチャットのブロックの右上）に置く虫めがねのボタン。押すと、そのチャットの発言を探すポップアップを出す。
@@ -30,17 +34,6 @@ export function ChatSearchButton({ chatId, roomId, compact }: { chatId: string; 
   );
 }
 
-/** 開いているチャットの中の、その発言まで動いて、少しのあいだ光らせる */
-function jumpTo(id: string) {
-  const el = [...document.querySelectorAll<HTMLElement>(`[data-msg="${CSS.escape(id)}"]`)].find((x) => x.offsetParent !== null);
-  if (!el) return;
-  el.scrollIntoView({ block: "center", behavior: "smooth" });
-  el.classList.remove("msg-flash");
-  void el.offsetWidth;
-  el.classList.add("msg-flash");
-  setTimeout(() => el.classList.remove("msg-flash"), 1800);
-}
-
 /** 見つかった言葉に色を付ける（前後は短く切る） */
 function Snippet({ text, q }: { text: string; q: string }) {
   const i = text.toLowerCase().indexOf(q.toLowerCase());
@@ -58,28 +51,43 @@ function Snippet({ text, q }: { text: string; q: string }) {
 }
 
 function ChatSearchDialog({ chatId, roomId, onClose }: { chatId: string; roomId: string; onClose: () => void }) {
-  const messages = useMessages(chatId);
-  const members = useMembers(roomId) ?? [];
-  const imageUsers = useImageUsers(roomId) ?? [];
+  const memberList = useMembers(roomId);
+  const imageUserList = useImageUsers(roomId);
+  const members = memberList ?? [];
+  const imageUsers = imageUserList ?? [];
   const [q, setQ] = useState("");
   // 話した人：イメージチャットはイメージユーザー（ID で持っている。前の発言は名前のまま）、ふつうのチャットはメンバー
   const name = (m: Message) => (m.speaker ? (imageUsers.find((u) => u.id === m.speaker)?.name ?? m.speaker) : (members.find((x) => x.userId === m.authorId)?.displayName ?? ""));
   const query = q.trim().toLowerCase();
-  // 新しい順
-  const hits = query ? [...(messages ?? [])].filter((m) => m.text.toLowerCase().includes(query) || name(m).toLowerCase().includes(query)).reverse() : [];
+  // 新しい順。チャットの発言を全部は持たず、データベースの中を順に見て探す（打つたびに探さないよう、少し待ってから）
+  const [found, setFound] = useState<{ query: string; hits: Message[] }>();
+  const hits = !query ? [] : found?.query === query ? found.hits : null;
+  useEffect(() => {
+    if (!query) return;
+    let live = true;
+    const t = setTimeout(() => {
+      void searchMessages(chatId, (m) => m.text.toLowerCase().includes(query) || name(m).toLowerCase().includes(query), MAX_HITS).then((r) => live && setFound({ query, hits: r }));
+    }, 200);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+    // name は members・imageUsers から作るので、その2つで比べる
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId, query, memberList, imageUserList]);
   return (
     <PopupDialog title="チャットを検索" onClose={onClose} width="max-w-lg">
       <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="言葉・話した人の名前で探す" aria-label="チャットを検索" className="field mb-3" />
-      {query && <p className="mb-2 text-xs text-muted">{hits.length}件</p>}
+      {query && hits && <p className="mb-2 text-xs text-muted">{hits.length >= MAX_HITS ? `${MAX_HITS}件以上（新しい方から${MAX_HITS}件）` : `${hits.length}件`}</p>}
       <div className="space-y-1">
-        {hits.map((m) => (
+        {hits?.map((m) => (
           <button
             key={m.id}
             type="button"
             onClick={() => {
               onClose();
               // ポップアップが閉じてから動く
-              setTimeout(() => jumpTo(m.id), 50);
+              setTimeout(() => jumpToMessage(chatId, m), 50);
             }}
             className="block w-full rounded-[8px] px-2 py-1.5 text-left text-sm hover:bg-tint"
           >
@@ -90,7 +98,7 @@ function ChatSearchDialog({ chatId, roomId, onClose }: { chatId: string; roomId:
             <span className="block break-words">{m.text ? <Snippet text={m.text} q={q.trim()} /> : <span className="text-muted">（画像）</span>}</span>
           </button>
         ))}
-        {query && !hits.length && <p className="py-6 text-center text-sm text-muted">見つかりませんでした</p>}
+        {query && hits && !hits.length && <p className="py-6 text-center text-sm text-muted">見つかりませんでした</p>}
         {!query && <p className="py-6 text-center text-sm text-muted">言葉を入れると、このチャットの発言から探します</p>}
       </div>
     </PopupDialog>

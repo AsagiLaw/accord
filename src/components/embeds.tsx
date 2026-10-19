@@ -236,7 +236,7 @@ export function ChatBlockView({
       contentEditable={false}
       data-name={kind === "image" ? "イメージチャットブロック" : "チャットブロック"}
     >
-      {/* data-block-head / data-block-title：タブの中では、見出し（タブの名前と同じになる）を出さない。読むだけのときは段ごと出さない */}
+      {/* data-block-head / data-block-title：タブの中では、見出し（タブの名前と同じになる）を出さない。読むだけのときは段ごと出さない（data-block-keep の検索・通知などのボタンがあれば、段は残す） */}
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-1.5 text-sm" data-block-head="" data-locked={locked ? "" : undefined}>
         <span className="flex items-center gap-2" data-block-title="">
           <Icon name={kind === "image" ? "ppl" : "chat"} size={16} className="text-muted" />
@@ -250,7 +250,7 @@ export function ChatBlockView({
           </span>
         ) : null}
         {/* 右上：送られた画像（チャットのチャンネルと同じ）と、設定の歯車 */}
-        <span className="ml-auto flex shrink-0 items-center gap-0.5">
+        <span className="ml-auto flex shrink-0 items-center gap-0.5" data-block-keep={chat ? "" : undefined}>
           {chat && <ChatSearchButton chatId={chat.id} roomId={roomId} compact />}
           {chat && <ChatImagesButton chatId={chat.id} roomId={roomId} compact />}
           {chat && <ChatNotifyButton chatId={chat.id} compact />}
@@ -658,7 +658,7 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
         </span>
       ) : null}
       {/* 右上：（チャットの項目は）送られた画像と、設定の歯車 */}
-      <span className="ml-auto flex shrink-0 items-center gap-0.5">
+      <span className="ml-auto flex shrink-0 items-center gap-0.5" data-block-keep={chatId ? "" : undefined}>
         {chatId && <ChatSearchButton chatId={chatId} roomId={roomId} compact />}
         {chatId && <ChatImagesButton chatId={chatId} roomId={roomId} compact />}
         {chatId && <ChatNotifyButton chatId={chatId} compact />}

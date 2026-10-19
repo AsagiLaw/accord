@@ -6,20 +6,20 @@ import { ImageChatView } from "@/components/chat/ImageChatView";
 import { Icon } from "@/components/Icon";
 import { seedUsers } from "@/components/pageBlocks";
 import { PopupDialog } from "@/components/ui/Dialog";
-import { useChat, useMessages } from "@/lib/local/chat";
+import { useChat, useChatSummary } from "@/lib/local/chat";
 import type { Database, DbPage, Profile, Property } from "@/lib/local/db";
 import { ensurePropChat, nameSuffixOf } from "@/lib/local/requests";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 
 /** 表などのセルに出す、チャットの項目の中身：発言の数と、最後の発言 */
 export function ChatSummary({ chatId }: { chatId: string }) {
-  const messages = useMessages(chatId);
-  const last = messages?.at(-1);
+  const summary = useChatSummary(chatId);
+  const last = summary?.last;
   return (
     <span className="flex min-w-0 items-center gap-1.5">
       <span className="flex shrink-0 items-center gap-0.5 text-muted">
         <Icon name="chat" size={14} />
-        {messages?.length ?? 0}件
+        {summary?.count ?? 0}件
       </span>
       {last && (
         <span className="truncate text-muted">

@@ -561,7 +561,7 @@ export function DbChatBlock({ kind, propId, onChange, fill }: { kind: "normal" |
           </span>
         ) : null}
         {/* 右上：送られた画像（チャットのチャンネルと同じ）と、設定の歯車 */}
-        <span className="ml-auto flex shrink-0 items-center gap-0.5">
+        <span className="ml-auto flex shrink-0 items-center gap-0.5" data-block-keep={chatId ? "" : undefined}>
           {chatId && <ChatSearchButton chatId={chatId} roomId={ctx.roomId} compact />}
           {chatId && <ChatImagesButton chatId={chatId} roomId={ctx.roomId} compact />}
           {chatId && <ChatNotifyButton chatId={chatId} compact />}

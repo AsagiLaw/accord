@@ -271,9 +271,9 @@ body {
 .bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content { padding: 0 !important; }
 .bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > * { border: 0 !important; border-radius: 0 !important; }
 .bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group > .bn-block-outer > .bn-block > .bn-block-content { padding: 6px 10px; }
-/* タブの中では、ブロックの見出し（タブの名前と同じ）を出さない。読むだけのときは見出しの段ごと出さない */
+/* タブの中では、ブロックの見出し（タブの名前と同じ）を出さない。読むだけのときは見出しの段ごと出さない（チャットの検索・通知などのボタン data-block-keep があれば、段は残す） */
 .bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group [data-block-title] { display: none !important; }
-.bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group [data-block-head][data-locked] { display: none !important; }
+.bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group [data-block-head][data-locked]:not(:has([data-block-keep])) { display: none !important; }
 .bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group > .bn-block-outer::before { display: none !important; }
 /* ウィンドウでは、タブは残りの高さいっぱい（選んでいるタブの中身も広げる） */
 .doc-window .bn-block-outer:has(> .bn-block > .react-renderer [data-tabs]) { flex: var(--grow) 1 0; min-height: 160px; display: flex; flex-direction: column; }

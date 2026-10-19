@@ -19,11 +19,66 @@ export function useChat(chatId: string) {
   return useLiveQuery(async () => (await db.chats.get(chatId)) ?? null, [chatId]);
 }
 
-export function useMessages(chatId: string) {
+/** そのチャットの、時刻が from 以降の発言（古い順）。from が undefined の間は読まない。hasOlder：それより前にも発言があるか */
+export function useMessagesSince(chatId: string, from: number | undefined) {
+  return useLiveQuery(async () => {
+    if (from === undefined) return undefined;
+    const messages = await db.messages.where("[chatId+createdAt]").between([chatId, from], [chatId, Dexie.maxKey], true, true).toArray();
+    const hasOlder = (await db.messages.where("[chatId+createdAt]").between([chatId, Dexie.minKey], [chatId, from], true, false).limit(1).count()) > 0;
+    return { messages, hasOlder };
+  }, [chatId, from]);
+}
+
+/**
+ * 時刻 before より前（before を含む。null なら最新から）の発言を新しい方から count 件たどった、いちばん古い発言の時刻。
+ * そこから読めば count 件ぶん読み込める。発言が足りなければ 0（最初から全部）
+ */
+export async function olderFrom(chatId: string, before: number | null, count: number) {
+  const m = await db.messages
+    .where("[chatId+createdAt]")
+    .between([chatId, Dexie.minKey], [chatId, before ?? Dexie.maxKey], true, true)
+    .reverse()
+    .offset(count - 1)
+    .first();
+  return m?.createdAt ?? 0;
+}
+
+/**
+ * そのチャットで、まだ読んでいない最初の発言（自分以外の、最後に読んだ時刻より後のもの）。
+ * 一度も開いたことがないチャット（読んだ記録が無い）は、未読から開かずに一番下から見せるので null
+ */
+export async function firstUnread(chatId: string, userId: string) {
+  const read = await db.chatReads.get([chatId, userId]);
+  // 通知を切っただけで、まだ読んでいないときも同じ
+  if (!read?.lastReadAt) return null;
+  const m = await db.messages
+    .where("[chatId+createdAt]")
+    .between([chatId, read.lastReadAt], [chatId, Dexie.maxKey], false, true)
+    .filter((x) => x.authorId !== userId)
+    .first();
+  return m ?? null;
+}
+
+/** ID で発言を引く（読み込んでいない古い発言への返信の引用に使う） */
+export function useMessagesByIds(ids: string[]) {
+  const key = ids.join(",");
   return useLiveQuery(
-    () => db.messages.where("[chatId+createdAt]").between([chatId, Dexie.minKey], [chatId, Dexie.maxKey]).toArray(),
-    [chatId],
+    async () => new Map((await db.messages.bulkGet(ids)).filter((m): m is Message => !!m).map((m) => [m.id, m])),
+    [key], // ids は中身（key）で比べる
   );
+}
+
+/** 表のセルに出す、発言の数と最後の発言（発言を全部は読まない） */
+export function useChatSummary(chatId: string) {
+  return useLiveQuery(async () => {
+    const range = () => db.messages.where("[chatId+createdAt]").between([chatId, Dexie.minKey], [chatId, Dexie.maxKey]);
+    return { count: await range().count(), last: await range().last() };
+  }, [chatId]);
+}
+
+/** チャットの発言を、新しい順に探す（全部を一度に持たず、順に見ていく）。多すぎるときは limit 件まで */
+export async function searchMessages(chatId: string, match: (m: Message) => boolean, limit: number) {
+  return db.messages.where("[chatId+createdAt]").between([chatId, Dexie.minKey], [chatId, Dexie.maxKey]).reverse().filter(match).limit(limit).toArray();
 }
 
 /** ルームの各チャットの未読数（自分以外の発言で、最後に読んだ時刻より後のもの） */
