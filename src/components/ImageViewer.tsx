@@ -44,7 +44,8 @@ export function ImageViewer({ items, start, roomId, onClose }: { items: Media[];
   return (
     <div role="dialog" aria-modal="true" aria-label={m.name} className="fixed inset-0 z-50 flex flex-col bg-black/95 text-white">
       <div className="flex items-center gap-2 px-3 py-2">
-        <span className="min-w-0 truncate font-bold">{m.name}</span>
+        {/* 自動で名前を付けた画像は、タイトルだけ */}
+        <span className="min-w-0 truncate font-bold">{m.title || m.name}</span>
         {items.length > 1 && (
           <span className="shrink-0 text-sm text-white/60">
             {i + 1} / {items.length}

@@ -178,6 +178,14 @@ export function shownName(m: Media, showExt: boolean): string {
   return showExt ? `${m.name}.${extOf(m)}` : m.name;
 }
 
+/**
+ * アイコン表示の画像の上や、上のバーに出す名前。自動で名前を付けた画像はタイトルだけ（拡張子も付けない。
+ * 「誕生日.jpeg」だと実際のファイル名と違って見えるため）。タイトルが空・自動の名前でない画像は、今までどおりの名前
+ */
+export function labelOf(m: Media, showExt: boolean): string {
+  return m.title || shownName(m, showExt);
+}
+
 /** 名前を変えるときに書き換える所：自動で名前を付けた画像はタイトル、それ以外は名前 */
 export const editableName = (m: Media) => m.title ?? m.name;
 

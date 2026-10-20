@@ -5,7 +5,7 @@ import { Icon } from "@/components/Icon";
 import type { Media } from "@/lib/local/db";
 import { ThumbImage } from "@/components/ThumbImage";
 import { startMediaDrag, useOriginalUrl } from "@/lib/media/export";
-import { editableName, shownName } from "@/lib/media/logic";
+import { editableName, labelOf } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
 import { toast } from "@/components/ui/overlay";
 
@@ -154,7 +154,7 @@ export function Thumb({
         />
       ) : (
         <span className="pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-16px)] truncate rounded-[10px] bg-black/25 px-2.5 py-px text-xs font-bold text-white backdrop-blur-md [text-shadow:0_1px_3px_#000,0_0_8px_#000a]">
-          {shownName(m, showExt)}
+          {labelOf(m, showExt)}
         </span>
       )}
       {/* 複数選んでいるときだけ、選んだ順の番号を出す（1枚だけのときは枠の色だけ） */}

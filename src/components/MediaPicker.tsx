@@ -8,7 +8,7 @@ import { ensureMyMedia, useBoxMembers, useMyBoxes, useRoomBox } from "@/lib/loca
 import type { Library, Media } from "@/lib/local/db";
 import { useLibraries, useMedia, uploadFiles } from "@/lib/local/media";
 import { IMAGE_ACCEPT } from "@/lib/media/image";
-import { arrange, chain, childrenOf, coverOf, isUnsorted, libraryView, searchMedia, shownName, THUMB_SIZES } from "@/lib/media/logic";
+import { arrange, chain, childrenOf, coverOf, isUnsorted, labelOf, libraryView, searchMedia, THUMB_SIZES } from "@/lib/media/logic";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { filesFromDrop, type ImportFile } from "@/lib/media/folders";
 import { useMediaPrefs } from "@/lib/media/prefs";
@@ -348,7 +348,7 @@ export function MediaPicker({
                           )}
                           {m.fav && <Icon name="star" size={14} className="absolute right-1.5 bottom-1.5 text-yellow-300 drop-shadow" />}
                         </span>
-                        <span className={`mt-1 block truncate px-0.5 text-xs ${i >= 0 ? "font-bold text-ink" : "text-muted"}`}>{shownName(m, prefs.showExt)}</span>
+                        <span className={`mt-1 block truncate px-0.5 text-xs ${i >= 0 ? "font-bold text-ink" : "text-muted"}`}>{labelOf(m, prefs.showExt)}</span>
                       </button>
                     );
                   })}

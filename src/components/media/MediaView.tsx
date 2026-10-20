@@ -22,6 +22,7 @@ import {
   coverOf,
   editableName,
   extOf,
+  labelOf,
   isUnsorted,
   libraryView,
   searchMedia,
@@ -509,8 +510,9 @@ export function MediaView({ view }: { view: MediaViewKind }) {
       });
   });
   const curLib = !viewingMedia ? crumbs.at(-1) : undefined;
+  // 大きく表示している画像は、自動の名前ならタイトルだけ
   const currentLabel =
-    viewingMedia?.name ??
+    (viewingMedia && labelOf(viewingMedia, false)) ??
     curLib?.name ??
     (view.kind === "lib" ? "" : view.kind === "home" ? s.title : TITLES[view.kind]);
   const currentCrumb = !canEdit ? (
@@ -519,9 +521,9 @@ export function MediaView({ view }: { view: MediaViewKind }) {
   ) : viewingMedia ? (
     <InlineName
       key={`${viewingMedia.id}${s.renaming === viewingMedia.id ? ":edit" : ""}`}
-      name={viewingMedia.name}
+      name={labelOf(viewingMedia, false)}
       editValue={editableName(viewingMedia)}
-      suffix={prefs.showExt ? `.${extOf(viewingMedia)}` : undefined}
+      suffix={prefs.showExt && !viewingMedia.title ? `.${extOf(viewingMedia)}` : undefined}
       startEditing={s.renaming === viewingMedia.id}
       onEditEnd={() => s.setRenaming(null)}
       onRename={(name) => renameMedia(viewingMedia.id, name)}

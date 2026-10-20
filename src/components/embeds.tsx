@@ -169,7 +169,8 @@ export function MediaImageView({
           {media && !m ? "この画像はメディアから削除されました" : <span className="loading">読み込み中…</span>}
         </div>
       )}
-      {m && <figcaption className="mt-1 text-xs text-muted">{m.name}</figcaption>}
+      {/* 自動で名前を付けた画像は、タイトルだけ */}
+      {m && <figcaption className="mt-1 text-xs text-muted">{m.title || m.name}</figcaption>}
       {!locked && (
         <div className="absolute top-2 right-2 flex gap-1 rounded-full bg-black/60 p-1 text-xs text-white opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 max-md:opacity-80">
           {onWidth &&
