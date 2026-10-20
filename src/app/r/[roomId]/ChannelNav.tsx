@@ -115,6 +115,8 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
     setTimeout(() => at && (at instanceof HTMLElement ? menu.open({ currentTarget: at }) : menu.openAt({ clientX: at.x, clientY: at.y, preventDefault() {} })));
   };
   const onContext = (t: Target) => (e: React.MouseEvent) => {
+    // ここから開いたポップアップ（データベースの画面など）の中の右クリックも React ではここまで伝わるので、一覧の外なら何もしない
+    if (!e.currentTarget.contains(e.target as Node)) return;
     e.preventDefault();
     e.stopPropagation();
     openMenu(t, "main", { x: e.clientX, y: e.clientY });
