@@ -180,6 +180,37 @@ export async function setMadeAt(id: string, madeAt: number) {
 // ---- 画像 ----
 
 /**
+ * フォルダごと入れた画像のための、フォルダと同じ並びのライブラリー（名前はフォルダ名のまま）。
+ * 同じ所に同じ名前のライブラリーがあれば、それを使う。フォルダの並びごとに、上から順のライブラリーの ID を返す（画像はそのすべてに入れる）
+ */
+async function folderLibraries(boxId: string, paths: string[][]) {
+  const chains = new Map<string, string[]>();
+  const tops: Library[] = [];
+  await db.transaction("rw", db.libraries, async () => {
+    const libs = await boxLibs(boxId);
+    for (const path of paths) {
+      const key = path.join("/");
+      if (chains.has(key)) continue;
+      const ids: string[] = [];
+      let parentId: string | null = null;
+      for (const name of path) {
+        let lib = libs.find((l) => l.parentId === parentId && l.name === name);
+        if (!lib) {
+          lib = { id: newId(), boxId, name, parentId, repMediaId: null, order: (childrenOf(libs, parentId).at(-1)?.order ?? 0) + 1, createdAt: Date.now() };
+          libs.push(lib);
+          await db.libraries.add(lib);
+        }
+        if (parentId === null && !tops.includes(lib)) tops.push(lib);
+        ids.push(lib.id);
+        parentId = lib.id;
+      }
+      chains.set(key, ids);
+    }
+  });
+  return { libIdsOf: (path: string[] | undefined) => (path?.length ? (chains.get(path.join("/")) ?? []) : []), tops };
+}
+
+/**
  * 画像を入れる。制作日はいつも記録し、メディアの設定で「名前を自動で付ける」がオンなら、名前を「20250101_誕生日」の形にする
  * （同じ制作日・同じタイトルが2枚以上なら「_01」から番号を付ける）
  * （フォルダごと入れたらフォルダ名をタイトルにし、フォルダの中の名前の順に番号を振る）
@@ -190,7 +221,7 @@ export async function uploadFiles(boxId: string, userId: string, files: (File | 
   const auto = mediaPrefs().autoName;
   const text = (a: string, b: string) => a.localeCompare(b, "ja", { numeric: true });
   let items = files.map((f) => (f instanceof File ? { file: f } : f));
-  if (auto) items = [...items].sort((a, b) => text(a.folder ?? "", b.folder ?? "") || text(a.file.name, b.file.name));
+  if (auto) items = [...items].sort((a, b) => text((a.folders ?? []).join("/"), (b.folders ?? []).join("/")) || text(a.file.name, b.file.name));
   // 先に、すべての画像の制作日とタイトルを決める（同じまとまりが2枚以上になるかで、番号を付けるかが決まるため）
   const plans: (ReturnType<typeof planImport> | null)[] = [];
   for (const { file, folder } of items)
@@ -198,7 +229,12 @@ export async function uploadFiles(boxId: string, userId: string, files: (File | 
   const seqs = auto ? await groupSizes(boxId) : null;
   const totals = new Map(seqs);
   if (seqs) for (const p of plans) if (p) totals.set(groupKey(p.madeAt, p.title), (totals.get(groupKey(p.madeAt, p.title)) ?? 0) + 1);
-  for (const [i, { file }] of items.entries()) {
+  // フォルダごと入れた画像は、フォルダと同じ並びのライブラリーに入れる（設定に関係なく）
+  const folderLibs = await folderLibraries(
+    boxId,
+    items.flatMap((it, i) => (plans[i] && it.folders?.length ? [it.folders] : [])),
+  );
+  for (const [i, { file, folders }] of items.entries()) {
     const plan = plans[i];
     if (!plan) {
       failed++;
@@ -231,7 +267,7 @@ export async function uploadFiles(boxId: string, userId: string, files: (File | 
           createdAt: Date.now() + ids.length, // 同時に入れた画像も順番を保つ
           fav: false,
           trashed: false,
-          libIds: [],
+          libIds: folderLibs.libIdsOf(folders),
         });
       });
       ids.push(id);
@@ -241,7 +277,8 @@ export async function uploadFiles(boxId: string, userId: string, files: (File | 
   }
   // 前からあった1枚に番号が付く（2枚目が入った）まとまりや、読めなかった画像で間が空いたまとまりを、ここで整える
   if (auto && ids.length) await renumber(boxId);
-  return { ids, failed };
+  // libs：フォルダから作った（使った）一番上のライブラリー
+  return { ids, failed, libs: folderLibs.tops };
 }
 
 /**

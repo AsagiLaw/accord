@@ -98,16 +98,16 @@ export function MediaPicker({
     if (!files.length) return;
     setBusy(true);
     const target = canAdd ? boxId : await ensureMyMedia(userId);
-    const { ids, failed } = await uploadFiles(target, userId, files);
+    const { ids, failed, libs } = await uploadFiles(target, userId, files);
     setBusy(false);
     if (target !== boxId) {
       setPicked(target);
       toast("このボックスは見るだけなので、マイメディアに追加しました");
     }
     if (failed) toast(`${failed}枚は読み込めない形式のため追加できませんでした`);
-    // アップロードした画像は「未整理」に入るので、そこを開いて、選んだ状態にする
+    // アップロードした画像は「未整理」（フォルダごと入れたら、フォルダ名のライブラリー）に入るので、そこを開いて、選んだ状態にする
     setChosen((c) => (single ? ids.slice(0, 1) : [...c, ...ids]));
-    go("unsorted");
+    go(libs.length ? `lib:${libs[0].id}` : "unsorted");
   };
 
   // Shift を押しながら押したときの起点（最後にふつうに押した画像）。メディアの画面と同じ

@@ -559,9 +559,9 @@ export function MediaView({ view }: { view: MediaViewKind }) {
           return;
         e.preventDefault();
         setDragging(false);
-        // フォルダごと入れたときは、中の画像をすべて入れる（自動の名前のタイトルはフォルダ名）
+        // フォルダごと入れたときは、中の画像をすべて、フォルダ名のライブラリーに入れる
         void filesFromDrop(e.dataTransfer).then((files) =>
-          uploadFlow(boxId, me.id, files, () => router.push(`${base}/unsorted`)),
+          uploadFlow(boxId, me.id, files, (libId) => router.push(libId ? `${base}/lib/${libId}` : `${base}/unsorted`)),
         );
       }}
     >

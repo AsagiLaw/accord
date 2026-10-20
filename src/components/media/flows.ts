@@ -32,12 +32,21 @@ import { chain, descendants } from "@/lib/media/logic";
 
 const undoable = (message: string, undo: Undo) => toast(message, { label: "元に戻す", run: () => void undo() });
 
-export async function uploadFlow(boxId: string, userId: string, files: (File | ImportFile)[], openUnsorted: () => void) {
+/**
+ * 画像を入れる。open は入れた先を開く（ライブラリーの ID。無ければ未整理）。
+ * フォルダごと入れた画像は、フォルダ名のライブラリーに入るので、そのライブラリーを開けるようにする
+ */
+export async function uploadFlow(boxId: string, userId: string, files: (File | ImportFile)[], open: (libId?: string) => void) {
   if (!files.length) return;
   toast(`${files.length}枚を読み込み中…`);
-  const { ids, failed } = await uploadFiles(boxId, userId, files);
-  if (ids.length) toast(`${ids.length}枚を追加しました${failed ? `（${failed}枚は読み込めない形式のため追加できません）` : ""}`, { label: "整理する", run: openUnsorted });
-  else toast("画像を追加できませんでした");
+  const { ids, failed, libs } = await uploadFiles(boxId, userId, files);
+  if (!ids.length) return toast("画像を追加できませんでした");
+  const into = libs.length ? `（ライブラリー「${libs[0].name}」${libs.length > 1 ? `ほか${libs.length - 1}つ` : ""}）` : "";
+  const skipped = failed ? `（${failed}枚は読み込めない形式のため追加できません）` : "";
+  toast(
+    `${ids.length}枚を追加しました${into}${skipped}`,
+    libs.length ? { label: "開く", run: () => open(libs[0].id) } : { label: "整理する", run: () => open() },
+  );
 }
 
 /** 選んだ画像のタイトルをまとめて変える。番号は制作日ごとに付け直す（自動の名前でなかった画像も、この形になる） */

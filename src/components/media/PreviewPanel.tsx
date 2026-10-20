@@ -52,9 +52,12 @@ function useImageMeta(id: string | undefined, rev = 0): ImageMeta | undefined {
   return metaCache.get(key) ?? (loaded?.key === key ? loaded.meta : undefined);
 }
 
-/** 詳細の中で、その場で書き換える欄。ふだんは文字のように見せ、カーソルを乗せると枠が出る */
+/**
+ * 詳細の中で、その場で書き換える欄。ふだんは文字のように見せ、カーソルを乗せると枠が出る。
+ * 文字の位置をほかの行とそろえるため左にだけ少しはみ出す（右にはみ出すと、詳細の欄に横のスクロールができてしまう）
+ */
 const INLINE_INPUT =
-  "-mx-1 w-[calc(100%+0.5rem)] min-w-0 rounded-[6px] border border-transparent bg-transparent px-1 outline-none hover:border-line focus:border-accent";
+  "-ml-1 w-[calc(100%+0.25rem)] min-w-0 rounded-[6px] border border-transparent bg-transparent px-1 outline-none hover:border-line focus:border-accent";
 
 /** Enter で決める（日本語の変換を決める Enter は除く）・Esc でやめる */
 const commitKeys = (cancel: () => void) => (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -120,7 +123,8 @@ function MadeInput({ m }: { m: Media }) {
         className={`${INLINE_INPUT} flex-1`}
       />
       {/* カレンダーは、見えない日付の欄の選ぶ画面を借りて出す */}
-      <span className="relative shrink-0">
+      {/* 見えない日付の欄の中身（日付の文字）が、ボタンの外へはみ出さないように切る */}
+      <span className="relative shrink-0 overflow-hidden">
         <button
           type="button"
           title="カレンダーから選ぶ"
@@ -140,7 +144,7 @@ function MadeInput({ m }: { m: Media }) {
             const g = /^(\d{4})-(\d{2})-(\d{2})$/.exec(e.target.value);
             if (g) commit(+g[1], +g[2], +g[3]);
           }}
-          className="pointer-events-none absolute inset-0 opacity-0"
+          className="pointer-events-none absolute inset-0 h-full w-full opacity-0"
         />
       </span>
     </span>
@@ -249,7 +253,8 @@ function PreviewBody() {
         )}
       </div>
       {m && (
-        <div data-name="プレビューの詳細" className="min-h-0 flex-1 basis-0 overflow-y-auto border-t border-line p-4 pt-3">
+        // 横にはスクロールさせない（名前の文字を選んでドラッグしたときに、横や縦のスクロールバーが出ないように）
+        <div data-name="プレビューの詳細" className="min-h-0 flex-1 basis-0 overflow-x-hidden overflow-y-auto border-t border-line p-4 pt-3">
           <p className="mb-2 font-bold break-all">{shownName(m, showExt)}</p>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
             {rows.map(([k, v]) => (

@@ -328,13 +328,13 @@ export function MediaNav({
               setPicking(null);
               const files = [...(e.target.files ?? [])];
               e.target.value = "";
-              uploadFlow(boxId, userId, files, () =>
-                router.push(`${base}/unsorted`),
+              uploadFlow(boxId, userId, files, (libId) =>
+                router.push(libId ? `${base}/lib/${libId}` : `${base}/unsorted`),
               );
             }}
           />
         </label>
-        {/* フォルダごと入れる（中の画像をすべて。自動の名前のタイトルはフォルダ名） */}
+        {/* フォルダごと入れる（中の画像をすべて、フォルダ名のライブラリーに入れる） */}
         <label
           title="フォルダを追加"
           className={`btn-sub w-10 shrink-0 cursor-pointer px-0 active:border-accent active:bg-accent active:text-accent-ink ${
@@ -354,8 +354,8 @@ export function MediaNav({
               setPicking(null);
               const files = filesFromFolderInput(e.target.files ?? []);
               e.target.value = "";
-              uploadFlow(boxId, userId, files, () =>
-                router.push(`${base}/unsorted`),
+              uploadFlow(boxId, userId, files, (libId) =>
+                router.push(libId ? `${base}/lib/${libId}` : `${base}/unsorted`),
               );
             }}
           />
