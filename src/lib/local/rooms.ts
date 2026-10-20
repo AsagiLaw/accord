@@ -170,6 +170,15 @@ export async function renameRoom(roomId: string, name: string) {
   await db.rooms.update(roomId, { name });
 }
 
+/** ルームのアイコン（正方形の画像の data URL）を変える。undefined にすると外す（頭文字の表示に戻る） */
+export async function setRoomIcon(roomId: string, icon: string | undefined) {
+  if (supa) {
+    const { error } = await sb().from("rooms").update({ icon: icon ?? null }).eq("id", roomId);
+    if (error) throw new SaveError(`ルームのアイコンを変えられませんでした（${error.message}）`);
+  }
+  await db.rooms.update(roomId, { icon });
+}
+
 export async function renameProfile(userId: string, displayName: string) {
   await updateProfile(userId, { displayName });
 }

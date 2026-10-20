@@ -6,8 +6,9 @@ import { Icon } from "@/components/Icon";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { confirmAction, promptText, toast } from "@/components/ui/overlay";
 import { deleteChannelTemplate, renameChannelTemplate, useChannelTemplates } from "@/lib/local/channelTemplates";
-import { useState } from "react";
-import { deleteRoom, renameRoom, useMembers, useRoom } from "@/lib/local/rooms";
+import { useRef, useState } from "react";
+import { deleteRoom, renameRoom, setRoomIcon, useMembers, useRoom } from "@/lib/local/rooms";
+import { squareIconFrom } from "@/lib/media/image";
 import { canInviteTo, setMembersCanInvite } from "@/lib/local/invites";
 import { InviteFriendsDialog } from "@/components/InviteFriendsDialog";
 import { useCurrentUser } from "@/lib/local/session";
@@ -66,6 +67,8 @@ export default function SettingsPage() {
       {/* 自分の表示名・アイコンや、表示モードなどの端末の設定は、左下のアカウントの欄の歯車から開く */}
 
       <TemplatesSection roomId={roomId} />
+
+      <RoomIconSection roomId={roomId} name={room.name} icon={room.icon} editable={isHost} />
 
       <section className="card">
         <h2 className="mb-3 font-bold">ルーム名</h2>
@@ -144,6 +147,75 @@ export default function SettingsPage() {
         </section>
       )}
     </div>
+  );
+}
+
+/** ルームのアイコン：画像を選ぶと正方形に切り抜いて保存。変えられるのはホストだけ */
+function RoomIconSection({ roomId, name, icon, editable }: { roomId: string; name: string; icon?: string; editable: boolean }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const save = async (next: string | undefined) => {
+    try {
+      await setRoomIcon(roomId, next);
+      toast(next ? "アイコンを変えました" : "アイコンを外しました");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "アイコンを変えられませんでした");
+    }
+  };
+  const preview = (
+    <span className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-[24px] bg-tint text-3xl font-bold text-muted">
+      {icon ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={icon} alt="" className="h-full w-full object-cover" />
+      ) : (
+        Array.from(name.trim())[0] ?? "?"
+      )}
+    </span>
+  );
+  return (
+    <section data-name="ルームのアイコン" className="card">
+      <h2 className="mb-3 w-fit font-bold" title="左のルームの一覧や、招待のカードに出ます。画像がないときは、ルーム名の最初の1文字が出ます">
+        アイコン
+      </h2>
+      {editable ? (
+        <div className="flex flex-wrap items-center gap-4">
+          <button type="button" onClick={() => fileRef.current?.click()} aria-label="アイコンの画像を選ぶ" className="rounded-[24px] transition hover:brightness-95">
+            {preview}
+          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-sub h-9 min-h-0 px-3 text-sm" onClick={() => fileRef.current?.click()}>
+              <Icon name="camera" size={16} />
+              {icon ? "画像を変える" : "画像を選ぶ"}
+            </button>
+            {icon && (
+              <button type="button" className="btn-sub h-9 min-h-0 px-3 text-sm" onClick={() => void save(undefined)}>
+                画像を外す
+              </button>
+            )}
+          </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              let next: string;
+              try {
+                next = await squareIconFrom(file);
+              } catch {
+                toast("この画像は読み込めませんでした");
+                return;
+              }
+              await save(next);
+            }}
+          />
+        </div>
+      ) : (
+        preview
+      )}
+    </section>
   );
 }
 
