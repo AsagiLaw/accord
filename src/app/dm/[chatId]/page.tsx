@@ -12,6 +12,7 @@ import { dmOther } from "@/lib/local/dm";
 import { useFriendships } from "@/lib/local/friends";
 import { useAllProfiles, type MemberWithProfile } from "@/lib/local/rooms";
 import { useCurrentUser } from "@/lib/local/session";
+import { ChatSkeleton } from "@/components/Skeleton";
 
 /** フレンドとの DM。フレンドでなくなった相手とは、前のやり取りを読めるだけ */
 export default function DmChatPage() {
@@ -21,7 +22,7 @@ export default function DmChatPage() {
   const profiles = useAllProfiles();
   const friendships = useFriendships(me?.id);
 
-  if (chat === undefined || !me || !profiles || !friendships) return <p className="loading text-muted">読み込み中…</p>;
+  if (chat === undefined || !me || !profiles || !friendships) return <ChatSkeleton />;
   // 自分が入っていない DM は見られない（サーバー版でも同じ）
   if (!chat || !chat.dm?.includes(me.id)) {
     return (

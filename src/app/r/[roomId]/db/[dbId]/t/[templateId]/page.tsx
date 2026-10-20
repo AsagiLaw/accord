@@ -16,11 +16,12 @@ import { useDatabase, usePages } from "@/lib/local/requests";
 import { useMembers, type MemberWithProfile } from "@/lib/local/rooms";
 import { useCurrentUser } from "@/lib/local/session";
 import { setTemplateValue, updateTemplate } from "@/lib/local/templates";
+import { DocSkeleton } from "@/components/Skeleton";
 
 // 本文のエディタはブラウザでしか動かないので、サーバーでは描画しない
 const BlockEditor = dynamic(() => import("@/components/note/BlockEditor").then((m) => m.BlockEditor), {
   ssr: false,
-  loading: () => <p className="loading p-4 text-muted">読み込み中…</p>,
+  loading: () => <DocSkeleton title={false} className="p-4" />,
 });
 
 /**
@@ -80,7 +81,7 @@ export default function TemplateScreen() {
     };
   }, [dirty, router]);
 
-  if (database === undefined || !me || !members) return <p className="loading text-muted">読み込み中…</p>;
+  if (database === undefined || !me || !members) return <DocSkeleton />;
   const t = database?.templates?.find((x) => x.id === templateId);
   if (!database || !t) {
     return (

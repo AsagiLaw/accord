@@ -7,6 +7,7 @@ import { DatabaseView } from "@/components/db/DatabaseView";
 import { useDatabase, useEvents, usePages, useViews } from "@/lib/local/requests";
 import { useMembers } from "@/lib/local/rooms";
 import { useCurrentUser } from "@/lib/local/session";
+import { DatabaseSkeleton } from "@/components/Skeleton";
 
 export default function DatabasePage() {
   const { roomId, dbId } = useParams<{ roomId: string; dbId: string }>();
@@ -27,7 +28,7 @@ export default function DatabasePage() {
     if (wantsNew) setOpenNew(true);
   }
 
-  if (database === undefined || !pages || !views || !events || !members || !me) return <p className="loading text-muted">読み込み中…</p>;
+  if (database === undefined || !pages || !views || !events || !members || !me) return <DatabaseSkeleton type={(views?.find((v) => v.id === search.get("v")) ?? views?.[0])?.type} />;
   if (!database || database.roomId !== roomId) {
     return (
       <p className="text-muted">

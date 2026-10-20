@@ -12,11 +12,12 @@ import { useMembers } from "@/lib/local/rooms";
 import { useCurrentUser } from "@/lib/local/session";
 import { saveWindowBlocks, saveWindowHeights, useWindowPage } from "@/lib/local/windows";
 import { setLinkedChat } from "@/lib/local/channelTemplates";
+import { DocSkeleton } from "@/components/Skeleton";
 
 // エディタはブラウザでしか動かないので、サーバーでは描画しない
 const BlockEditor = dynamic(() => import("@/components/note/BlockEditor").then((m) => m.BlockEditor), {
   ssr: false,
-  loading: () => <p className="loading p-4 text-muted">読み込み中…</p>,
+  loading: () => <DocSkeleton title={false} className="p-4" />,
 });
 
 /** 区画の高さの割合を、ブロックごとに当てる（globals.css の --grow） */
@@ -43,7 +44,7 @@ export function WindowView({ roomId, windowId }: { roomId: string; windowId: str
   // 境目の線を動かしているあいだの割合（離したら保存する）
   const [dragGrows, setDragGrows] = useState<Record<string, number> | null>(null);
 
-  if (win === undefined || (win?.sourceId && source === undefined) || !me || !members) return <p className="loading text-muted">読み込み中…</p>;
+  if (win === undefined || (win?.sourceId && source === undefined) || !me || !members) return <DocSkeleton title={false} />;
   if (!win || win.roomId !== roomId) {
     return (
       <p className="text-muted">

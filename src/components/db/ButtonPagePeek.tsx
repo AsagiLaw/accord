@@ -9,15 +9,16 @@ import { useMembers } from "@/lib/local/rooms";
 import { useCurrentUser } from "@/lib/local/session";
 import type { InnerPageTarget } from "./PageLink";
 import { PeekFrame } from "./PeekFrame";
+import { DocSkeleton } from "@/components/Skeleton";
 
 const BlockEditor = dynamic(() => import("@/components/note/BlockEditor").then((m) => m.BlockEditor), {
   ssr: false,
-  loading: () => <p className="loading p-4 text-muted">読み込み中…</p>,
+  loading: () => <DocSkeleton title={false} className="p-4" />,
 });
 
 const NoteEditor = dynamic(() => import("@/components/note/NoteEditor").then((m) => m.NoteEditor), {
   ssr: false,
-  loading: () => <p className="loading text-muted">読み込み中…</p>,
+  loading: () => <DocSkeleton title={false} />,
 });
 
 /**
@@ -34,7 +35,7 @@ export function ButtonPagePeek({ roomId, noteId, title, page, onClose }: InnerPa
 
   const body = () => {
     if (note === null) return <p className="p-4 text-muted">ボタンの中のページが見つかりません</p>;
-    if (!note || !me || !members) return <p className="loading p-4 text-muted">読み込み中…</p>;
+    if (!note || !me || !members) return <DocSkeleton title={false} className="p-4" />;
     if (!isWindow)
       return (
         <div className="min-h-0 flex-1 overflow-auto px-[clamp(16px,4vw,40px)] pt-4 pb-7 [scrollbar-gutter:stable]">

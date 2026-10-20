@@ -36,6 +36,7 @@ import type { EmbedKind } from "@/components/blockKinds";
 import { DbChatBlock, PageBlockBody, PropChatView, seedUsers, StageButton, StagePills, stageDatesOf } from "@/components/pageBlocks";
 import { AddButtonView, LinkButtonView, TodoBlockView } from "@/components/toolBlocks";
 import { isDateLike } from "@/lib/requests/formula";
+import { ChatSkeleton, ViewSkeleton } from "@/components/Skeleton";
 
 // ノートのブロックとウィンドウの部品で共通に使う中身（エディタに依存しない）
 
@@ -685,7 +686,7 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
           {page && database && prop ? (
             <PropChatView database={database} page={page} prop={prop} />
           ) : (
-            <p className="loading grid h-full place-items-center text-sm text-muted">{ctx.template ? "ページを作ると、ここにそのページのチャットが出ます" : "読み込み中…"}</p>
+            (ctx.template ? <p className="grid h-full place-items-center text-sm text-muted">ページを作ると、ここにそのページのチャットが出ます</p> : <ChatSkeleton composer={false} />)
           )}
         </div>
       </div>
@@ -1037,7 +1038,7 @@ export function DbViewEmbed({
             <ViewRenderer key={view.id} database={database} view={view} allPages={pages} events={events} members={members} userId={userId} compact />
           )
         ) : (
-          <p className="loading text-sm text-muted">読み込み中…</p>
+          <ViewSkeleton type={view?.type} rows={4} />
         )}
         {addPop.anchor && (
           <Popover anchor={addPop.anchor} onClose={addPop.close} width={280} label="ビューを追加">

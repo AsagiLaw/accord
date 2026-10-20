@@ -14,11 +14,12 @@ import { useEditMode } from "@/components/window/editMode";
 import { useMembers } from "@/lib/local/rooms";
 import { markNoteSeen } from "@/lib/local/noteSeen";
 import { useCurrentUser } from "@/lib/local/session";
+import { DocSkeleton } from "@/components/Skeleton";
 
 // エディタはブラウザでしか動かないので、サーバーでは描画しない
 const NoteEditor = dynamic(() => import("@/components/note/NoteEditor").then((m) => m.NoteEditor), {
   ssr: false,
-  loading: () => <p className="loading text-muted">読み込み中…</p>,
+  loading: () => <DocSkeleton />,
 });
 
 export default function NotePage() {
@@ -36,7 +37,7 @@ export default function NotePage() {
     if (me && note) markNoteSeen(me.id, note.id, note.updatedAt);
   }, [me, note]);
 
-  if (note === undefined || (note?.sourceId && source === undefined) || !me || !members) return <p className="loading text-muted">読み込み中…</p>;
+  if (note === undefined || (note?.sourceId && source === undefined) || !me || !members) return <DocSkeleton />;
   if (!note || note.roomId !== roomId) {
     return (
       <p className="text-muted">

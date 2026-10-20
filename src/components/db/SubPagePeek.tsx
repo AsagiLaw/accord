@@ -13,15 +13,16 @@ import { useCurrentUser } from "@/lib/local/session";
 import { ensureSubPage, unlinkSubPage, useSubPage } from "@/lib/local/subPages";
 import type { SubPageTarget } from "./PageLink";
 import { PeekFrame } from "./PeekFrame";
+import { DocSkeleton } from "@/components/Skeleton";
 
 const BlockEditor = dynamic(() => import("@/components/note/BlockEditor").then((m) => m.BlockEditor), {
   ssr: false,
-  loading: () => <p className="loading p-4 text-muted">読み込み中…</p>,
+  loading: () => <DocSkeleton title={false} className="p-4" />,
 });
 
 const NoteEditor = dynamic(() => import("@/components/note/NoteEditor").then((m) => m.NoteEditor), {
   ssr: false,
-  loading: () => <p className="loading text-muted">読み込み中…</p>,
+  loading: () => <DocSkeleton title={false} />,
 });
 
 /**
@@ -70,7 +71,7 @@ export function SubPagePeek({ roomId, dbId, pageId, propId, onClose }: SubPageTa
   const missing = database === null || page === null || (database && !prop) || (prop && prop.type !== "page");
   const body = () => {
     if (missing) return <p className="p-4 text-muted">別ページが見つかりません（項目かページが消えたかもしれません）</p>;
-    if (!database || !page || !note || !me || !members) return <p className="loading p-4 text-muted">読み込み中…</p>;
+    if (!database || !page || !note || !me || !members) return <DocSkeleton title={false} className="p-4" />;
     const scope = { dbId: database.id, pageId: page.id };
     if (!isWindow)
       return (

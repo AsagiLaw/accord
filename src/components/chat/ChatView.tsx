@@ -20,6 +20,7 @@ import { InviteCard } from "./InviteCard";
 import { LongText } from "./LongText";
 import { jumpToMessage, useMessageWindow } from "./useMessageWindow";
 import { useReadProgress } from "./useReadProgress";
+import { ChatSkeleton } from "@/components/Skeleton";
 
 const WEEK = "日月火水木金土";
 const dayLabel = (t: number) => {
@@ -96,7 +97,7 @@ export function ChatView({
     if (stick.current || last?.authorId === me.id) el.scrollTop = el.scrollHeight;
   }, [ready, last?.id, last?.authorId, me.id]);
 
-  if (!messages || !byId) return <p className="loading text-muted">読み込み中…</p>;
+  if (!messages || !byId) return <ChatSkeleton />;
 
   const open = (ids: string[], i: number) => {
     const items = ids.map((id) => byId.get(id)).filter((m): m is Media => !!m);

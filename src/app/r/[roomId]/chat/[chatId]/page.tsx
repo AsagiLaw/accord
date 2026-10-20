@@ -10,6 +10,7 @@ import { TopBarActions } from "@/components/TopBarSlot";
 import { useChat } from "@/lib/local/chat";
 import { useMembers } from "@/lib/local/rooms";
 import { useCurrentUser } from "@/lib/local/session";
+import { ChatSkeleton } from "@/components/Skeleton";
 
 export default function ChatPage() {
   const { roomId, chatId } = useParams<{ roomId: string; chatId: string }>();
@@ -17,7 +18,7 @@ export default function ChatPage() {
   const me = useCurrentUser();
   const members = useMembers(roomId);
 
-  if (chat === undefined || !me || !members) return <p className="loading text-muted">読み込み中…</p>;
+  if (chat === undefined || !me || !members) return <ChatSkeleton />;
   if (!chat || chat.roomId !== roomId) {
     return (
       <p className="text-muted">

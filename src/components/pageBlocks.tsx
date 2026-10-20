@@ -25,6 +25,7 @@ import type { MemberWithProfile } from "@/lib/local/rooms";
 import { P } from "@/lib/requests/defaults";
 import { dueLabel, stagesOf, today, valueOf } from "@/lib/requests/logic";
 import { stageDates, stageOf } from "@/lib/requests/stages";
+import { BlockSkeleton, ChatSkeleton } from "@/components/Skeleton";
 
 // データベースのページの中で使うブロック（そのページのタイトル・項目・チャット）。
 // ページの本文（ウィンドウ・ノート）と、そのテンプレートで使う。テンプレートではページがまだ無いので、見本を出す
@@ -315,7 +316,7 @@ function PagePropsBlock({ props, onChange }: { props: PagePropsProps; onChange: 
 
   let body: React.ReactNode;
   if (noSource) body = note(ctx.locked ? "編集モードで、どのページの項目を出すか選んでください" : "歯車の「ソース」で、どのページの項目を出すか選んでください");
-  else if (database === undefined || page === undefined) body = <p className="loading pr-6 text-sm text-muted">読み込み中…</p>;
+  else if (database === undefined || page === undefined) body = <BlockSkeleton lines={2} className="pr-6" />;
   else if (!database) body = note("データベースが見つかりません。歯車の「ソース」で選び直してください");
   else if (!shown.length) body = note(ctx.locked ? "出す項目がありません" : "出す項目がありません（歯車の「プロパティの表示/非表示」で選べます）");
   else if (page) body = <PagePropsView database={database} page={page} members={ctx.members} userId={ctx.userId} props={shown} />;
@@ -425,8 +426,10 @@ function PageChatBlock({ which, onChange }: { which: string; onChange: (p: Recor
       <div className="min-h-0 flex-1">
         {chat ? (
           <ChatView key={chat.id} chat={chat} me={me} members={ctx.members} />
+        ) : page ? (
+          <ChatSkeleton composer={false} />
         ) : (
-          <Placeholder>{page ? <span className="loading">読み込み中…</span> : which === "reenact" ? "ページのやり取り再現がここに出ます" : "ページの進行チャットがここに出ます"}</Placeholder>
+          <Placeholder>{which === "reenact" ? "ページのやり取り再現がここに出ます" : "ページの進行チャットがここに出ます"}</Placeholder>
         )}
       </div>
     </div>

@@ -9,6 +9,7 @@ import { useDatabase, useEvents, usePages, useViews } from "@/lib/local/requests
 import { useMembers } from "@/lib/local/rooms";
 import { DatabaseView } from "./DatabaseView";
 import { PagePeekProvider } from "./PagePeek";
+import { DatabaseSkeleton } from "@/components/Skeleton";
 
 /**
  * データベースの画面を、画面の真ん中に重ねて出す（サイドバーのデータベースカテゴリーの「編集」から）。
@@ -88,7 +89,7 @@ export function DatabasePopup({ roomId, dbId, userId, onClose }: { roomId: strin
             ) : ready ? (
               <DatabaseView database={database} views={views} view={view} pages={pages} events={events} members={members} userId={userId} onSwitchView={setViewId} />
             ) : (
-              <p className="loading text-muted">読み込み中…</p>
+              <DatabaseSkeleton type={view?.type} />
             )}
           </PagePeekProvider>
         </div>

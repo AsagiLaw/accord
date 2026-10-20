@@ -16,6 +16,7 @@ import { LongText } from "./LongText";
 import { NewBelowButton, UnreadLine } from "./ChatView";
 import { useMessageWindow } from "./useMessageWindow";
 import { useReadProgress } from "./useReadProgress";
+import { ChatSkeleton } from "@/components/Skeleton";
 
 /** イメージユーザーのアイコン（絵文字かメディアの画像。無ければ名前の1文字目） */
 export function ImageUserIcon({ user, size = 32 }: { user: ImageUser | undefined; size?: number }) {
@@ -86,7 +87,7 @@ export function ImageChatView({ chat, me, readOnlyNotice, fixedUsers = [] }: { c
     if (stick.current || last?.authorId === me.id) el.scrollTop = el.scrollHeight;
   }, [ready, last?.id, last?.authorId, me.id]);
 
-  if (!messages) return <p className="loading text-muted">読み込み中…</p>;
+  if (!messages) return <ChatSkeleton />;
   const userOf = (m: Message) => users.find((u) => u.id === m.speaker);
 
   return (
