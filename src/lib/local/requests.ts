@@ -10,6 +10,7 @@ import { deleteOwnedChats } from "./channels";
 import { copySubPages, deleteSubPages } from "./subPages";
 import { freshBlocks } from "./templates";
 import { db, newId, type CalEvent, type Database, type DbPage, type DbView, type PageTemplate, type Property, type StatusGroup, type TagColor, type Todo } from "./db";
+import { pageNoteId } from "./notes";
 
 // ---- 読み込み ----
 
@@ -142,7 +143,7 @@ export async function createPage(database: Database, userId: string, title: stri
   await db.transaction("rw", db.dbPages, db.chats, db.notes, async () => {
     await db.dbPages.add(page);
     if (template?.kind === "note")
-      await db.notes.add({ id: newId(), roomId: database.roomId, title, blocks: freshBlocks(template.blocks), pageId: id, order: 0, createdAt: now, updatedAt: now, updatedBy: userId });
+      await db.notes.add({ id: pageNoteId(id), roomId: database.roomId, title, blocks: freshBlocks(template.blocks), pageId: id, order: 0, createdAt: now, updatedAt: now, updatedBy: userId });
     await db.chats.bulkAdd([
       ...(chatProp ? [{ id: chatId, roomId: database.roomId, name: chatProp.name, kind: "normal" as const, order: 0, createdAt: now, pageId: id }] : []),
       ...(imageProp ? [{ id: reenactChatId, roomId: database.roomId, name: imageProp.name, kind: "image" as const, order: 0, createdAt: now, pageId: id, speakers: ["依頼者", "自分"] }] : []),
@@ -263,7 +264,7 @@ export async function duplicatePage(page: DbPage, userId: string) {
   await db.transaction("rw", db.dbPages, db.notes, async () => {
     await db.dbPages.add(copy);
     // 本文：チャットのブロックはチャットを外して入れる（開いたときに新しく作る）
-    if (note) await db.notes.add({ ...note, id: newId(), title: copy.title, blocks: freshBlocks(note.blocks), pageId: id, createdAt: now, updatedAt: now, updatedBy: userId });
+    if (note) await db.notes.add({ ...note, id: pageNoteId(id), title: copy.title, blocks: freshBlocks(note.blocks), pageId: id, createdAt: now, updatedAt: now, updatedBy: userId });
   });
   // 「ページ」の項目の別ページも写す
   await copySubPages(page.id, id, userId);
@@ -672,7 +673,12 @@ export function ensurePropChat(pageId: string, prop: Property): Promise<string> 
       if (!page) return "";
       const cur = page.values[prop.id];
       if (typeof cur === "string" && cur && (await db.chats.get(cur))) return cur;
-      const id = newId();
+      // ページと項目から決まる ID（2人がほぼ同時に開いても、チャットは1つにまとまる）
+      const id = `pc_${pageId}_${prop.id}`;
+      if (await db.chats.get(id)) {
+        await db.dbPages.update(pageId, { values: { ...page.values, [prop.id]: id } });
+        return id;
+      }
       await db.chats.add({ id, roomId: page.roomId, name: prop.name, kind: prop.type === "imageChat" ? "image" : "normal", order: 0, createdAt: Date.now(), pageId });
       await db.dbPages.update(pageId, { values: { ...page.values, [prop.id]: id } });
       return id;

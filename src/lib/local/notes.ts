@@ -18,10 +18,20 @@ export function usePageNote(pageId: string) {
   return useLiveQuery(async () => (await db.notes.where("pageId").equals(pageId).filter((n) => !n.sub).first()) ?? null, [pageId]);
 }
 
+/**
+ * 依頼ページの本文のノートの ID。ページから決まるので、2人がほぼ同時に初めて開いても、本文は1つにまとまる（Supabase 版）。
+ * 前に作った本文は、ランダムな ID のまま（usePageNote はページで探す）
+ */
+export const pageNoteId = (pageId: string) => `pn_${pageId}`;
+
 export async function createNote(roomId: string, userId: string, title: string, pageId: string | null = null) {
+  if (pageId) {
+    const found = await db.notes.get(pageNoteId(pageId));
+    if (found) return found;
+  }
   const existing = await db.notes.where("roomId").equals(roomId).toArray();
   const now = Date.now();
-  const note: Note = { id: newId(), roomId, title, blocks: [], pageId, order: Math.max(0, ...existing.map((n) => n.order)) + 1, createdAt: now, updatedAt: now, updatedBy: userId };
+  const note: Note = { id: pageId ? pageNoteId(pageId) : newId(), roomId, title, blocks: [], pageId, order: Math.max(0, ...existing.map((n) => n.order)) + 1, createdAt: now, updatedAt: now, updatedBy: userId };
   await db.notes.add(note);
   return note;
 }

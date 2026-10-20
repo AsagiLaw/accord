@@ -22,8 +22,12 @@ export async function ensureSubPage(database: Database, page: DbPage, prop: Prop
     if (cur) return cur;
     const t = prop.templateId ? database.templates?.find((x) => x.id === prop.templateId) : undefined;
     const now = Date.now();
+    // ページと項目から決まる ID（2人がほぼ同時に開いても、別ページは1つにまとまる）
+    const id = `sub_${page.id}_${prop.id}`;
+    const found = await db.notes.get(id);
+    if (found) return found;
     const note: Note = {
-      id: newId(),
+      id,
       roomId: page.roomId,
       title: prop.name,
       // ウィンドウ型は繋ぐので、自分の中身は持たない

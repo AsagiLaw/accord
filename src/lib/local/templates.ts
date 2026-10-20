@@ -1,6 +1,7 @@
 "use client";
 
 import { db, newId, type Database, type DbPage, type PageTemplate, type WinNode } from "./db";
+import { pageNoteId } from "./notes";
 import { unlinkSubPagesOf } from "./subPages";
 import { mapTabs } from "./windowLayout";
 
@@ -101,7 +102,7 @@ export async function unlinkPageTemplate(database: Database, page: DbPage) {
     const blocks = freshBlocks(t.blocks);
     const note = await bodyNote(page.id);
     if (note) await db.notes.update(note.id, { blocks, updatedAt: now });
-    else await db.notes.add({ id: newId(), roomId: page.roomId, title: page.title, blocks, pageId: page.id, order: 0, createdAt: now, updatedAt: now, updatedBy: page.createdBy });
+    else await db.notes.add({ id: pageNoteId(page.id), roomId: page.roomId, title: page.title, blocks, pageId: page.id, order: 0, createdAt: now, updatedAt: now, updatedBy: page.createdBy });
   });
 }
 
@@ -113,7 +114,7 @@ export async function applyNoteTemplate(page: DbPage, template: PageTemplate, ho
     await db.dbPages.update(page.id, { sourceId: null, bodyKind: "note" });
     const note = await bodyNote(page.id);
     if (note) await db.notes.update(note.id, { blocks: how === "append" ? [...note.blocks, ...add] : add, updatedAt: now });
-    else await db.notes.add({ id: newId(), roomId: page.roomId, title: page.title, blocks: add, pageId: page.id, order: 0, createdAt: now, updatedAt: now, updatedBy: page.createdBy });
+    else await db.notes.add({ id: pageNoteId(page.id), roomId: page.roomId, title: page.title, blocks: add, pageId: page.id, order: 0, createdAt: now, updatedAt: now, updatedBy: page.createdBy });
   });
 }
 
