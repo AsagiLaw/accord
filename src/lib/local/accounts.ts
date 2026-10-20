@@ -163,7 +163,8 @@ export async function whyCannotDelete(userId: string) {
 export async function deleteLocalUserData(userId: string): Promise<AuthResult> {
   const blocked = await whyCannotDelete(userId);
   if (blocked) return { ok: false, error: blocked };
-  for (const f of await db.friendships.where("fromId").equals(userId).or("toId").equals(userId).toArray()) await removeFriendship(f.id);
+  // Supabase 版では、アカウントを消したときに Supabase の間柄も消えている（0008）ので、ブラウザの中だけ片づける
+  for (const f of await db.friendships.where("fromId").equals(userId).or("toId").equals(userId).toArray()) await removeFriendship(f.id, { localOnly: true });
   // ほかの人のボックスの、この人への共有（入れてあった画像は、ボックスにそのまま残す）
   await db.boxShares.where("userId").equals(userId).delete();
   const boxes = await db.mediaBoxes.where("ownerId").equals(userId).toArray();

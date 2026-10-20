@@ -1,9 +1,11 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
+import { useEffect, useState } from "react";
 import { sendMessage } from "./chat";
 import { db, newId, type Profile, type Room, type RoomInvite, type RoomRole } from "./db";
 import { openDm } from "./dm";
+import { pull, sb, supa } from "./sync";
 
 // ルームへの招待（Discord と同じ）：フレンドとの DM に招待のカードを送り、相手が「参加する」を押すとメンバーになる。
 // 誘えるのはホストと、ホストが「メンバーも招待できる」にしたルームのメンバー。招待のカードを消すと、招待も取り消す（chat.ts の deleteMessage）
@@ -30,6 +32,10 @@ export function useCanInvite(roomId: string, userId: string | undefined) {
 export async function setMembersCanInvite(roomId: string, userId: string, on: boolean) {
   const member = await db.roomMembers.get([roomId, userId]);
   if (member?.role !== "host") return false;
+  if (supa) {
+    const { error } = await sb().from("rooms").update({ members_can_invite: on }).eq("id", roomId);
+    if (error) return false;
+  }
   await db.rooms.update(roomId, { membersCanInvite: on || undefined });
   return true;
 }
@@ -58,7 +64,15 @@ export async function inviteFriend(roomId: string, fromId: string, toId: string)
     .count();
   if (sent) return "invited";
   const invite: RoomInvite = { id: newId(), roomId, fromId, toId, createdAt: now, expiresAt: now + INVITE_DAYS * 24 * 60 * 60_000 };
-  await db.roomInvites.add(invite);
+  if (supa) {
+    // 招待は Supabase の関数で作る（招待できるか・フレンドか・もうメンバーかは、関数の中でも確かめる：0009）
+    const { data, error } = await sb().rpc("invite_friend_to_room", { target_room: roomId, friend: toId });
+    if (error || typeof data !== "string") return error?.message.includes("メンバー") ? "member" : error?.message.includes("フレンド") ? "notFriend" : "forbidden";
+    invite.id = data;
+    await pull();
+  } else {
+    await db.roomInvites.add(invite);
+  }
   const chatId = await openDm(fromId, toId);
   await sendMessage({ id: chatId, roomId: "" }, fromId, { text: "", mediaIds: [], replyTo: null, inviteId: invite.id });
   return "sent";
@@ -77,6 +91,15 @@ export async function roomsToInvite(userId: string, friendId: string) {
 
 /** 招待を受けてルームに参加する。うまくいけばルームの ID、だめならその理由 */
 export async function acceptInvite(inviteId: string, userId: string): Promise<{ ok: true; roomId: string } | { ok: false; error: string }> {
+  if (supa) {
+    const { data, error } = await sb().rpc("accept_room_friend_invite", { invite: inviteId });
+    if (error || typeof data !== "string") {
+      const text = error?.message ?? "";
+      return { ok: false, error: text.includes("期限") ? "招待の期限が切れています。もう一度招待してもらってください" : text.includes("取り消") || text.includes("ほかの人") ? text : `参加できませんでした（${text}）` };
+    }
+    await pull();
+    return { ok: true, roomId: data };
+  }
   return db.transaction("rw", db.roomInvites, db.rooms, db.roomMembers, async () => {
     const invite = await db.roomInvites.get(inviteId);
     if (!invite) return { ok: false as const, error: "この招待は取り消されました" };
@@ -102,7 +125,7 @@ export type InviteCardData = {
 };
 
 export function useInviteCard(inviteId: string, viewerId: string) {
-  return useLiveQuery(async (): Promise<InviteCardData | null> => {
+  const local = useLiveQuery(async (): Promise<InviteCardData | null> => {
     const invite = await db.roomInvites.get(inviteId);
     const room = invite && (await db.rooms.get(invite.roomId));
     if (!invite || !room) return null;
@@ -113,6 +136,30 @@ export function useInviteCard(inviteId: string, viewerId: string) {
     ]);
     return { invite, room, from, memberCount, joined: !!joined };
   }, [inviteId, viewerId]);
+  // Supabase 版：まだ参加していないルームは見られない（ブラウザの中に無い）ので、招待のカードに出すものだけを Supabase の関数で読む（0010）
+  const invite = useLiveQuery(() => db.roomInvites.get(inviteId), [inviteId]);
+  const from = useLiveQuery(() => (invite ? db.profiles.get(invite.fromId) : undefined), [invite?.fromId]);
+  const [remote, setRemote] = useState<{ key: string; data: InviteCardData | null }>();
+  const needRemote = supa && local === null && !!invite;
+  const key = invite ? `${invite.id}:${invite.acceptedAt ?? ""}` : "";
+  useEffect(() => {
+    if (!needRemote || !invite) return;
+    let alive = true;
+    void sb()
+      .rpc("get_room_friend_invite", { invite: invite.id })
+      .then(({ data }) => {
+        if (!alive) return;
+        const row = (data as { room_id: string; room_name: string; room_icon: string | null; member_count: number; is_member: boolean }[] | null)?.[0];
+        const room: Room | undefined = row && { id: row.room_id, name: row.room_name, createdBy: invite.fromId, createdAt: 0, ...(row.room_icon ? { icon: row.room_icon } : {}) };
+        setRemote({ key, data: row && room ? { invite, room, from: undefined, memberCount: Number(row.member_count), joined: row.is_member } : null });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [needRemote, invite, key]);
+  if (!needRemote) return local;
+  if (!remote || remote.key !== key) return undefined;
+  return remote.data && { ...remote.data, from };
 }
 
 /** そのルームで、まだ返事の無い招待を送ってある人（招待の画面で「招待済み」にする） */

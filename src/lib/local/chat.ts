@@ -3,6 +3,7 @@
 import Dexie from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, newId, type Chat, type ImageUser, type Message } from "./db";
+import { sb, supa } from "./sync";
 
 /** サイドバーに出すチャット（依頼ページの中のチャットは除く） */
 export function useChats(roomId: string) {
@@ -182,6 +183,12 @@ export async function editMessage(id: string, text: string) {
 
 /** 発言を消す。ルームへの招待のカードなら、招待も取り消す（もう参加していれば、招待の記録は残す） */
 export async function deleteMessage(id: string) {
+  // Supabase 版：招待は Supabase にあるので、先に Supabase で取り消す（取り消せるのは送った人だけ。参加されたあとは消さない）
+  if (supa) {
+    const m = await db.messages.get(id);
+    const invite = m?.inviteId ? await db.roomInvites.get(m.inviteId) : undefined;
+    if (invite && !invite.acceptedAt) await sb().from("room_friend_invites").delete().eq("id", invite.id);
+  }
   await db.transaction("rw", db.messages, db.roomInvites, async () => {
     const m = await db.messages.get(id);
     const invite = m?.inviteId ? await db.roomInvites.get(m.inviteId) : undefined;

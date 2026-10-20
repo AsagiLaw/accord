@@ -7,11 +7,12 @@ import { authMode } from "@/lib/auth/mode";
 import { createClient } from "@/lib/supabase/client";
 import { db } from "./db";
 import { ensureLocalProfile } from "./profiles";
+import { startSync } from "./sync";
 
 // 今ログインしている人。
 // ローカル版：このブラウザでログインしたアカウントの一覧（signed-in）と、タブごとに今どれで操作しているか（current-user）を覚える。
 //   タブごとの値（sessionStorage）を優先するので、2つのタブで別々の人としてチャットを試せる。
-// Supabase 版：Supabase のログインの状態をそのまま使う（データはまだブラウザの中なので、同じ ID のプロフィールを用意する）
+// Supabase 版：Supabase のログインの状態をそのまま使う（プロフィール・ルーム・フレンドは sync.ts でブラウザの中に写す）
 const KEY = "irai-note:current-user";
 const SIGNED_IN = "irai-note:signed-in";
 const listeners = new Set<() => void>();
@@ -106,6 +107,9 @@ let supaUser: User | null | undefined;
 let supaStarted = false;
 
 async function setSupaUser(user: User | null) {
+  // Supabase の内容（自分のプロフィール・ルーム・フレンドなど）をブラウザの中に写してから、画面に出す。
+  // 読めなかったときだけ、登録のときの名前でブラウザの中にプロフィールを用意する
+  await startSync(user?.id ?? null);
   if (user) await ensureLocalProfile(user);
   supaUser = user;
   notify();

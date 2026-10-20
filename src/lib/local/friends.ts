@@ -4,6 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { removeSharesBetween } from "./boxes";
 import { findProfileByUsername } from "./profiles";
 import { db, newId, type Friendship, type Profile } from "./db";
+import { pull, SaveError, sb, supa } from "./sync";
 
 export type FriendRow = { friendship: Friendship; other: Profile };
 export type Friendships = { friends: FriendRow[]; incoming: FriendRow[]; outgoing: FriendRow[] };
@@ -64,12 +65,24 @@ export async function requestFriend(fromId: string, toId: string): Promise<"sent
  * 見つからなければ notFound（ID の形が違うときも）
  */
 export async function requestFriendByUsername(fromId: string, text: string): Promise<{ result: Awaited<ReturnType<typeof requestFriend>> | "notFound"; other?: Profile }> {
+  if (supa) {
+    // 相手のプロフィールは、間柄ができるまで見られないので、探すのは Supabase の関数の中で行う（0009）
+    const { data, error } = await sb().rpc("send_friend_request", { target_username: text });
+    if (error) throw new SaveError(`申請を送れませんでした（${error.message}）`);
+    if (data === "not_found") return { result: "notFound" };
+    await pull();
+    return { result: data as Awaited<ReturnType<typeof requestFriend>>, other: await findProfileByUsername(text) };
+  }
   const other = await findProfileByUsername(text);
   if (!other) return { result: "notFound" };
   return { result: await requestFriend(fromId, other.id), other };
 }
 
 export async function acceptFriend(friendshipId: string) {
+  if (supa) {
+    const { error } = await sb().from("friendships").update({ status: "accepted", responded_at: new Date().toISOString() }).eq("id", friendshipId);
+    if (error) throw new SaveError(`承認できませんでした（${error.message}）`);
+  }
   await db.friendships.update(friendshipId, { status: "accepted", respondedAt: Date.now() });
 }
 
@@ -77,8 +90,13 @@ export async function acceptFriend(friendshipId: string) {
  * 申請を断る・取り消す、フレンドを解除する（間柄を消す）。DM のやり取りは残る。
  * フレンドだったときは、お互いのボックスの共有もやめる（相手が入れた画像は、相手のマイメディアに移る）
  */
-export async function removeFriendship(friendshipId: string) {
+export async function removeFriendship(friendshipId: string, opts: { localOnly?: boolean } = {}) {
   const f = await db.friendships.get(friendshipId);
+  // localOnly：Supabase ではもう消えている（アカウントを削除したあと、ブラウザの中を片づけるとき）
+  if (supa && !opts.localOnly) {
+    const { error } = await sb().from("friendships").delete().eq("id", friendshipId);
+    if (error) throw new SaveError(`うまくいきませんでした（${error.message}）`);
+  }
   await db.friendships.delete(friendshipId);
   if (f?.status === "accepted") await removeSharesBetween(f.fromId, f.toId);
 }

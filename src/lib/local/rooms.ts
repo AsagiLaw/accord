@@ -5,6 +5,7 @@ import type { IconName } from "@/components/Icon";
 import { unlinkRoom } from "./boxes";
 import { presetRecords } from "./roomPresetRecords";
 import { db, defaultCategories, defaultChat, newId, newRoomMediaBox, type Chat, type Profile, type RoomRole } from "./db";
+import { errorText, profilePatchRow, pull, roomsBeingCreated, SaveError, sb, supa } from "./sync";
 
 export type MemberWithProfile = {
   userId: string;
@@ -71,7 +72,14 @@ export const ROOM_TEMPLATES: { id: Exclude<RoomTemplateId, "original">; name: st
 ];
 
 export async function createRoom(name: string, userId: string, template: RoomTemplateId = "request", icon?: string, media?: RoomMediaChoice) {
-  const id = newId();
+  // Supabase 版：ルームとホストは Supabase で作る（ID も Supabase が決める）。中身（チャットなど）はまだブラウザの中に作る
+  let id = newId();
+  if (supa) {
+    const { data, error } = await sb().rpc("create_room", { room_name: name, room_icon: icon ?? null });
+    if (error || typeof data !== "string") throw new SaveError(`ルームを作れませんでした（${errorText(error)}）`);
+    id = data;
+    roomsBeingCreated.add(id);
+  }
   const now = Date.now();
   const categories = defaultCategories(id);
   const [chatCat, noteCat] = categories;
@@ -89,7 +97,7 @@ export async function createRoom(name: string, userId: string, template: RoomTem
   const existing = choice.kind === "box" ? await db.mediaBoxes.get(choice.boxId) : undefined;
   const linkExisting = choice.kind === "box" && existing?.ownerId === userId && existing.kind === "box";
   await db.transaction("rw", [db.rooms, db.roomMembers, db.chats, db.databases, db.dbViews, db.categories, db.notes, db.windows, db.mediaBoxes, db.boxShares], async () => {
-    await db.rooms.add({ id, name, ...(icon ? { icon } : {}), createdBy: userId, createdAt: now });
+    await db.rooms.put({ id, name, ...(icon ? { icon } : {}), createdBy: userId, createdAt: now });
     if (fresh) {
       await db.mediaBoxes.add(fresh.box);
       await db.boxShares.add(fresh.share);
@@ -97,7 +105,7 @@ export async function createRoom(name: string, userId: string, template: RoomTem
     if (linkExisting && choice.kind === "box") {
       await db.boxShares.add({ id: newId(), boxId: choice.boxId, roomId: id, canEdit: choice.canEdit, createdAt: now });
     }
-    await db.roomMembers.add({ roomId: id, userId, role: "host", joinedAt: now });
+    await db.roomMembers.put({ roomId: id, userId, role: "host", joinedAt: now });
     if (preset) {
       // 依頼管理：見本のルームと同じカテゴリー・データベース（ビュー・テンプレート）・ウィンドウ・チャット
       await db.categories.bulkAdd(preset.categories);
@@ -113,6 +121,10 @@ export async function createRoom(name: string, userId: string, template: RoomTem
       await db.notes.add({ id: newId(), roomId: id, title: "はじめに", blocks: [], pageId: null, order: 1, createdAt: now, updatedAt: now, updatedBy: userId, categoryId: noteCat.id, navOrder: 1 });
     }
   });
+  if (supa) {
+    roomsBeingCreated.delete(id);
+    await pull();
+  }
   return id;
 }
 
@@ -121,6 +133,11 @@ export async function createRoom(name: string, userId: string, template: RoomTem
  * メディアはボックスに入っていてルームのものではないので、紐づけを外すだけで、ボックスと画像は残る
  */
 export async function deleteRoom(roomId: string) {
+  // Supabase 版：先に Supabase で消す（消せるのはホストだけ。メンバーと招待も一緒に消える）
+  if (supa) {
+    const { error } = await sb().from("rooms").delete().eq("id", roomId);
+    if (error) throw new SaveError(`ルームを削除できませんでした（${error.message}）`);
+  }
   // 紐づけを外す（メンバーが入れた画像は、それぞれのマイメディアに移る）。メンバーの一覧を使うので、ルームを消す前に行う
   await unlinkRoom(roomId);
   const tables = [db.rooms, db.roomMembers, db.roomInvites, db.boxShares, db.chats, db.messages, db.chatReads, db.databases, db.dbPages, db.dbViews, db.events, db.todos, db.notes, db.categories, db.imageUsers, db.windows];
@@ -136,17 +153,26 @@ export async function deleteRoom(roomId: string) {
     }
     await db.rooms.delete(roomId);
   });
+  await pull();
 }
 
 export async function renameRoom(roomId: string, name: string) {
+  if (supa) {
+    const { error } = await sb().from("rooms").update({ name }).eq("id", roomId);
+    if (error) throw new SaveError(`ルームの名前を変えられませんでした（${error.message}）`);
+  }
   await db.rooms.update(roomId, { name });
 }
 
 export async function renameProfile(userId: string, displayName: string) {
-  await db.profiles.update(userId, { displayName });
+  await updateProfile(userId, { displayName });
 }
 
 /** 自分のプロフィール（アイコン・ひとこと・状態）を変える。avatar・statusText を undefined にすると消す */
 export async function updateProfile(userId: string, patch: Partial<Pick<Profile, "displayName" | "avatar" | "statusText" | "statusExpiresAt" | "presence" | "bio" | "links" | "workStatus">>) {
+  if (supa) {
+    const { error } = await sb().from("profiles").update(profilePatchRow(patch)).eq("id", userId);
+    if (error) throw new SaveError(`プロフィールを保存できませんでした（${error.message}）`);
+  }
   await db.profiles.update(userId, patch);
 }

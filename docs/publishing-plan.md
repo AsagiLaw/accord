@@ -17,16 +17,23 @@
 
 ## 第1段階：まずサイトを開けるようにする（プログラミングなし）
 
-- [ ] GitHub：Private のリポジトリを作って、コードを push する
-- [ ] Supabase：プロジェクトを作る（地域は Tokyo）。`supabase/migrations` の SQL を流す
-- [ ] Vercel：GitHub とつないで公開する。環境変数に `NEXT_PUBLIC_SUPABASE_URL` と `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` を入れる
-- [ ] Supabase → Authentication → URL Configuration：Site URL に公開先の URL、Redirect URLs に `https://公開先/auth/callback` を足す
+- [x] GitHub：Private のリポジトリを作って、コードを push する（`AsagiLaw/accord`。手元のブランチ `irai-note-app` を GitHub の `main` に送る。`git push` だけで送れるよう設定済み）
+- [x] Supabase：プロジェクトを作る（無料プランでは地域を選べないので Asia-Pacific）。`supabase/migrations` の SQL を流す（0001〜0009 済み）
+- [x] Vercel：GitHub とつないで公開する。環境変数に `NEXT_PUBLIC_SUPABASE_URL` と `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` を入れる（Production and Preview。公開先は https://accord-hazel-eta.vercel.app ）
+- [x] Supabase → Authentication → URL Configuration：Site URL に公開先の URL、Redirect URLs に `https://公開先/auth/callback` を足す
+- [x] 公開した URL で新規登録とログインができるのを確かめる（2026-10-19）
 
 できるようになること：公開した URL でサイトが開け、メールとパスワードで新規登録・ログインができる。チャットや画像は、まだそれぞれのブラウザの中にしか保存されない。
 
 ## 第2段階：データを Supabase に移す（プログラミング）
 
-- [ ] チャット・フレンド・ルーム・メディアボックスなどを、ブラウザの中（IndexedDB）から Supabase のデータベースに移す
+今のブラウザのデータは移さず、Supabase で新しく始める（2026-10-20 に決めた）。5つに分けて、終わるたびに公開して確かめる。
+
+- [ ] 2-1：プロフィール・ルーム・フレンド・招待（`0010` を Supabase で流し済み。手元で試し用の2人（test1・test2）で、申請・承認・ルーム作成・招待・参加まで確かめた。あとは公開して確かめる）
+- [ ] 2-2：チャット・既読（DM の招待のカードも、ここで本物にする）
+- [ ] 2-3：データベース・ノート・カテゴリー・ウィンドウなど
+- [ ] 2-4：メディアボックス・ライブラリーの情報
+- [ ] 2-5：オンライン表示
 - [ ] 「誰が何を見てよいか」の決まり（RLS）を作る
 
 できるようになること：ほかの人とチャットができる。スマホとパソコンで同じデータが見られる。いちばん大きな作業なので、少しずつ進める。

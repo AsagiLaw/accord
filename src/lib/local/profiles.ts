@@ -1,5 +1,6 @@
 import { checkUsername, makeUsername, normalizeUsername } from "@/lib/username";
 import { db, newId, newMyMediaBox, type Profile } from "./db";
+import { pull, sb, supa } from "./sync";
 
 /** その ID を、もうほかの人が使っているか（except は自分） */
 export async function usernameTaken(username: string, except?: string) {
@@ -33,6 +34,13 @@ export async function changeUsername(userId: string, text: string): Promise<{ ok
   const username = normalizeUsername(text);
   const bad = checkUsername(username);
   if (bad) return { ok: false, error: bad };
+  if (supa) {
+    const { error } = await sb().from("profiles").update({ username }).eq("id", userId);
+    // 23505：ほかの人と重なった（profiles_username_idx）
+    if (error) return { ok: false, error: error.code === "23505" ? "この ID は、もうほかの人が使っています" : `変えられませんでした（${error.message}）` };
+    await pull();
+    return { ok: true, username };
+  }
   return db.transaction("rw", db.profiles, async () => {
     if (await usernameTaken(username, userId)) return { ok: false as const, error: "この ID は、もうほかの人が使っています" };
     await db.profiles.update(userId, { username });

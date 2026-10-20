@@ -23,7 +23,7 @@ http://localhost:3000 を開く。初回は「マネージャー」（ID は `ma
 ログインまわりの画面（`/login`・`/signup`・`/forgot-password`・`/reset-password`）は1つで、`.env.local` の有無で動きが替わる。入口は `src/lib/auth/index.ts`。
 
 - **ローカル版**（`.env.local` が無いとき）：アカウントはブラウザの中（IndexedDB の `accounts`）に保存する。パスワードは PBKDF2 でハッシュにしてから保存するが、本当の守りにはならない。メールは送らず、パスワードの再設定のリンクは画面に出す。Google でのログインは使えない
-- **Supabase 版**（`.env.local` に URL とキーを入れたとき）：Supabase Auth を使う（メールとパスワード・Google）。メールのリンクと Google からは `/auth/callback` に戻る。`src/proxy.ts` がページを開くたびにログインの期限を延ばす。データはまだブラウザの中なので、ログインした人と同じ ID のプロフィールをブラウザの中に用意して、今までの画面をそのまま使う
+- **Supabase 版**（`.env.local` に URL とキーを入れたとき）：Supabase Auth を使う（メールとパスワード・Google）。メールのリンクと Google からは `/auth/callback` に戻る。`src/proxy.ts` がページを開くたびにログインの期限を延ばす。プロフィール・ルームとメンバー・フレンド・ルームへの招待は Supabase に保存し、`src/lib/local/sync.ts` がブラウザの中（IndexedDB）に写すので、画面は今までどおりブラウザの中を読む（書き込みは Supabase に送ってから写し直す。ほかの人の変更は Realtime と30秒おきの読み直しで届く）。ルームの中のもの（チャット・データベース・ノートなど）と DM・メディアは、まだブラウザの中だけ。参加したルームには、そのブラウザで既定のカテゴリーとチャット「雑談」を用意する。DM もまだブラウザの中なので、ルームへの招待のカードは、招待された人のブラウザで同じものを作って出す
 
 Supabase につなぐとき：
 
@@ -69,7 +69,7 @@ Supabase でロボットよけをオンにしたのに、`.env.local` に本物�
 - Supabase 版の形は `supabase/migrations/0009`（ID・`send_friend_request`・`room_friend_invites` と参加の関数）
 
 - データの出し入れは `src/lib/local/` にまとめてある。サーバー版に移るときは、ここを差し替える
-- サーバー版のデータベース設計は `supabase/migrations/`、接続部品は `src/lib/supabase/` に用意してある（今は使っていない）
+- サーバー版のデータベース設計は `supabase/migrations/`、接続部品は `src/lib/supabase/`。Supabase 版で使っているのは、プロフィール・ルーム・フレンド・招待まで（0010）
 - 設定の「名称表示」をオンにすると、カーソルを置いた場所の名前が出る（改善の指示を出すとき用）。区画の名前は各部品の `data-name` 属性で付けている
 - データを消して最初からやり直すときは、ブラウザの開発者ツール → Application → IndexedDB → `irai-note` を削除する
 
