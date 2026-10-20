@@ -4,7 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db, newId, newMyMediaBox, type BoxShare, type Media, type MediaBox } from "./db";
 import type { MemberWithProfile } from "./rooms";
 import { forgetBoxes, pullRows } from "./rowSync";
-import { pull, SaveError, sb, supa } from "./sync";
+import { deletedBoxes, pull, SaveError, sb, supa } from "./sync";
 
 // メディアのボックス：持ち主・共有先（フレンド・ルーム）と、だれが見られる・編集できるか
 
@@ -327,12 +327,15 @@ export async function deleteBox(boxId: string, opts: { localOnly?: boolean } = {
   if (supa && !opts.localOnly) {
     const { error } = await sb().rpc("delete_box", { target: boxId });
     if (error) throw new SaveError(`ボックスを削除できませんでした（${error.message}）`);
+    // 読み直す前にブラウザの中から消す（残っていると「まだ Supabase に無いボックス」として送り直されてしまう）
+    await deleteBox(boxId, { localOnly: true });
     await pull();
     await pullRows();
     return;
   }
   // Supabase で、もう消えている：ブラウザの中を片づけるだけ（画像の移し替えは Supabase が済ませている）
   if (supa) {
+    deletedBoxes.add(boxId);
     await forgetBoxes([boxId]);
     await db.transaction("rw", db.mediaBoxes, db.boxShares, async () => {
       await db.boxShares.where("boxId").equals(boxId).delete();

@@ -235,12 +235,15 @@ async function pullOnce(userId: string) {
   await pullRows(true);
 }
 
+/** このブラウザで削除したボックス。読み直しの途中でブラウザの中に残っていても、送り直さない */
+export const deletedBoxes = new Set<string>();
+
 /**
  * 自分が持ち主のボックス（マイメディアでないもの）で、まだ Supabase に無いものを送る。共有先も、送れるもの（フレンドとの共有・自分が作ったルームとの紐づけ）を送る。
  * 送ったら true（読み直す）。中の画像の情報とライブラリーは、rowSync の送り足しが送る
  */
 async function sendLocalBoxes(userId: string, onServer: Set<string>) {
-  const local = await db.mediaBoxes.where("ownerId").equals(userId).filter((b) => b.kind === "box" && !onServer.has(b.id)).toArray();
+  const local = await db.mediaBoxes.where("ownerId").equals(userId).filter((b) => b.kind === "box" && !onServer.has(b.id) && !deletedBoxes.has(b.id)).toArray();
   if (!local.length) return false;
   const s = sb();
   const { error } = await s
