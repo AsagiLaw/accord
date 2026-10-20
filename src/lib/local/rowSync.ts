@@ -3,6 +3,7 @@
 import Dexie, { type Table, type Transaction } from "dexie";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { db } from "./db";
+import { removeDeletedFiles } from "@/lib/media/remote";
 import { dmChatId } from "./dm";
 import { sb, supa } from "./sync";
 
@@ -100,6 +101,8 @@ async function flush() {
     for (const [tbl, ids] of gone) {
       const { error } = await sb().from("synced_rows").update({ deleted: true }).eq("tbl", tbl).in("id", ids);
       if (error) console.warn("Supabase で消せませんでした", tbl, error.message);
+      // 完全に削除した画像は、R2 のファイルも消す（消したことが Supabase に伝わってから。入れた本人の画像だけが消える）
+      else if (tbl === "media") void removeDeletedFiles(ids);
     }
     // 書いた行：どこの行かごとにまとめて送る（見られないルームの行が混ざっても、ほかの行は送れるように）
     const groups = new Map<string, Omit<ServerRow, "updated_at">[]>();

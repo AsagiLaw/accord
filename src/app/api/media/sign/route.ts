@@ -1,18 +1,11 @@
-import { AwsClient } from "aws4fetch";
 import { NextResponse, type NextRequest } from "next/server";
+import { objectUrl, r2 } from "@/lib/r2/server";
 import { createClient } from "@/lib/supabase/server";
 
 // 画像のファイル（Cloudflare R2）を置く・読むための、期限付きの札（署名付き URL）を出す（第3段階）。
 // ブラウザはこの札で R2 に直接置き・直接読む（画像のファイルは Vercel を通らない）。
 // 札を出す前に、ログインしている人として Supabase で確かめる：読むのは見られる画像だけ（synced_rows の決まり：0014、貼られている画像：0017）、
 // 置くのは編集もできるボックスの画像だけ（can_edit_box）。R2 の鍵はサーバーの中だけに置く（NEXT_PUBLIC_ を付けない）
-
-const account = process.env.R2_ACCOUNT_ID ?? "";
-const bucket = process.env.R2_BUCKET ?? "";
-const r2 =
-  account && bucket && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY
-    ? new AwsClient({ accessKeyId: process.env.R2_ACCESS_KEY_ID, secretAccessKey: process.env.R2_SECRET_ACCESS_KEY, service: "s3", region: "auto" })
-    : null;
 
 /** 画像のファイルの種類：小さい画像・元の画像・表示用（PSD）・編集する前の元の画像・編集の情報（JSON） */
 const KINDS = ["thumb", "original", "view", "source", "meta"] as const;
@@ -75,7 +68,7 @@ export async function POST(request: NextRequest) {
       urls.push(null);
       continue;
     }
-    const url = new URL(`https://${account}.r2.cloudflarestorage.com/${bucket}/${keyOf(o)}`);
+    const url = objectUrl(keyOf(o));
     // 置く札は10分、読む札は1時間で使えなくなる
     url.searchParams.set("X-Amz-Expires", o.op === "put" ? "600" : "3600");
     const signed = await r2.sign(new Request(url, { method: o.op === "put" ? "PUT" : "GET" }), { aws: { signQuery: true } });

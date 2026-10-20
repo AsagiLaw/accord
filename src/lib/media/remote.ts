@@ -34,6 +34,15 @@ function isDone(id: string, rev: number) {
     return false;
   }
 }
+/** その画像の置いた印を全部忘れる（消したとき。取り消しで戻したら、また置けるように） */
+function forgetDone(id: string) {
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith(`accord:r2:${id}:`)) localStorage.removeItem(k);
+  } catch {
+    // 忘れられなくても、戻したときに置かれないだけ（ほかの端末で開けば置かれる）
+  }
+}
+
 function markDone(id: string, rev: number) {
   try {
     localStorage.setItem(doneKey(id, rev), "1");
@@ -82,7 +91,20 @@ async function uploadOne(id: string) {
     if (!res?.ok) return false;
   }
   markDone(id, rev);
+  // 編集して中身が変わったときは、前の版のファイルを消す（R2 に溜まらないように）
+  if (rev > 0) void removeFiles({ prune: [{ id, rev }] });
   return true;
+}
+
+/** R2 からファイルを消してもらう（/api/media/delete が、消してよいかを Supabase で確かめる） */
+async function removeFiles(body: { deleted?: string[]; prune?: { id: string; rev: number }[] }) {
+  await fetch("/api/media/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+}
+
+/** 完全に削除した画像のファイルを、R2 からも消す（Supabase に消したことが伝わってから呼ぶ。入れた本人の画像だけが消える） */
+export async function removeDeletedFiles(ids: string[]) {
+  if (!supa) return;
+  for (let i = 0; i < ids.length; i += 100) await removeFiles({ deleted: ids.slice(i, i + 100) });
 }
 
 // ---- 取ってくる ----
@@ -178,6 +200,10 @@ function hook() {
     if (remote(trans)) return;
     const id = obj.id;
     trans.on("complete", () => queueUpload(id));
+  });
+  db.mediaBlobs.hook("deleting", function (primKey, _obj, trans) {
+    const id = String(primKey);
+    trans.on("complete", () => forgetDone(id));
   });
 }
 
