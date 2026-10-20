@@ -1,18 +1,20 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { db, newId, type Presence, type PresenceTab } from "./db";
+import { sb, supa } from "./sync";
 
-// オンラインかどうか（ローカル版）：サイトを開いている間だけオンラインにする。
-// タブごとに「開いている」と数秒おきに知らせ、知らせが途切れた人はオフライン。
+// オンラインかどうか：サイトを開いている間だけオンラインにする。
+// タブごとに「開いている」としばらくおきに知らせ、知らせが途切れた人はオフライン。
 // サイトを開いていても、しばらく操作が無ければ退席中（自分で「オンライン」を選んでいるときだけ）。
-// サーバー版では、知らせる先を Supabase の Realtime Presence に置き換える
+// ローカル版はブラウザの中（presenceTabs）に、Supabase 版は Supabase（presence_beats：0015）に知らせる。
+// Supabase 版では、見せてよい人（フレンド・同じルームの人）の知らせだけを、しばらくおきに読む
 
-/** 開いていると知らせる間隔 */
-const BEAT = 15_000;
-/** 知らせがこれだけ途切れたら、タブは閉じたものとみなす */
-const GONE = BEAT * 3;
+/** 開いていると知らせる間隔（Supabase 版は、通信を減らすため長め） */
+const BEAT = supa ? 30_000 : 15_000;
+/** 知らせがこれだけ途切れたら、タブは閉じたものとみなす（Supabase 版は、読む間隔のぶん長め） */
+const GONE = supa ? 80_000 : BEAT * 3;
 /** 操作がこれだけ無ければ退席中（Discord と同じ10分） */
 export const IDLE_AFTER = 10 * 60_000;
 /** 操作を知らせ直す間隔（操作のたびに書き込まないよう、これより短い間はまとめる） */
@@ -35,7 +37,10 @@ export function usePresenceBeacon(userId: string | undefined) {
     let writtenActiveAt = activeAt;
     const write = () => {
       writtenActiveAt = activeAt;
+      // 自分の画面には、自分の状態をすぐ出す（ブラウザの中にも書く）
       void db.presenceTabs.put({ tabId: TAB_ID, userId, beatAt: Date.now(), activeAt });
+      // rpc は then を呼ぶまで送られないので、結果を受け取る形にする
+      if (supa) void sb().rpc("presence_beat", { idle_seconds: Math.round((Date.now() - activeAt) / 1000) }).then(() => undefined);
     };
     write();
     const timer = window.setInterval(() => {
@@ -80,9 +85,69 @@ export function useNow(every = BEAT / 3) {
  * 読み込み中は、選んだ状態をそのまま返す
  */
 export function useShownPresence(viewerId: string | undefined) {
-  const tabs = useLiveQuery(() => db.presenceTabs.toArray(), []);
+  const local = useLiveQuery(() => db.presenceTabs.toArray(), []);
+  const remote = useRemoteTabs();
   const now = useNow();
-  return (person: { id: string; presence?: Presence }): ShownPresence => shownPresence(person, tabs, now, viewerId);
+  // Supabase 版：ほかの人は Supabase から読んだ知らせ、自分はこのブラウザの知らせも使う
+  const tabs = supa ? (local && remote ? [...remote, ...local.filter((t) => t.userId === viewerId)] : undefined) : local;
+  // ほかの人が選んだ状態も、プロフィールより新しいものが届いていればそちらを使う（自分は自分のプロフィール）
+  return (person: { id: string; presence?: Presence }): ShownPresence => {
+    const chosen = person.id === viewerId ? undefined : remote?.find((t) => t.userId === person.id)?.presence;
+    return shownPresence(chosen ? { ...person, presence: chosen } : person, tabs, now, viewerId);
+  };
+}
+
+// ---- Supabase 版：ほかの人の知らせを読む ----
+
+/** ほかの人の知らせ。presence はその人が選んだ状態（0016） */
+type RemoteTab = PresenceTab & { presence?: Presence };
+
+let remoteTabs: RemoteTab[] | undefined;
+const remoteListeners = new Set<() => void>();
+let remoteTimer: ReturnType<typeof setInterval> | null = null;
+
+async function readRemote() {
+  const { data, error } = await sb().rpc("presence_list");
+  if (error) return;
+  const now = Date.now();
+  // 何秒前かで届くので、このパソコンの時計に直す
+  remoteTabs = ((data ?? []) as { user_id: string; beat_ago: number; active_ago: number; presence?: string }[]).map((r) => ({
+    tabId: `remote:${r.user_id}`,
+    userId: r.user_id,
+    beatAt: now - r.beat_ago * 1000,
+    activeAt: now - r.active_ago * 1000,
+    ...(r.presence === "online" || r.presence === "idle" || r.presence === "dnd" || r.presence === "invisible" ? { presence: r.presence as Presence } : {}),
+  }));
+  remoteListeners.forEach((f) => f());
+}
+
+const onRemoteVisible = () => {
+  if (document.visibilityState === "visible") void readRemote();
+};
+
+function subscribeRemote(f: () => void) {
+  remoteListeners.add(f);
+  if (supa && !remoteTimer) {
+    void readRemote();
+    // 画面が見えている間だけ読む（見えていないタブで通信しない）
+    remoteTimer = setInterval(() => {
+      if (document.visibilityState === "visible") void readRemote();
+    }, BEAT);
+    document.addEventListener("visibilitychange", onRemoteVisible);
+  }
+  return () => {
+    remoteListeners.delete(f);
+    if (!remoteListeners.size && remoteTimer) {
+      clearInterval(remoteTimer);
+      remoteTimer = null;
+      document.removeEventListener("visibilitychange", onRemoteVisible);
+    }
+  };
+}
+
+/** ほかの人の知らせ（Supabase 版）。読み込み中は undefined。ローカル版では使わない */
+function useRemoteTabs() {
+  return useSyncExternalStore(subscribeRemote, () => remoteTabs, () => undefined);
 }
 
 export function shownPresence(person: { id: string; presence?: Presence }, tabs: PresenceTab[] | undefined, now: number, viewerId?: string): ShownPresence {
