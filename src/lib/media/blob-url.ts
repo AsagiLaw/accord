@@ -2,10 +2,14 @@
 
 import { useEffect, useReducer, useSyncExternalStore } from "react";
 import { db } from "@/lib/local/db";
+import { supa } from "@/lib/local/sync";
+import { loadShownBlob } from "./remote";
 
 // 一度作った表示用 URL は使い回す。画像を編集して中身が変わったら refreshBlobUrls で作り直す
 const urls = new Map<string, string>();
 const pending = new Map<string, Promise<void>>();
+/** 取れなかった画像を取り直した回数 */
+const retries = new Map<string, number>();
 /** 中身が変わったので作り直す URL（作り直すまでは古い URL を見せておき、表示が一瞬消えないようにする） */
 const stale = new Set<string>();
 
@@ -27,10 +31,17 @@ function load(id: string, kind: Kind): Promise<void> {
   const key = `${kind}:${id}`;
   let p = pending.get(key);
   if (!p) {
-    p = db.mediaBlobs.get(id).then((row) => {
+    // ブラウザの中に無ければ、その種類だけを R2 から取ってくる（Supabase 版）
+    p = loadShownBlob(id, kind).then((blob) => {
       const old = urls.get(key);
-      if (row) urls.set(key, URL.createObjectURL(kind === "original" ? (row.view ?? row.original) : row.thumb));
+      if (blob) urls.set(key, URL.createObjectURL(blob));
       else urls.delete(key);
+      // ほかの人が入れたばかりで、R2 にまだ置き終わっていないことがある。しばらくおきに取り直す（1分ほどまで）
+      if (blob) retries.delete(key);
+      else if (supa && (retries.get(key) ?? 0) < 12) {
+        retries.set(key, (retries.get(key) ?? 0) + 1);
+        setTimeout(() => refreshBlobUrls([id]), 5000);
+      }
       if (old) URL.revokeObjectURL(old);
       stale.delete(key);
     });
@@ -77,4 +88,12 @@ export function useBlobUrl(id: string | undefined, kind: Kind = "thumb") {
     };
   }, [id, kind, key, gen]);
   return key ? urls.get(key) : undefined;
+}
+
+// ほかの人が画像を編集して中身が変わったら（rev が上がったら）、表示している所を新しい画像に替える
+if (typeof window !== "undefined") {
+  db.media.hook("updating", function (mods, primKey, _obj, trans) {
+    if (!("rev" in mods)) return;
+    trans.on("complete", () => refreshBlobUrls([String(primKey)]));
+  });
 }

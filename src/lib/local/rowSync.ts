@@ -448,3 +448,25 @@ async function forgetLocalOnlyDms(userId: string) {
   if (sent.length) await db.chats.bulkDelete(sent);
 }
 
+/** 引いたことのある画像の ID（同じ画像を何度も引かないように） */
+const askedMedia = new Set<string>();
+
+/**
+ * ボックスでは見られないが、見られる発言やノートに貼られている画像の情報を引く（DM で送られた画像など：0017）。
+ * 引いた画像の情報はブラウザの中に書く（そのボックスの変更は届かないので、引いたときの形のまま）
+ */
+export async function fetchReferencedMedia(ids: string[]) {
+  if (!supa || !me) return;
+  const fresh = ids.filter((id) => !askedMedia.has(id));
+  if (!fresh.length) return;
+  for (const id of fresh) askedMedia.add(id);
+  for (let i = 0; i < fresh.length; i += 100) {
+    const { data, error } = await sb().rpc("media_for_ids_checked", { ids: fresh.slice(i, i + 100) });
+    if (error) {
+      // 引けなかったものは、次にまた引けるようにする
+      for (const id of fresh.slice(i, i + 100)) askedMedia.delete(id);
+      continue;
+    }
+    await applyRows((data ?? []) as ServerRow[]);
+  }
+}

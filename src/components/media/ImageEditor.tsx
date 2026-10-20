@@ -4,7 +4,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { toast } from "@/components/ui/overlay";
 import { newId } from "@/lib/id";
-import { db } from "@/lib/local/db";
 import { decodeImage } from "@/lib/media/image";
 import {
   ADJUST_TOOLS,
@@ -37,6 +36,7 @@ import {
 } from "@/lib/media/edit";
 import { revertEditNow, saveCopyFlow, saveEditFlow } from "./flows";
 import { useMediaState } from "./MediaContext";
+import { loadBlobRow } from "@/lib/media/remote";
 
 // 画像の編集画面（iPhone の「写真」の編集と同じ作り）。
 // 下で「調整」「フィルタ」「切り取り」「マークアップ」（ペン・文字入れ）を切り替える。
@@ -277,7 +277,7 @@ export function ImageEditor({ id }: { id: string }) {
   useEffect(() => {
     let alive = true;
     (async () => {
-      const row = await db.mediaBlobs.get(id);
+      const row = await loadBlobRow(id);
       if (!row) throw new Error("not found");
       const full = await decodeImage(row.source ?? row.view ?? row.original);
       const small = downscale(full, PREVIEW_MAX);

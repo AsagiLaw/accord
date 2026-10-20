@@ -6,6 +6,7 @@ import { authMode } from "@/lib/auth/mode";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/components/ui/overlay";
 import { db, type BoxShare, type Friendship, type MediaBox, type Presence, type Profile, type Room, type RoomInvite, type RoomMember, type WorkStatus } from "./db";
+import { startMediaSync } from "@/lib/media/remote";
 import { forgetBoxes, freshChannel, pullRows, startRowSync } from "./rowSync";
 
 // Supabase 版：プロフィール・ルーム・メンバー・フレンド・招待は Supabase に保存し、ブラウザの中（IndexedDB）に写して使う。
@@ -301,10 +302,13 @@ export async function startSync(userId: string | null) {
   document.removeEventListener("visibilitychange", onVisible);
   if (!userId) {
     await startRowSync(null);
+    await startMediaSync(null);
     return;
   }
   await pull();
   await startRowSync(userId);
+  // 画像のファイルを R2 に置く（第3段階）。画像の情報が Supabase に届いてから置くので、行の同期のあとに始める
+  void startMediaSync(userId);
   const ch = freshChannel(`sync:${userId}`);
   // room_members は知らせを出さない（0010）。ほかの人がルームに入ったのは、しばらくおきの読み直しで分かる
   for (const table of ["profiles", "rooms", "friendships", "room_friend_invites", "media_boxes", "box_shares"]) {

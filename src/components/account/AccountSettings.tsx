@@ -12,7 +12,7 @@ import { setChatNotify, useChatNotify } from "@/lib/local/chatNotify";
 import { setDueNotify, useDueNotify } from "@/lib/local/dueNotify";
 import { notifyPermission } from "@/lib/notify";
 import { MediaPicker } from "@/components/MediaPicker";
-import { db, type Profile, type ProfileLink, type WorkStatus } from "@/lib/local/db";
+import type { Profile, ProfileLink, WorkStatus } from "@/lib/local/db";
 import { IDLE_AFTER, useShownPresence } from "@/lib/local/presence";
 import { updateProfile } from "@/lib/local/rooms";
 import { setNameHints, useNameHints } from "@/lib/name-hints";
@@ -23,6 +23,7 @@ import { AvatarCropper } from "./AvatarCropper";
 import { MyAccountSection } from "./MyAccountSection";
 import { ExpiryChoices, resolveExpiry } from "./StatusDialog";
 import { BIO_MAX, LINKS_MAX, normalizeUrl, WORK_STATUS } from "./ProfileExtras";
+import { loadBlobRow } from "@/lib/media/remote";
 
 export type SettingsSection = "account" | "profile" | "notify" | "display";
 const SECTIONS: { id: SettingsSection; label: string; icon: IconName }[] = [
@@ -185,7 +186,7 @@ function ProfileSection({ me }: { me: Profile }) {
             onClose={() => setPicking(false)}
             onPick={async ([id]) => {
               setPicking(false);
-              const row = id ? await db.mediaBlobs.get(id) : undefined;
+              const row = id ? await loadBlobRow(id) : undefined;
               const blob = row && (row.view ?? row.original);
               if (blob) setCropping(blob);
               else toast("この画像は読み込めませんでした");

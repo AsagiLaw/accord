@@ -179,7 +179,12 @@ export type MediaBlob = {
   source?: Blob;
   sourceInfo?: { fileName: string; mime: string; size: number; width: number; height: number };
   edit?: ImageEdit;
+  /** Supabase 版で、ほかの人の画像を R2 から取ってきたもの。そのときの画像の rev（変わっていたら取り直す） */
+  remoteRev?: number;
 };
+
+/** R2 から取ってきた画像のファイルの一部（一覧の小さい画像など）。key は「画像の ID:rev:種類」 */
+export type BlobCache = { key: string; blob: Blob };
 
 export type Library = {
   id: string;
@@ -641,6 +646,7 @@ export const db = new Dexie("irai-note") as Dexie & {
   mediaBoxes: EntityTable<MediaBox, "id">;
   boxShares: EntityTable<BoxShare, "id">;
   presenceTabs: EntityTable<PresenceTab, "tabId">;
+  blobCache: EntityTable<BlobCache, "key">;
   accounts: EntityTable<LocalAccount, "userId">;
   authTokens: EntityTable<AuthToken, "token">;
   roomInvites: EntityTable<RoomInvite, "id">;
@@ -1442,3 +1448,6 @@ db.version(36)
         delete d.nameSuffix;
       });
   });
+
+// R2 から取ってきた画像のファイルの一部を残しておく（第3段階。同じ画像を何度も取りに行かないように）
+db.version(37).stores({ blobCache: "key" });

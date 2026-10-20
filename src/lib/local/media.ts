@@ -2,15 +2,25 @@
 
 import Dexie from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
+import { useEffect } from "react";
 import { forgetBlobUrls, refreshBlobUrls } from "@/lib/media/blob-url";
 import { isDefaultEdit, renderEdit, type ImageEdit } from "@/lib/media/edit";
 import { decodeImage, isImageFile, makeThumb, readImage } from "@/lib/media/image";
 import { PSD_MIME } from "@/lib/media/psd";
 import { childrenOf, descendants, withAncestors } from "@/lib/media/logic";
+import { loadBlobRow } from "@/lib/media/remote";
 import { uploadBoxForRoom } from "./boxes";
+import { fetchReferencedMedia } from "./rowSync";
 import { db, newId, type Library, type Media, type MediaBlob } from "./db";
 
 export type Undo = () => Promise<void>;
+
+/** 画像のファイルの複製（自分の画像として R2 に置き直すので、取ってきた印は外す） */
+function ownCopy(row: MediaBlob, id: string): MediaBlob {
+  const { remoteRev: _remote, ...rest } = row;
+  void _remote;
+  return { ...rest, id };
+}
 
 export function useMedia(boxId: string) {
   return useLiveQuery(() => db.media.where("boxId").equals(boxId).sortBy("createdAt"), [boxId]);
@@ -39,10 +49,18 @@ export function useBoxSummaries(boxIds: string[]) {
  */
 export function useMediaByIds(ids: string[]) {
   const key = ids.join(",");
-  return useLiveQuery(async () => {
+  const found = useLiveQuery(async () => {
     const rows = await db.media.bulkGet([...new Set(ids)]);
     return new Map(rows.flatMap((m) => (m ? [[m.id, m] as const] : [])));
   }, [key]); // ids は中身（key）で比べる
+  // Supabase 版：ブラウザの中に無い画像（DM で送られた画像など）は、貼られている発言やノートを見られるなら引いてくる
+  useEffect(() => {
+    if (!found) return;
+    const missing = [...new Set(ids)].filter((id) => id && !found.has(id));
+    if (missing.length) void fetchReferencedMedia(missing);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [found, key]);
+  return found;
 }
 
 export function useLibraries(boxId: string) {
@@ -203,7 +221,7 @@ export async function deleteForever(ids: string[], userId: string) {
 
 /** 編集の前の状態に戻す「元に戻す」を作る */
 async function blobSnapshot(id: string): Promise<Undo> {
-  const row = await db.mediaBlobs.get(id);
+  const row = await loadBlobRow(id);
   const m = await db.media.get(id);
   return async () => {
     if (!row || !m) return;
@@ -264,7 +282,7 @@ async function renderEdited(source: Blob, sourceInfo: { fileName: string; mime: 
 
 /** 編集を保存する。何も編集していなければ、元の画像に戻す */
 export async function saveEdit(id: string, edit: ImageEdit): Promise<Undo> {
-  const row = await db.mediaBlobs.get(id);
+  const row = await loadBlobRow(id);
   const m = await db.media.get(id);
   if (!row || !m) throw new Error("画像が見つかりません");
   if (isDefaultEdit(edit)) return revertEdit(id);
@@ -298,7 +316,7 @@ async function copyCreatedAt(m: Media) {
  * 複製にも編集前の画像を残すので、複製もあとから編集し直したり、オリジナルに戻したりできる
  */
 export async function saveEditAsCopy(id: string, edit: ImageEdit, userId: string): Promise<{ id: string; undo: Undo }> {
-  const row = await db.mediaBlobs.get(id);
+  const row = await loadBlobRow(id);
   const m = await db.media.get(id);
   if (!row || !m) throw new Error("画像が見つかりません");
   const { source, sourceInfo } = sourceOf(row, m);
@@ -357,13 +375,15 @@ async function removeCopies(ids: string[]) {
  */
 export async function duplicateMedia(ids: string[], userId: string): Promise<{ ids: string[]; undo: Undo }> {
   const made: string[] = [];
+  // ほかの人の画像は、先に R2 から取ってくる（書き込みのまとまりの中では取りに行けないため）
+  for (const id of ids) await loadBlobRow(id);
   await db.transaction("rw", db.media, db.mediaBlobs, async () => {
     for (const id of ids) {
       const m = await db.media.get(id);
       const row = await db.mediaBlobs.get(id);
       if (!m || !row) continue;
       const copyId = newId();
-      await db.mediaBlobs.add({ ...row, id: copyId });
+      await db.mediaBlobs.add(ownCopy(row, copyId));
       await db.media.add({
         ...m,
         id: copyId,
@@ -390,17 +410,20 @@ export async function ensureInBox(ids: string[], boxId: string, userId: string) 
   const out: string[] = [];
   let copied = 0;
   const now = Date.now();
+  // コピーする画像（ほかのボックスの画像）は、先に R2 から取ってくる（書き込みのまとまりの中では取りに行けないため）
+  for (const m of await db.media.bulkGet(ids)) if (m && m.boxId !== boxId) await loadBlobRow(m.id);
   await db.transaction("rw", db.media, db.mediaBlobs, async () => {
     for (const [k, id] of ids.entries()) {
       const m = await db.media.get(id);
-      const row = await db.mediaBlobs.get(id);
-      if (!m || !row) continue;
+      if (!m) continue;
       if (m.boxId === boxId) {
         out.push(id);
         continue;
       }
+      const row = await db.mediaBlobs.get(id);
+      if (!row) continue;
       const copyId = newId();
-      await db.mediaBlobs.add({ ...row, id: copyId });
+      await db.mediaBlobs.add(ownCopy(row, copyId));
       // 同時に入れた画像も順番を保つ
       await db.media.add({ ...m, id: copyId, boxId, uploadedBy: userId, createdAt: now + k, fav: false, trashed: false, rev: 0, libIds: [] });
       out.push(copyId);
@@ -412,7 +435,7 @@ export async function ensureInBox(ids: string[], boxId: string, userId: string) 
 
 /** 編集をやめて、元の画像に戻す（iPhone の「オリジナルに戻す」） */
 export async function revertEdit(id: string): Promise<Undo> {
-  const row = await db.mediaBlobs.get(id);
+  const row = await loadBlobRow(id);
   const m = await db.media.get(id);
   if (!row || !m || !row.source) return async () => {};
   const undo = await blobSnapshot(id);

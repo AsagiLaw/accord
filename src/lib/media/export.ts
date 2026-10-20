@@ -1,10 +1,13 @@
 "use client";
 
+import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useState } from "react";
 import { db, type Media } from "@/lib/local/db";
+import { supa } from "@/lib/local/sync";
 import { useBlobUrl } from "./blob-url";
 import { PSD_MIME } from "./psd";
 import { makeZip } from "./zip";
+import { loadBlobRow } from "@/lib/media/remote";
 
 // メディアの画像を、元の画像のファイルとして外へ出す（他のアプリへのドラッグ・コピー・ダウンロード）。
 // デスクトップアプリ版にするときは、ここを差し替える（複数枚のドラッグもできるようになる）
@@ -52,13 +55,34 @@ function useFileServer() {
 }
 
 /**
+ * その画像の元の画像が、ブラウザの中にあるか（ほかの人の画像は、R2 から取ってきて中身が今のものか）。
+ * 無ければ取ってくる（Supabase 版。拡大したときなど、元の画像が要るときだけ取りに行く）
+ */
+function useLocalOriginal(m: Media | undefined) {
+  const id = m?.id;
+  const rev = m?.rev ?? 0;
+  const ready = useLiveQuery(async () => {
+    if (!id || !supa) return true;
+    const row = await db.mediaBlobs.get(id);
+    return !!row && (row.remoteRev === undefined || row.remoteRev === rev);
+  }, [id, rev]);
+  useEffect(() => {
+    if (id && ready === false) void loadBlobRow(id);
+  }, [id, rev, ready]);
+  return ready === true;
+}
+
+/**
  * 元の画像の URL。「/media-file/<ID>/<ファイル名>」の形にして、ドラッグして他のアプリに渡したときに、
  * この名前のファイルになるようにする。その仕組みが使えないときは、ブラウザ内の URL
  */
 export function useOriginalUrl(m: Media | undefined) {
   const named = useFileServer();
   const blob = useBlobUrl(m && !named ? m.id : undefined, "original");
+  const local = useLocalOriginal(named ? m : undefined);
   if (!m) return undefined;
+  // 「/media-file/」はブラウザの中の画像を読んで返すので、ほかの人の画像は R2 から取ってくるまで待つ（Supabase 版）
+  if (named && !local) return undefined;
   // 編集して中身が変わったら、別の URL にする（ブラウザが前の画像を使い回さないように）。ファイル名は最後の部分なので変わらない
   const rev = m.rev ? `${m.rev}/` : "";
   // PSD は表示用の PNG を出すので、名前も .png にする（ドラッグして渡すのも PNG になる）
@@ -85,7 +109,7 @@ export function startMediaDrag(e: React.DragEvent<HTMLImageElement>, m: Media, g
 /** 元の画像をクリップボードにコピーする（貼り付け先で Ctrl+V）。ブラウザがコピーできる画像は PNG だけなので、PNG にして入れる */
 export async function copyImage(m: Media) {
   const png = (async () => {
-    const row = await db.mediaBlobs.get(m.id);
+    const row = await loadBlobRow(m.id);
     if (!row) throw new Error("no blob");
     const src = row.view ?? row.original;
     if (src.type === "image/png") return src;
@@ -106,7 +130,7 @@ export async function copyImage(m: Media) {
 /** 元の画像をダウンロードする（ブラウザのダウンロードのフォルダに入る） */
 export async function downloadOriginals(list: Media[]) {
   for (const m of list) {
-    const row = await db.mediaBlobs.get(m.id);
+    const row = await loadBlobRow(m.id);
     if (!row) continue;
     const url = URL.createObjectURL(row.original);
     const a = document.createElement("a");
@@ -151,7 +175,7 @@ export async function saveFileAs(m: Media): Promise<boolean> {
     if ((err as DOMException).name === "AbortError") return false;
     throw err;
   }
-  const row = await db.mediaBlobs.get(m.id);
+  const row = await loadBlobRow(m.id);
   if (!row) throw new Error("画像が見つかりません");
   const w = await file.createWritable();
   await w.write(row.original);
@@ -206,7 +230,7 @@ async function zipEntries(items: ZipItem[]): Promise<{ name: string; data: Blob 
   const used = new Set<string>();
   const out: { name: string; data: Blob }[] = [];
   for (const { m, folder = [] } of items) {
-    const row = await db.mediaBlobs.get(m.id);
+    const row = await loadBlobRow(m.id);
     if (!row) continue;
     const name = [...folder.map((f) => safeFileName(f, "_")), exportFileName(m)].join("/");
     // 「.」はファイル名の部分だけで探す（フォルダの名前に「.」があっても、そこで分けない）
