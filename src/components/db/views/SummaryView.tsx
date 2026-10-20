@@ -63,7 +63,8 @@ export function SummaryView({ database, view, pages, allPages, members, compact 
   const parts = split
     ? groupPages(split, list, { options: {} }, members)
         .map((g) => ({ ...g, total: g.pages.reduce((a, p) => a + num(p), 0) }))
-        .filter((g) => g.pages.length)
+        // 1件も無いときは、選択肢を 0 のまま並べる
+        .filter((g) => g.pages.length || (!list.length && g.key))
         .sort((a, b) => b.total - a.total)
     : [];
   const partMax = Math.max(1, ...parts.map((g) => g.total));
@@ -125,8 +126,22 @@ export function SummaryView({ database, view, pages, allPages, members, compact 
                 const lv = byMonth.get(shiftMonth(mo, -12)) ?? 0;
                 return (
                   <div key={mo} className="group relative flex h-full flex-1 items-end justify-center gap-0.5" title={`${Number(mo.slice(5))}月：${fmt(v)}${compare ? `（去年 ${fmt(lv)}）` : ""}`}>
-                    {compare && <div className="w-full max-w-4 rounded-t-[4px] bg-line" style={{ height: `${(lv / max) * 100}%`, minHeight: lv ? 2 : 0 }} />}
-                    <div className={`w-full rounded-t-[4px] ${compare ? "max-w-4" : "max-w-10"} ${mo === thisMonth ? "bg-accent" : "bg-accent/40"} group-hover:brightness-110`} style={{ height: `${(v / max) * 100}%`, minHeight: v ? 2 : 0 }} />
+                    {compare && (
+                      <div
+                        className="w-full max-w-4 rounded-t-[4px] bg-line"
+                        style={{
+                          height: `${(lv / max) * 100}%`,
+                          minHeight: lv ? 2 : 0,
+                        }}
+                      />
+                    )}
+                    <div
+                      className={`w-full rounded-t-[4px] ${compare ? "max-w-4" : "max-w-10"} ${mo === thisMonth ? "bg-accent" : "bg-accent/40"} group-hover:brightness-110`}
+                      style={{
+                        height: `${(v / max) * 100}%`,
+                        minHeight: v ? 2 : 0,
+                      }}
+                    />
                   </div>
                 );
               })}
@@ -161,13 +176,26 @@ export function SummaryView({ database, view, pages, allPages, members, compact 
             <div key={g.key || "__none"} className="flex items-center gap-2 text-sm" title={`${g.label}：${fmt(g.total)}（${g.pages.length}件）`}>
               <span className="w-28 shrink-0 truncate">{g.label}</span>
               <span className="h-3 min-w-0 flex-1">
-                <span className="block h-full rounded-r-[4px] bg-accent/70" style={{ width: `${(g.total / partMax) * 100}%`, minWidth: g.total ? 2 : 0 }} />
+                <span
+                  className="block h-full rounded-r-[4px] bg-accent/70"
+                  style={{
+                    width: `${(g.total / partMax) * 100}%`,
+                    minWidth: g.total ? 2 : 0,
+                  }}
+                />
               </span>
               <span className="w-28 shrink-0 text-right">{fmt(g.total)}</span>
               <span className="w-10 shrink-0 text-right text-xs text-muted">{g.pages.length}件</span>
             </div>
           ))}
-          {!parts.length && <p className="text-sm text-muted">該当するものはありません</p>}
+          {!parts.length && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="w-28 shrink-0 truncate">{split.name}なし</span>
+              <span className="h-3 min-w-0 flex-1" />
+              <span className="w-28 shrink-0 text-right">{fmt(0)}</span>
+              <span className="w-10 shrink-0 text-right text-xs text-muted">0件</span>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -9,10 +9,10 @@ import { PageLink as PeekLink } from "../PageLink";
 export function ProgressView({ database, view, pages, compact }: ViewProps) {
   const prop = database.props.find((p) => p.id === view.options.gauge) ?? database.props.find((p) => p.type === "stage") ?? database.props.find((p) => p.format === "percent");
   if (!prop) return <Empty>割合ビューには、「工程」か「数値（％）」の項目が必要です。ビューの設定で選んでください。</Empty>;
-  if (!pages.length) return <Empty>該当するものはありません</Empty>;
   const circle = view.options.gaugeStyle === "circle";
   const values = pages.map((p) => percentOf(database, p, prop.id) ?? 0);
-  const avg = Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+  // 1件も無いときも、0% と 0 / 0 を出す
+  const avg = values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0;
   const done = values.filter((v) => v >= 100).length;
 
   return (
@@ -31,28 +31,30 @@ export function ProgressView({ database, view, pages, compact }: ViewProps) {
           </div>
         </div>
       </div>
-      <div className={circle ? "grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2" : "grid gap-1.5"}>
-        {pages.map((p, i) => {
-          const v = values[i];
-          const stage = prop.type === "stage" ? stageOf(prop, p).current?.name : undefined;
-          return circle ? (
-            <PeekLink key={p.id} database={database} pageId={p.id} className="grid justify-items-center gap-1.5 rounded-[12px] border border-line bg-card p-3 text-center hover:bg-tint">
-              <CircleGauge value={v} size={compact ? 64 : 80} />
-              <PageName database={database} page={p} className="max-w-full text-sm font-bold" />
-              {stage && <span className="text-xs text-muted">{stage}</span>}
-            </PeekLink>
-          ) : (
-            <PeekLink key={p.id} database={database} pageId={p.id} className="flex items-center gap-3 rounded-[10px] border border-line bg-card px-3 py-2 hover:bg-tint">
-              <PageName database={database} page={p} className="w-40 shrink-0 text-sm font-bold" />
-              <Gauge value={v} />
-              <span className="w-24 shrink-0 text-right text-xs text-muted">
-                {stage ? `${stage}・` : ""}
-                {v}%
-              </span>
-            </PeekLink>
-          );
-        })}
-      </div>
+      {pages.length > 0 && (
+        <div className={circle ? "grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2" : "grid gap-1.5"}>
+          {pages.map((p, i) => {
+            const v = values[i];
+            const stage = prop.type === "stage" ? stageOf(prop, p).current?.name : undefined;
+            return circle ? (
+              <PeekLink key={p.id} database={database} pageId={p.id} className="grid justify-items-center gap-1.5 rounded-[12px] border border-line bg-card p-3 text-center hover:bg-tint">
+                <CircleGauge value={v} size={compact ? 64 : 80} />
+                <PageName database={database} page={p} className="max-w-full text-sm font-bold" />
+                {stage && <span className="text-xs text-muted">{stage}</span>}
+              </PeekLink>
+            ) : (
+              <PeekLink key={p.id} database={database} pageId={p.id} className="flex items-center gap-3 rounded-[10px] border border-line bg-card px-3 py-2 hover:bg-tint">
+                <PageName database={database} page={p} className="w-40 shrink-0 text-sm font-bold" />
+                <Gauge value={v} />
+                <span className="w-24 shrink-0 text-right text-xs text-muted">
+                  {stage ? `${stage}・` : ""}
+                  {v}%
+                </span>
+              </PeekLink>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -43,7 +43,12 @@ export function ChartView({ database, view, pages, members, compact }: ViewProps
         const d = valueOf(p, dateProp.id);
         return isDate(d) && d.slice(0, 7) === m;
       });
-      return { key: m, label: `${Number(m.slice(5))}月`, value: measure(list), count: list.length };
+      return {
+        key: m,
+        label: `${Number(m.slice(5))}月`,
+        value: measure(list),
+        count: list.length,
+      };
     });
     const max = Math.max(1, ...points.map((p) => p.value));
     const W = 600;
@@ -76,7 +81,15 @@ export function ChartView({ database, view, pages, members, compact }: ViewProps
               </text>
               {/* カーソルを合わせる範囲：月ごとの縦の帯 */}
               {points.map((p, i) => (
-                <rect key={p.key} x={xAt(i) - (W - padX * 2) / (points.length - 1) / 2} y={0} width={(W - padX * 2) / (points.length - 1)} height={H} fill="transparent" onPointerEnter={() => setHover(i)} />
+                <rect
+                  key={p.key}
+                  x={xAt(i) - (W - padX * 2) / (points.length - 1) / 2}
+                  y={0}
+                  width={(W - padX * 2) / (points.length - 1)}
+                  height={H}
+                  fill="transparent"
+                  onPointerEnter={() => setHover(i)}
+                />
               ))}
             </svg>
             <div className="mt-1 flex justify-between px-1 text-[11px] text-muted">
@@ -94,15 +107,37 @@ export function ChartView({ database, view, pages, members, compact }: ViewProps
   // ---- 棒・ドーナツ：項目ごと ----
   const group = database.props.find((p) => p.id === view.options.group) ?? groupableProps(database).find((p) => p.type === "status" || p.type === "select");
   if (!group) return <Empty>グラフには、分ける項目（選択・ステータスなど）が必要です。ビューの設定で選んでください。</Empty>;
-  const bars: Bar[] = groupPages(group, pages, { options: { groupOrder: view.options.groupOrder } }, members)
-    .filter((g) => g.pages.length)
-    .map((g) => ({ key: g.key, label: g.label, value: measure(g.pages), count: g.pages.length }));
-  if (!bars.length) return <Empty>該当するものはありません</Empty>;
+  const groups = groupPages(group, pages, { options: { groupOrder: view.options.groupOrder } }, members).map((g) => ({
+    key: g.key,
+    label: g.label,
+    value: measure(g.pages),
+    count: g.pages.length,
+  }));
+  // 1件も無いときは、選択肢を 0 のまま並べる
+  const bars: Bar[] = pages.length ? groups.filter((g) => g.count) : groups.filter((g) => g.key);
+  if (!bars.length)
+    bars.push({
+      key: "__none",
+      label: `${group.name}なし`,
+      value: 0,
+      count: 0,
+    });
   const total = bars.reduce((a, b) => a + b.value, 0);
 
   if (type === "donut") {
     // 9つ目からは「その他」にまとめる（色を作り足さない）
-    const slices = bars.length > 8 ? [...bars.slice(0, 7), { key: "__other", label: "その他", value: bars.slice(7).reduce((a, b) => a + b.value, 0), count: bars.slice(7).reduce((a, b) => a + b.count, 0) }] : bars;
+    const slices =
+      bars.length > 8
+        ? [
+            ...bars.slice(0, 7),
+            {
+              key: "__other",
+              label: "その他",
+              value: bars.slice(7).reduce((a, b) => a + b.value, 0),
+              count: bars.slice(7).reduce((a, b) => a + b.count, 0),
+            },
+          ]
+        : bars;
     const color = (i: number) => (slices[i].key === "__other" ? OTHER : SERIES[i]);
     const R = 70;
     const r = 44;
@@ -130,14 +165,17 @@ export function ChartView({ database, view, pages, members, compact }: ViewProps
           <div className="flex flex-wrap items-center gap-6" onPointerLeave={() => setHover(null)}>
             <div className="relative">
               <svg viewBox="0 0 160 160" className={compact ? "h-32 w-32" : "h-44 w-44"} role="img" aria-label={`${group.name}ごとの${what}`}>
-                {arcs.map(({ s, i, a0, a1 }) =>
-                  // 1つだけのときは輪っか全体
-                  a1 - a0 >= Math.PI * 2 - 1e-6 ? (
-                    <circle key={s.key} cx={80} cy={80} r={(R + r) / 2} fill="none" stroke={color(i)} strokeWidth={R - r} onPointerEnter={() => setHover(i)} />
-                  ) : (
-                    <path key={s.key} d={path(a0, a1)} fill={color(i)} stroke="var(--card)" strokeWidth={2} opacity={hover === null || hover === i ? 1 : 0.55} onPointerEnter={() => setHover(i)} />
-                  ),
-                )}
+                {/* 合計が 0 のときは灰色の輪っかだけ */}
+                {total === 0 && <circle cx={80} cy={80} r={(R + r) / 2} fill="none" stroke="var(--line)" strokeWidth={R - r} />}
+                {total > 0 &&
+                  arcs.map(({ s, i, a0, a1 }) =>
+                    // 1つだけのときは輪っか全体
+                    a1 - a0 >= Math.PI * 2 - 1e-6 ? (
+                      <circle key={s.key} cx={80} cy={80} r={(R + r) / 2} fill="none" stroke={color(i)} strokeWidth={R - r} onPointerEnter={() => setHover(i)} />
+                    ) : (
+                      <path key={s.key} d={path(a0, a1)} fill={color(i)} stroke="var(--card)" strokeWidth={2} opacity={hover === null || hover === i ? 1 : 0.55} onPointerEnter={() => setHover(i)} />
+                    ),
+                  )}
                 <text x={80} y={76} textAnchor="middle" fontSize={11} fill="var(--muted)">
                   合計
                 </text>
@@ -176,7 +214,13 @@ export function ChartView({ database, view, pages, members, compact }: ViewProps
             <div key={b.key} className="relative flex items-center gap-2 text-sm" onPointerEnter={() => setHover(i)}>
               <span className="w-28 shrink-0 truncate">{b.label}</span>
               <span className="h-4 min-w-0 flex-1">
-                <span className={`block h-full rounded-r-[4px] ${hover === i ? "bg-accent" : "bg-accent/70"}`} style={{ width: `${(b.value / max) * 100}%`, minWidth: b.value ? 2 : 0 }} />
+                <span
+                  className={`block h-full rounded-r-[4px] ${hover === i ? "bg-accent" : "bg-accent/70"}`}
+                  style={{
+                    width: `${(b.value / max) * 100}%`,
+                    minWidth: b.value ? 2 : 0,
+                  }}
+                />
               </span>
               <span className="w-28 shrink-0 text-right">{fmt(b.value)}</span>
               {hover === i && <Tip at="bottom-full left-28 mb-1">{`${b.label}：${fmt(b.value)}${sumProp ? `（${b.count}件）` : ""}・全体の${Math.round((b.value / (total || 1)) * 100)}%`}</Tip>}

@@ -614,7 +614,6 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
   );
   // 見出しを出さないときは、歯車だけを右上に重ねる（読むだけのときは何も出さない）
   const headed = props.hideHead !== "1";
-  const ready = !!(database && prop && (page || (thisPage && ctx.template)));
   // チャットの項目のときの、そのページのチャット（送られた画像のボタンに使う）
   const chatValue = isChat && page && prop ? page.values[prop.id] : undefined;
   const chatId = typeof chatValue === "string" ? chatValue : "";
@@ -638,14 +637,15 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
         </span>
       )}
       {headed &&
-        (ready && database && prop ? (
+        (database && prop ? (
           page ? (
             <Link href={`/r/${roomId}/db/${database.id}/p/${page.id}`} className="min-w-0 truncate hover:underline" data-block-title="">
               {thisPage ? prop.name : `${database.name} › ${page.title || "無題"} › ${prop.name}`}
             </Link>
           ) : (
+            // ページが無いとき（テンプレートや、ページが消えたとき）も、選んである項目の名前を出す
             <span className="truncate" data-block-title="">
-              このページ › {prop.name}
+              {thisPage ? `このページ › ${prop.name}` : `${database.name} › ページがありません › ${prop.name}`}
             </span>
           )
         ) : (
@@ -699,12 +699,26 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
       {head}
       {/* 見出しを出さず、歯車を右上に重ねているときは、右に歯車の分の空きを作る */}
       <div className={!headed && !locked ? "pr-6" : ""}>
-        {!headed && !ready && <p className="text-xs text-muted">{message}</p>}
-        {database && prop && !page && thisPage && ctx.template && (
-          <p className="text-sm text-muted">
-            （ページの{prop.name}
-            {extras.map((p) => `・${p.name}`).join("")}）
-          </p>
+        {!headed && !(database && prop) && <p className="text-xs text-muted">{message}</p>}
+        {/* ページが無いとき（テンプレートや、ページが消えたとき）も、0% のゲージや空の値を出す */}
+        {database && prop && !page && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            {shownDisplay === "circle" ? (
+              <CircleGauge value={0} size={96} label={prop.name} />
+            ) : shownDisplay === "line" ? (
+              <div className="flex min-w-48 flex-1 items-center gap-2">
+                <Gauge value={0} />
+                <span className="shrink-0 px-2 font-bold">0%</span>
+              </div>
+            ) : (
+              <span className="text-[1.3em] text-muted">（{prop.name}）</span>
+            )}
+            {extras.map((p) => (
+              <span key={p.id} className="text-muted">
+                （{p.name}）
+              </span>
+            ))}
+          </div>
         )}
         {database && page && prop && (
           // 「進み具合と工程」と同じ並び：ゲージ（または値）の横に一緒に出す項目、その下に工程の期限
