@@ -15,7 +15,8 @@ import {
 import { updatePrefs, useMediaPrefs } from "@/lib/media/prefs";
 
 const SORT_LABEL: Record<SortKey, string> = {
-  new: "日時",
+  new: "追加日時",
+  made: "制作日",
   name: "名前",
   size: "容量",
 };
@@ -23,12 +24,14 @@ const SORT_LABEL: Record<SortKey, string> = {
 // 下向きの矢印にする並び順（上から下へ自然に読める方）：日時は新しい順、名前は A→Z 順、容量は大きい順
 const DOWN_ARROW: Record<SortKey, "asc" | "desc"> = {
   new: "desc",
+  made: "desc",
   name: "asc",
   size: "desc",
 };
 
 const DIR_LABEL: Record<SortKey, { desc: string; asc: string }> = {
   new: { desc: "新しい順", asc: "古い順" },
+  made: { desc: "新しい順", asc: "古い順" },
   name: { desc: "Z→A順", asc: "A→Z順" },
   size: { desc: "大きい順", asc: "小さい順" },
 };
@@ -41,6 +44,7 @@ const COLUMN_ICON: Record<ListColumn, IconName> = {
   pixels: "hash",
   ratio: "expand",
   size: "hash",
+  made: "calendar",
   date: "calendar",
   uploader: "person",
   libs: "folder",

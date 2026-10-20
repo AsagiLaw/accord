@@ -6,9 +6,11 @@ import { useState } from "react";
 import { Icon, type IconName } from "@/components/Icon";
 import { BoxShareDialog } from "@/components/media/BoxShareDialog";
 import { MediaNav } from "@/components/media/MediaNav";
+import { MediaSettingsDialog } from "@/components/media/MediaSettings";
 import { RoomRail } from "@/components/RoomRail";
 import { SidebarShell } from "@/components/SidebarShell";
 import { choose, toast } from "@/components/ui/overlay";
+import { MenuItem, Popover, usePopover } from "@/components/ui/Popover";
 import { useBox, useBoxAccess } from "@/lib/local/boxes";
 import type { Profile } from "@/lib/local/db";
 import { openDm, useMyDms } from "@/lib/local/dm";
@@ -24,10 +26,25 @@ function Badge({ n }: { n: number }) {
   return <span className={`rounded-full px-2 text-xs ${badgeTone(quiet)}`}>{n > 99 ? "99+" : n}</span>;
 }
 
-function NavLink({ href, icon, label, active, badge = 0 }: { href: string; icon: IconName; label: string; active: boolean; badge?: number }) {
+function NavLink({
+  href,
+  icon,
+  label,
+  active,
+  badge = 0,
+  onContextMenu,
+}: {
+  href: string;
+  icon: IconName;
+  label: string;
+  active: boolean;
+  badge?: number;
+  onContextMenu?: (e: React.MouseEvent) => void;
+}) {
   return (
     <Link
       href={href}
+      onContextMenu={onContextMenu}
       aria-current={active ? "page" : undefined}
       className={`flex min-h-[36px] items-center gap-2 rounded-[10px] px-3 py-1.5 transition ${active ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"}`}
     >
@@ -50,6 +67,9 @@ export function DmSidebar({ rooms, me }: { rooms: Room[]; me: Profile }) {
   // 見られないボックス（URL を直接開いたときなど）は、中身も「メディアを追加」も出さない
   const access = useBoxAccess(boxId ?? "", me.id);
   const [sharing, setSharing] = useState(false);
+  // 「メディア」を右クリックしたときのメニューと、そこから開くメディアの設定（ルームのメディアのボタンと同じ）
+  const mediaMenu = usePopover();
+  const [mediaSettings, setMediaSettings] = useState(false);
 
   // 「＋」：フレンドを選んで DM を始める（もうあれば、それを開く）
   const startDm = async () => {
@@ -73,7 +93,19 @@ export function DmSidebar({ rooms, me }: { rooms: Room[]; me: Profile }) {
         <div data-name="フレンドとメディア" className="mt-12 mb-2 space-y-0.5 border-b border-line pb-2 md:mt-0">
           {/* 届いた申請の数を出す */}
           <NavLink href="/dm" icon="ppl" label="フレンド" active={pathname === "/dm"} badge={friendships?.incoming.length} />
-          <NavLink href="/dm/media" icon="folder" label="メディア" active={pathname.startsWith("/dm/media")} />
+          <NavLink href="/dm/media" icon="folder" label="メディア" active={pathname.startsWith("/dm/media")} onContextMenu={mediaMenu.openAt} />
+          <Popover anchor={mediaMenu.anchor} onClose={mediaMenu.close} width={220} label="メディアのメニュー">
+            <MenuItem
+              icon={<Icon name="gear" size={16} />}
+              onClick={() => {
+                mediaMenu.close();
+                setMediaSettings(true);
+              }}
+            >
+              メディアの設定
+            </MenuItem>
+          </Popover>
+          {mediaSettings && <MediaSettingsDialog onClose={() => setMediaSettings(false)} />}
         </div>
 
         {boxId ? (

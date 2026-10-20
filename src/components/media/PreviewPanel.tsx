@@ -3,6 +3,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { db, type Library, type Media } from "@/lib/local/db";
+import { renameMedia, setMadeAt } from "@/lib/local/media";
+import { splitDate } from "@/lib/media/autoname";
 import { aspectRatio, formatSize, readImageMeta, type ImageMeta } from "@/lib/media/image";
 import { chain, descendants, PREVIEW_FIELDS, shownName, typeName, type PreviewField } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
@@ -50,9 +52,104 @@ function useImageMeta(id: string | undefined, rev = 0): ImageMeta | undefined {
   return metaCache.get(key) ?? (loaded?.key === key ? loaded.meta : undefined);
 }
 
+/** 詳細の中で、その場で書き換える欄。ふだんは文字のように見せ、カーソルを乗せると枠が出る */
+const INLINE_INPUT =
+  "-mx-1 w-[calc(100%+0.5rem)] min-w-0 rounded-[6px] border border-transparent bg-transparent px-1 outline-none hover:border-line focus:border-accent";
+
+/** Enter で決める（日本語の変換を決める Enter は除く）・Esc でやめる */
+const commitKeys = (cancel: () => void) => (e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (e.nativeEvent.isComposing) return;
+  if (e.key === "Enter") e.currentTarget.blur();
+  if (e.key === "Escape") {
+    e.stopPropagation();
+    cancel();
+    requestAnimationFrame(() => (document.activeElement as HTMLElement | null)?.blur());
+  }
+};
+
+/** タイトルの欄（自動で名前を付けた画像だけ）。変えると名前も「20250101_タイトル」（同じものが2枚以上なら _01 から番号付き）の形で付け直す。空にしたら元のまま */
+function TitleInput({ m }: { m: Media }) {
+  const [draft, setDraft] = useState(m.title ?? "");
+  const save = () => {
+    const v = draft.trim();
+    if (!v) setDraft(m.title ?? "");
+    else if (v !== m.title) void renameMedia(m.id, v);
+  };
+  return (
+    <input
+      value={draft}
+      aria-label="タイトル"
+      placeholder="タイトルなし"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={save}
+      onKeyDown={commitKeys(() => setDraft(m.title ?? ""))}
+      className={INLINE_INPUT}
+    />
+  );
+}
+
+/** 制作日の欄に出す日付「2025/01/01」（端末の時刻で） */
+const dateText = (t: number | undefined) => (t === undefined ? "" : new Date(t).toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" }));
+
+/**
+ * 制作日の欄。打って直す（2025/01/01・20250101・2025年1月1日 など）か、横のカレンダーから選ぶ。
+ * 時刻はそのままで日付だけ変える。自動の名前の画像は、名前の日付も変わる
+ */
+function MadeInput({ m }: { m: Media }) {
+  const [draft, setDraft] = useState(dateText(m.madeAt));
+  const picker = useRef<HTMLInputElement>(null);
+  const commit = (y: number, mo: number, d: number) => {
+    const t = new Date(m.madeAt ?? new Date(y, mo - 1, d).getTime());
+    t.setFullYear(y, mo - 1, d);
+    if (t.getTime() !== m.madeAt) void setMadeAt(m.id, t.getTime());
+  };
+  const save = () => {
+    const { date } = splitDate(draft.trim());
+    if (!date) return setDraft(dateText(m.madeAt));
+    commit(date.y, date.m, date.d);
+  };
+  return (
+    <span className="flex items-center gap-1">
+      <input
+        value={draft}
+        aria-label="制作日"
+        placeholder="記録なし"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={commitKeys(() => setDraft(dateText(m.madeAt)))}
+        className={`${INLINE_INPUT} flex-1`}
+      />
+      {/* カレンダーは、見えない日付の欄の選ぶ画面を借りて出す */}
+      <span className="relative shrink-0">
+        <button
+          type="button"
+          title="カレンダーから選ぶ"
+          aria-label="カレンダーから選ぶ"
+          onClick={() => picker.current?.showPicker()}
+          className="grid h-5 w-5 place-items-center rounded-[6px] text-muted hover:bg-tint hover:text-ink"
+        >
+          <Icon name="calendar" size={14} />
+        </button>
+        <input
+          ref={picker}
+          type="date"
+          tabIndex={-1}
+          aria-hidden
+          value={m.madeAt === undefined ? "" : new Date(m.madeAt).toLocaleDateString("sv-SE")}
+          onChange={(e) => {
+            const g = /^(\d{4})-(\d{2})-(\d{2})$/.exec(e.target.value);
+            if (g) commit(+g[1], +g[2], +g[3]);
+          }}
+          className="pointer-events-none absolute inset-0 opacity-0"
+        />
+      </span>
+    </span>
+  );
+}
+
 /** プレビューの中身（選んだ画像の大きな表示と詳細） */
 function PreviewBody() {
-  const { selected, byId, libs, members, setViewing } = useMediaState();
+  const { selected, byId, libs, members, setViewing, canEdit } = useMediaState();
   const { showExt, previewRatio, previewFields } = useMediaPrefs();
   const id = selected.at(-1);
   const m = id ? byId.get(id) : undefined;
@@ -60,9 +157,16 @@ function PreviewBody() {
   // 解像度は、追加したときに読めなかった画像（Photoshop の JPEG など）も、元の画像から読み直す
   const dpi = meta?.dpi || m?.dpi;
 
-  // 詳細の項目ごとの中身。出す項目と順番はメディアの設定で決める
+  // 詳細の項目ごとの中身。出す項目と順番はメディアの設定で決める。null の項目は出さない
   const value = (f: PreviewField, m: Media): React.ReactNode => {
     switch (f) {
+      // タイトルと制作日は、その場で書き換えられる（中身が変わったら欄を作り直す）
+      case "title":
+        if (m.title === undefined) return null;
+        return canEdit ? <TitleInput key={`${m.id}:${m.title}`} m={m} /> : m.title || <span className="text-muted">なし</span>;
+      case "made":
+        if (canEdit) return <MadeInput key={`${m.id}:${m.madeAt}`} m={m} />;
+        return m.madeAt ? new Date(m.madeAt).toLocaleDateString("ja-JP") : <span className="text-muted">記録なし</span>;
       case "fileName":
         return m.fileName;
       case "type":
@@ -103,7 +207,8 @@ function PreviewBody() {
   const rows: [string, React.ReactNode][] = m
     ? previewFields.flatMap((f) => {
         const name = PREVIEW_FIELDS.find((x) => x.id === f)?.name;
-        return name ? [[name, value(f, m)] as [string, React.ReactNode]] : [];
+        const v = value(f, m);
+        return name && v !== null ? [[name, v] as [string, React.ReactNode]] : [];
       })
     : [];
 

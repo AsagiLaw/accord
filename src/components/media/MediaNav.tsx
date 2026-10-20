@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { Icon, type IconName } from "@/components/Icon";
 import type { Library } from "@/lib/local/db";
 import { useLibraries, useMedia } from "@/lib/local/media";
+import { filesFromFolderInput } from "@/lib/media/folders";
 import { IMAGE_ACCEPT } from "@/lib/media/image";
 import { chain, childrenOf, descendants, isUnsorted } from "@/lib/media/logic";
 import {
@@ -73,7 +74,8 @@ export function MediaNav({
     }
   };
   // ファイルを選ぶ画面が開いている間は「メディアを追加」に色を付けたままにする
-  const [picking, setPicking] = useState(false);
+  // ファイルを選ぶ画面を開いている間は、押したボタンを押した色のままにする
+  const [picking, setPicking] = useState<"files" | "folder" | null>(null);
 
   // ---- ライブラリーのドラッグ（試作と同じ：前・後ろに並べる／中に入れる／見出しで一番上へ） ----
   const drag = useRef<DragState | null>(null);
@@ -281,6 +283,14 @@ export function MediaNav({
     );
   };
 
+  /** ファイルを選ぶ画面を開いた。閉じたら（選ばずに閉じたときも）ボタンの色を戻す */
+  const watchPicker = (input: HTMLInputElement, kind: "files" | "folder") => {
+    setPicking(kind);
+    input.addEventListener("cancel", () => setPicking(null), { once: true });
+    // 「キャンセル」の知らせが来ないブラウザ向け：画面に戻ってきたら閉じたものとする
+    window.addEventListener("focus", () => setTimeout(() => setPicking(null), 300), { once: true });
+  };
+
   return (
     <div
       className="flex min-h-0 flex-1 flex-col"
@@ -298,44 +308,59 @@ export function MediaNav({
         </p>
       )}
       {canEdit && (
-      <label
-        className={`btn-sub mb-2 cursor-pointer font-bold active:border-accent active:bg-accent active:text-accent-ink ${
-          picking
-            ? "border-accent bg-accent text-accent-ink hover:bg-accent"
-            : ""
-        }`}
-      >
-        <Icon name="upload" />
-        メディアを追加
-        <input
-          type="file"
-          accept={IMAGE_ACCEPT}
-          multiple
-          className="sr-only"
-          onClick={(e) => {
-            setPicking(true);
-            e.currentTarget.addEventListener(
-              "cancel",
-              () => setPicking(false),
-              { once: true },
-            );
-            // 「キャンセル」の知らせが来ないブラウザ向け：画面に戻ってきたら閉じたものとする
-            window.addEventListener(
-              "focus",
-              () => setTimeout(() => setPicking(false), 300),
-              { once: true },
-            );
-          }}
-          onChange={(e) => {
-            setPicking(false);
-            const files = [...(e.target.files ?? [])];
-            e.target.value = "";
-            uploadFlow(boxId, userId, files, () =>
-              router.push(`${base}/unsorted`),
-            );
-          }}
-        />
-      </label>
+      <div className="mb-2 flex gap-1.5">
+        <label
+          className={`btn-sub flex-1 cursor-pointer font-bold active:border-accent active:bg-accent active:text-accent-ink ${
+            picking === "files"
+              ? "border-accent bg-accent text-accent-ink hover:bg-accent"
+              : ""
+          }`}
+        >
+          <Icon name="upload" />
+          メディアを追加
+          <input
+            type="file"
+            accept={IMAGE_ACCEPT}
+            multiple
+            className="sr-only"
+            onClick={(e) => watchPicker(e.currentTarget, "files")}
+            onChange={(e) => {
+              setPicking(null);
+              const files = [...(e.target.files ?? [])];
+              e.target.value = "";
+              uploadFlow(boxId, userId, files, () =>
+                router.push(`${base}/unsorted`),
+              );
+            }}
+          />
+        </label>
+        {/* フォルダごと入れる（中の画像をすべて。自動の名前のタイトルはフォルダ名） */}
+        <label
+          title="フォルダを追加"
+          className={`btn-sub w-10 shrink-0 cursor-pointer px-0 active:border-accent active:bg-accent active:text-accent-ink ${
+            picking === "folder"
+              ? "border-accent bg-accent text-accent-ink hover:bg-accent"
+              : ""
+          }`}
+        >
+          <Icon name="folderUpload" />
+          <input
+            type="file"
+            aria-label="フォルダを追加"
+            {...{ webkitdirectory: "" }}
+            className="sr-only"
+            onClick={(e) => watchPicker(e.currentTarget, "folder")}
+            onChange={(e) => {
+              setPicking(null);
+              const files = filesFromFolderInput(e.target.files ?? []);
+              e.target.value = "";
+              uploadFlow(boxId, userId, files, () =>
+                router.push(`${base}/unsorted`),
+              );
+            }}
+          />
+        </label>
+      </div>
       )}
 
       <div data-name="メディアの一覧" className="space-y-0.5">

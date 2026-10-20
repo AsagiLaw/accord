@@ -14,11 +14,13 @@ import {
 import type { Library, Media } from "@/lib/local/db";
 import { renameLibrary, renameMedia, setFav } from "@/lib/local/media";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
+import { filesFromDrop } from "@/lib/media/folders";
 import {
   arrange,
   chain,
   childrenOf,
   coverOf,
+  editableName,
   extOf,
   isUnsorted,
   libraryView,
@@ -27,12 +29,14 @@ import {
 } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
 import {
+  autoNameFlow,
   copyImageFlow,
   deleteForeverFlow,
   duplicateFlow,
   downloadFlow,
   removeFromLibraryFlow,
   restoreFlow,
+  retitleFlow,
   revertEditFlow,
   trashFlow,
   uploadFlow,
@@ -309,6 +313,14 @@ export function MediaView({ view }: { view: MediaViewKind }) {
           >
             名前を変更
           </MenuItem>
+          {prefs.autoName && viewingMedia.title === undefined && !viewingMedia.trashed && (
+            <MenuItem
+              icon={<Icon name="title" size={16} />}
+              onClick={run(() => autoNameFlow([viewingMedia]))}
+            >
+              名前を自動で付ける
+            </MenuItem>
+          )}
           {!viewingMedia.trashed && editItems(viewingMedia)}
           <MenuItem
             icon={<Icon name="star" size={16} />}
@@ -411,6 +423,23 @@ export function MediaView({ view }: { view: MediaViewKind }) {
             名前を変更
           </MenuItem>
         )}
+        {/* 名前を自動で付ける設定のとき：複数の画像のタイトルをまとめて変える・今ある画像に自動の名前を付ける */}
+        {n > 1 && prefs.autoName && (
+          <MenuItem
+            icon={<Icon name="edit" size={16} />}
+            onClick={run(() => retitleFlow(selectedMedia).then(done))}
+          >
+            タイトルをまとめて変更
+          </MenuItem>
+        )}
+        {prefs.autoName && selectedMedia.some((m) => m.title === undefined) && (
+          <MenuItem
+            icon={<Icon name="title" size={16} />}
+            onClick={run(() => autoNameFlow(selectedMedia).then(done))}
+          >
+            名前を自動で付ける
+          </MenuItem>
+        )}
         {n === 1 && selectedMedia[0] && editItems(selectedMedia[0])}
         <MenuItem
           icon={<Icon name="star" size={16} />}
@@ -491,6 +520,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
     <InlineName
       key={`${viewingMedia.id}${s.renaming === viewingMedia.id ? ":edit" : ""}`}
       name={viewingMedia.name}
+      editValue={editableName(viewingMedia)}
       suffix={prefs.showExt ? `.${extOf(viewingMedia)}` : undefined}
       startEditing={s.renaming === viewingMedia.id}
       onEditEnd={() => s.setRenaming(null)}
@@ -529,8 +559,9 @@ export function MediaView({ view }: { view: MediaViewKind }) {
           return;
         e.preventDefault();
         setDragging(false);
-        uploadFlow(boxId, me.id, [...e.dataTransfer.files], () =>
-          router.push(`${base}/unsorted`),
+        // フォルダごと入れたときは、中の画像をすべて入れる（自動の名前のタイトルはフォルダ名）
+        void filesFromDrop(e.dataTransfer).then((files) =>
+          uploadFlow(boxId, me.id, files, () => router.push(`${base}/unsorted`)),
         );
       }}
     >
@@ -915,12 +946,15 @@ function LibraryRows({ size }: { size: number }) {
 /** 上のバーの名前。ダブルクリックでその場で入力欄になる（Enter か外を押すと保存、Esc でやめる。空にしたら元のまま） */
 function InlineName({
   name,
+  editValue = name,
   onRename,
   startEditing = false,
   onEditEnd,
   suffix,
 }: {
   name: string;
+  /** 書き換える所（自動で名前を付けた画像はタイトルだけ）。無ければ名前 */
+  editValue?: string;
   /** 名前の後ろに付けて見せる文字（拡張子）。書き換えるのは名前だけ */
   suffix?: string;
   onRename: (name: string) => unknown;
@@ -928,7 +962,7 @@ function InlineName({
   startEditing?: boolean;
   onEditEnd?: () => void;
 }) {
-  const [draft, setDraft] = useState<string | null>(startEditing ? name : null);
+  const [draft, setDraft] = useState<string | null>(startEditing ? editValue : null);
   // 入力欄になったら、そこに入力の場所を移して名前を全部選ぶ（そのまま打てば書き換わる）
   const input = useRef<HTMLInputElement>(null);
   const editing = draft !== null;
@@ -941,7 +975,7 @@ function InlineName({
     const v = draft?.trim() ?? "";
     setDraft(null);
     onEditEnd?.();
-    if (v && v !== name) void onRename(v);
+    if (v && v !== editValue) void onRename(v);
   };
   return draft !== null ? (
     <input
@@ -966,7 +1000,7 @@ function InlineName({
     />
   ) : (
     <button
-      onDoubleClick={() => setDraft(name)}
+      onDoubleClick={() => setDraft(editValue)}
       title="ダブルクリックで名前を変える"
       className="truncate rounded-[6px] px-1 py-0.5 font-bold hover:bg-tint"
     >

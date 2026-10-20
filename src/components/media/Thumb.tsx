@@ -5,7 +5,7 @@ import { Icon } from "@/components/Icon";
 import type { Media } from "@/lib/local/db";
 import { ThumbImage } from "@/components/ThumbImage";
 import { startMediaDrag, useOriginalUrl } from "@/lib/media/export";
-import { shownName } from "@/lib/media/logic";
+import { editableName, shownName } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
 import { toast } from "@/components/ui/overlay";
 
@@ -148,7 +148,7 @@ export function Thumb({
       {!renaming && <DragOriginal m={m} multiSelected={order !== undefined} />}
       {renaming ? (
         <NameField
-          name={m.name}
+          name={editableName(m)}
           onDone={(n) => onRenamed?.(n)}
           className="absolute right-2 bottom-2 left-2 h-6 text-xs font-bold"
         />

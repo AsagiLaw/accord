@@ -1,8 +1,10 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
+import { APPEND } from "@/lib/media/autoname";
 import { db, newId, newMyMediaBox, type BoxShare, type Media, type MediaBox } from "./db";
 import type { MemberWithProfile } from "./rooms";
+import { renumber } from "./renumber";
 import { forgetBoxes, pullRows } from "./rowSync";
 import { deletedBoxes, pull, SaveError, sb, supa } from "./sync";
 
@@ -144,13 +146,14 @@ async function losersIfRemoved(share: BoxShare) {
 
 /**
  * ボックスを使えなくなった人が入れた画像を、それぞれのマイメディアに移す（ライブラリーからは外れる）。
- * 移した画像を代表にしていたライブラリーは、代表なしに戻す。移した枚数を返す
+ * 移した画像を代表にしていたライブラリーは、代表なしに戻す。移した枚数を返す。
+ * 自動の名前の番号は、残ったボックスでは詰め、移した先では最後の番号にする
  */
 async function moveOutImagesOf(boxId: string, userIds: string[]) {
   if (!userIds.length) return 0;
   const target = new Map<string, string>();
   for (const id of userIds) target.set(id, await ensureMyMedia(id));
-  return db.transaction("rw", db.media, db.libraries, async () => {
+  const moved = await db.transaction("rw", db.media, db.libraries, async () => {
     const ids = (await db.media.where("boxId").equals(boxId).toArray()).filter((m) => target.has(m.uploadedBy)).map((m) => m.id);
     await db.media
       .where("id")
@@ -158,6 +161,7 @@ async function moveOutImagesOf(boxId: string, userIds: string[]) {
       .modify((m: Media) => {
         m.boxId = target.get(m.uploadedBy)!;
         m.libIds = [];
+        if (m.title !== undefined) m.seq = APPEND + (m.seq ?? 0);
       });
     await db.libraries
       .where("boxId")
@@ -166,6 +170,8 @@ async function moveOutImagesOf(boxId: string, userIds: string[]) {
       .modify({ repMediaId: null });
     return ids.length;
   });
+  if (moved) for (const id of [boxId, ...new Set(target.values())]) await renumber(id);
+  return moved;
 }
 
 /** 共有をやめると、ほかの人のマイメディアに移る画像の枚数（やめる前の確認に使う） */
@@ -244,11 +250,15 @@ export async function setShareCanEdit(shareId: string, canEdit: boolean) {
 export async function removeShare(shareId: string) {
   // Supabase 版：使えなくなった人の画像を、その人のマイメディアに移すのは Supabase の関数で行う（ほかの人のマイメディアは見られないため：0014）
   if (supa) {
+    const boxId = (await db.boxShares.get(shareId))?.boxId;
     const { data, error } = await sb().rpc("remove_box_share", { share: shareId });
     if (error) throw new SaveError(`共有をやめられませんでした（${error.message}）`);
     await pull();
     await pullRows();
-    return typeof data === "number" ? data : 0;
+    // 画像が抜けたボックスの、自動の名前の番号を詰める（移った先のボックスは見られないので、その人が次に触ったときに詰まる）
+    const moved = typeof data === "number" ? data : 0;
+    if (moved && boxId && (await db.mediaBoxes.get(boxId))) await renumber(boxId);
+    return moved;
   }
   const share = await db.boxShares.get(shareId);
   if (!share) return 0;

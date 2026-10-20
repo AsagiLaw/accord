@@ -10,6 +10,7 @@ import {
   arrange,
   childrenOf,
   descendants,
+  editableName,
   libraryView,
   repOf,
   LIST_COLUMNS,
@@ -205,6 +206,8 @@ export function MediaGrid({
           return aspectRatio(m.width, m.height);
         case "size":
           return formatSize(m.size);
+        case "made":
+          return m.madeAt ? new Date(m.madeAt).toLocaleDateString("ja-JP") : "—";
         case "date":
           return new Date(m.createdAt).toLocaleString("ja-JP", {
             dateStyle: "short",
@@ -261,7 +264,7 @@ export function MediaGrid({
             </span>
             {renaming === m.id ? (
               <NameField
-                name={m.name}
+                name={editableName(m)}
                 onDone={renamed(m.id)}
                 className="h-5 flex-1 text-sm"
               />

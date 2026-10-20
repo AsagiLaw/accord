@@ -10,6 +10,7 @@ import { useLibraries, useMedia, uploadFiles } from "@/lib/local/media";
 import { IMAGE_ACCEPT } from "@/lib/media/image";
 import { arrange, chain, childrenOf, coverOf, isUnsorted, libraryView, searchMedia, shownName, THUMB_SIZES } from "@/lib/media/logic";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
+import { filesFromDrop, type ImportFile } from "@/lib/media/folders";
 import { useMediaPrefs } from "@/lib/media/prefs";
 import { ThumbImage } from "@/components/ThumbImage";
 import { CoverCard } from "@/components/media/LibraryCard";
@@ -93,7 +94,7 @@ export function MediaPicker({
     setNavOpen(false);
   };
 
-  const upload = async (files: File[]) => {
+  const upload = async (files: (File | ImportFile)[]) => {
     if (!files.length) return;
     setBusy(true);
     const target = canAdd ? boxId : await ensureMyMedia(userId);
@@ -155,7 +156,8 @@ export function MediaPicker({
           e.preventDefault();
           // メディアの画像をドラッグしてきたときは、ファイルの追加として扱わない
           if (e.dataTransfer.types.includes(MEDIA_DRAG_TYPE)) return;
-          upload([...e.dataTransfer.files]);
+          // フォルダごと入れたときは、中の画像をすべて入れる
+          void filesFromDrop(e.dataTransfer).then(upload);
         }}
       >
         <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3 sm:px-5">

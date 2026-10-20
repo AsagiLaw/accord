@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "@/components/Icon";
 import { PropVisibilityScreen } from "@/components/blockSettings";
-import { MenuTitle, NavRow, OptionRow, SectionHead } from "@/components/ui/SettingsMenu";
+import { MenuTitle, NavRow, OptionRow, SectionHead, ToggleRow } from "@/components/ui/SettingsMenu";
 import { PREVIEW_FIELDS, type PreviewField } from "@/lib/media/logic";
 import { updatePrefs, useMediaPrefs } from "@/lib/media/prefs";
 
 const FIELD_ICON: Record<PreviewField, IconName> = {
+  title: "title",
+  made: "calendar",
   fileName: "text",
   type: "tag",
   dims: "img",
@@ -25,7 +27,7 @@ const FIELD_ICON: Record<PreviewField, IconName> = {
 
 /**
  * メディアの設定（サイドバーのメディアのボタンを右クリック →「メディアの設定」）。
- * プレビュー欄の画像の枠（元の縦横比／1:1）と、詳細に出す項目・順番を変える。端末ごとに覚える
+ * 入れた画像の名前を自動で付けるか、プレビュー欄の画像の枠（元の縦横比／1:1）と、詳細に出す項目・順番を変える。端末ごとに覚える
  */
 export function MediaSettingsDialog({ onClose }: { onClose: () => void }) {
   const prefs = useMediaPrefs();
@@ -75,6 +77,14 @@ export function MediaSettingsDialog({ onClose }: { onClose: () => void }) {
                 <Icon name="x" size={16} />
               </button>
             </div>
+            <SectionHead label="画像の名前" />
+            <ToggleRow
+              icon="title"
+              label="名前を自動で付ける"
+              note="入れた画像の名前を「20250101_タイトル」の形にします。同じ制作日・同じタイトルが2枚以上なら「_01」から番号を付けます。フォルダごと入れたらフォルダ名がタイトルになり、名前の中の日付は前に回します"
+              on={prefs.autoName}
+              onChange={(autoName) => updatePrefs({ autoName })}
+            />
             <SectionHead label="プレビュー欄の画像" />
             <OptionRow
               icon="img"

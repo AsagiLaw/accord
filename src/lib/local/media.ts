@@ -3,13 +3,17 @@
 import Dexie from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect } from "react";
+import { APPEND, autoName, groupKey, madeOf, planExisting, planImport, stripExt } from "@/lib/media/autoname";
 import { forgetBlobUrls, refreshBlobUrls } from "@/lib/media/blob-url";
 import { isDefaultEdit, renderEdit, type ImageEdit } from "@/lib/media/edit";
-import { decodeImage, isImageFile, makeThumb, readImage } from "@/lib/media/image";
+import type { ImportFile } from "@/lib/media/folders";
+import { decodeImage, isImageFile, makeThumb, readImage, readRecordedDate } from "@/lib/media/image";
 import { PSD_MIME } from "@/lib/media/psd";
 import { childrenOf, descendants, withAncestors } from "@/lib/media/logic";
+import { mediaPrefs } from "@/lib/media/prefs";
 import { loadBlobRow } from "@/lib/media/remote";
 import { uploadBoxForRoom } from "./boxes";
+import { renumber, renumberBoxes } from "./renumber";
 import { fetchReferencedMedia } from "./rowSync";
 import { db, newId, type Library, type Media, type MediaBlob } from "./db";
 
@@ -71,18 +75,34 @@ export function useLibraries(boxId: string) {
 
 async function snapshot(boxId: string): Promise<Undo> {
   const libs = await db.libraries.where("boxId").equals(boxId).toArray();
+  // 自動の名前の番号も控える（ゴミ箱に入れると、残りの番号が詰まるため）
   const media = (await db.media.where("boxId").equals(boxId).toArray()).map((m) => ({
     id: m.id,
     libIds: [...m.libIds],
     trashed: m.trashed,
     fav: m.fav,
+    name: m.name,
+    title: m.title,
+    seq: m.seq,
+    madeAt: m.madeAt,
   }));
   return async () => {
     await db.transaction("rw", db.libraries, db.media, async () => {
       await db.libraries.where("boxId").equals(boxId).delete();
       await db.libraries.bulkAdd(libs);
-      for (const m of media) await db.media.update(m.id, { libIds: m.libIds, trashed: m.trashed, fav: m.fav });
+      for (const m of media) {
+        const { id, ...rest } = m;
+        await db.media.update(id, rest);
+      }
     });
+  };
+}
+
+/** いくつかのボックスを控える（選んだ画像が別々のボックスにあるとき） */
+async function snapshotOf(rows: Media[]): Promise<Undo> {
+  const undos = await Promise.all([...new Set(rows.map((m) => m.boxId))].map(snapshot));
+  return async () => {
+    for (const undo of undos) await undo();
   };
 }
 
@@ -90,18 +110,109 @@ async function boxLibs(boxId: string) {
   return db.libraries.where("boxId").equals(boxId).toArray();
 }
 
+// ---- 自動の名前（20250101_誕生日・20250101_誕生日_01） ----
+
+/** ボックスの中の、まとまりごとの今の枚数（入れる画像に続きの番号を付けるため。番号は詰めてあるので、一番大きい番号と同じ） */
+async function groupSizes(boxId: string) {
+  const out = new Map<string, number>();
+  await db.media
+    .where("boxId")
+    .equals(boxId)
+    .each((m) => {
+      if (m.title === undefined || m.trashed) return;
+      const key = groupKey(madeOf(m), m.title);
+      out.set(key, (out.get(key) ?? 0) + 1);
+    });
+  return out;
+}
+
+/** 今ある画像の、中に記録された撮影日・作成日（無ければファイルの更新日時）。編集した画像は編集前の画像から読む */
+async function recordedDates(rows: Media[]) {
+  const out = new Map<string, number | null>();
+  for (const m of rows) {
+    const row = await loadBlobRow(m.id).catch(() => undefined);
+    const file = row?.source ?? row?.original;
+    const modified = file instanceof File && file.lastModified ? file.lastModified : null;
+    out.set(m.id, file ? ((await readRecordedDate(file)) ?? modified) : null);
+  }
+  return out;
+}
+
+/**
+ * 画像のタイトルを変えて、名前を付け直す（名前の変更・プレビュー欄のタイトル・まとめてタイトルを変更）。
+ * 自動の名前でなかった画像も、この形にする。加わったまとまりでは最後の番号になる（選んだ画像どうしは今の番号の順）
+ */
+export async function setTitle(ids: string[], title: string): Promise<Undo> {
+  const rows = (await db.media.bulkGet(ids)).filter((m): m is Media => !!m && m.title !== title);
+  const recorded = await recordedDates(rows.filter((m) => m.title === undefined && m.madeAt === undefined));
+  const undo = await snapshotOf(rows);
+  await db.transaction("rw", db.media, async () => {
+    for (const m of rows) {
+      const madeAt = m.title === undefined ? planExisting(m, recorded.get(m.id) ?? null).madeAt : madeOf(m);
+      await db.media.update(m.id, { title, madeAt, seq: APPEND + (m.seq ?? 0) });
+    }
+  });
+  await renumberBoxes(rows);
+  return undo;
+}
+
+/** 今ある画像に自動の名前を付ける（右クリックの「名前を自動で付ける」）。タイトルは今の名前から日付を除いたもの */
+export async function applyAutoName(ids: string[]): Promise<Undo> {
+  const rows = (await db.media.bulkGet(ids)).filter((m): m is Media => !!m && m.title === undefined);
+  const recorded = await recordedDates(rows.filter((m) => m.madeAt === undefined));
+  const undo = await snapshotOf(rows);
+  await db.transaction("rw", db.media, async () => {
+    // 番号は、今の並び（追加した順）で振る
+    for (const m of [...rows].sort((a, b) => a.createdAt - b.createdAt)) await db.media.update(m.id, { ...planExisting(m, recorded.get(m.id) ?? null), seq: APPEND });
+  });
+  await renumberBoxes(rows);
+  return undo;
+}
+
+/** 制作日を変える（プレビュー欄の制作日）。自動の名前の画像は、名前の日付も変わり、その日のまとまりの最後の番号になる */
+export async function setMadeAt(id: string, madeAt: number) {
+  const m = await db.media.get(id);
+  if (!m || m.madeAt === madeAt) return;
+  await db.media.update(id, m.title === undefined ? { madeAt } : { madeAt, seq: APPEND });
+  if (m.title !== undefined) await renumber(m.boxId);
+}
+
 // ---- 画像 ----
 
-export async function uploadFiles(boxId: string, userId: string, files: File[]) {
+/**
+ * 画像を入れる。制作日はいつも記録し、メディアの設定で「名前を自動で付ける」がオンなら、名前を「20250101_誕生日」の形にする
+ * （同じ制作日・同じタイトルが2枚以上なら「_01」から番号を付ける）
+ * （フォルダごと入れたらフォルダ名をタイトルにし、フォルダの中の名前の順に番号を振る）
+ */
+export async function uploadFiles(boxId: string, userId: string, files: (File | ImportFile)[]) {
   const ids: string[] = [];
   let failed = 0;
-  for (const file of files) {
-    if (!isImageFile(file)) {
+  const auto = mediaPrefs().autoName;
+  const text = (a: string, b: string) => a.localeCompare(b, "ja", { numeric: true });
+  let items = files.map((f) => (f instanceof File ? { file: f } : f));
+  if (auto) items = [...items].sort((a, b) => text(a.folder ?? "", b.folder ?? "") || text(a.file.name, b.file.name));
+  // 先に、すべての画像の制作日とタイトルを決める（同じまとまりが2枚以上になるかで、番号を付けるかが決まるため）
+  const plans: (ReturnType<typeof planImport> | null)[] = [];
+  for (const { file, folder } of items)
+    plans.push(isImageFile(file) ? planImport({ fileName: file.name, folder, embedded: await readRecordedDate(file), modified: file.lastModified || null }) : null);
+  const seqs = auto ? await groupSizes(boxId) : null;
+  const totals = new Map(seqs);
+  if (seqs) for (const p of plans) if (p) totals.set(groupKey(p.madeAt, p.title), (totals.get(groupKey(p.madeAt, p.title)) ?? 0) + 1);
+  for (const [i, { file }] of items.entries()) {
+    const plan = plans[i];
+    if (!plan) {
       failed++;
       continue;
     }
     try {
       const info = await readImage(file);
+      let naming: Pick<Media, "name" | "title" | "seq"> = { name: stripExt(file.name) };
+      if (seqs) {
+        const key = groupKey(plan.madeAt, plan.title);
+        const seq = (seqs.get(key) ?? 0) + 1;
+        seqs.set(key, seq);
+        naming = { name: autoName(plan.madeAt, plan.title, totals.get(key)! > 1 ? seq : undefined), title: plan.title, seq };
+      }
       const id = newId();
       await db.transaction("rw", db.media, db.mediaBlobs, async () => {
         await db.mediaBlobs.add({ id, original: file, thumb: info.thumb, ...(info.view && { view: info.view }) });
@@ -109,7 +220,8 @@ export async function uploadFiles(boxId: string, userId: string, files: File[]) 
           id,
           boxId,
           uploadedBy: userId,
-          name: file.name.replace(/\.\w+$/, ""),
+          ...naming,
+          madeAt: plan.madeAt,
           fileName: file.name,
           mime: info.view ? PSD_MIME : file.type,
           size: file.size,
@@ -127,6 +239,8 @@ export async function uploadFiles(boxId: string, userId: string, files: File[]) 
       failed++;
     }
   }
+  // 前からあった1枚に番号が付く（2枚目が入った）まとまりや、読めなかった画像で間が空いたまとまりを、ここで整える
+  if (auto && ids.length) await renumber(boxId);
   return { ids, failed };
 }
 
@@ -184,8 +298,11 @@ export function useChatSentMedia(chatId: string) {
   }, [chatId]);
 }
 
+/** 名前を変える。自動で名前を付けた画像は、書いたものをタイトルにして名前を付け直す */
 export async function renameMedia(id: string, name: string) {
-  await db.media.update(id, { name });
+  const m = await db.media.get(id);
+  if (m?.title !== undefined) await setTitle([id], name);
+  else await db.media.update(id, { name });
 }
 
 export async function setFav(ids: string[], fav: boolean) {
@@ -195,11 +312,21 @@ export async function setFav(ids: string[], fav: boolean) {
 export async function moveToTrash(boxId: string, ids: string[]): Promise<Undo> {
   const undo = await snapshot(boxId);
   await db.media.where("id").anyOf(ids).modify({ trashed: true });
+  // 自動の名前の番号は、抜けた所を詰める
+  await renumber(boxId);
   return undo;
 }
 
+/** ゴミ箱から戻す。自動の名前の画像は、そのときのまとまりの最後の番号になる */
 export async function restoreFromTrash(ids: string[]) {
-  await db.media.where("id").anyOf(ids).modify({ trashed: false });
+  await db.media
+    .where("id")
+    .anyOf(ids)
+    .modify((m: Media) => {
+      m.trashed = false;
+      if (m.title !== undefined) m.seq = APPEND + (m.seq ?? 0);
+    });
+  await renumberBoxes(await db.media.bulkGet(ids));
 }
 
 /** 完全に削除。アップロードした本人の画像だけ消し、他の人の画像は残す */
@@ -337,6 +464,9 @@ export async function saveEditAsCopy(id: string, edit: ImageEdit, userId: string
     trashed: false,
     // 元の画像と同じライブラリーに入れる
     libIds: [...m.libIds],
+    // 自動の名前の画像は、同じタイトルの最後の番号にする（振り直しで名前が決まる）
+    ...(m.madeAt !== undefined && { madeAt: m.madeAt }),
+    ...(m.title !== undefined && { title: m.title, seq: APPEND }),
   };
   let blobRow: MediaBlob;
   let media: Media;
@@ -354,11 +484,13 @@ export async function saveEditAsCopy(id: string, edit: ImageEdit, userId: string
     await db.mediaBlobs.add(blobRow);
     await db.media.add(media);
   });
+  if (media.title !== undefined) await renumber(media.boxId);
   return { id: copyId, undo: () => removeCopies([copyId]) };
 }
 
 /** 作った複製を取り消す（「元に戻す」用） */
 async function removeCopies(ids: string[]) {
+  const rows = await db.media.bulkGet(ids);
   await db.transaction("rw", db.media, db.mediaBlobs, db.libraries, async () => {
     await db.media.bulkDelete(ids);
     await db.mediaBlobs.bulkDelete(ids);
@@ -367,10 +499,12 @@ async function removeCopies(ids: string[]) {
       .modify({ repMediaId: null });
   });
   forgetBlobUrls(ids);
+  await renumberBoxes(rows);
 }
 
 /**
  * 画像をそのまま複製する（右クリックの「複製」）。名前は「〇〇 のコピー」、元と同じライブラリーに入れる。
+ * 自動の名前の画像は、同じタイトルの最後の番号になる。
  * 編集してある画像は、編集の内容とオリジナルも写すので、複製もオリジナルに戻せる
  */
 export async function duplicateMedia(ids: string[], userId: string): Promise<{ ids: string[]; undo: Undo }> {
@@ -394,10 +528,12 @@ export async function duplicateMedia(ids: string[], userId: string): Promise<{ i
         trashed: false,
         rev: 0,
         libIds: [...m.libIds],
+        ...(m.title !== undefined && { seq: APPEND }),
       });
       made.push(copyId);
     }
   });
+  await renumberBoxes(await db.media.bulkGet(made));
   return { ids: made, undo: () => removeCopies(made) };
 }
 
@@ -424,12 +560,13 @@ export async function ensureInBox(ids: string[], boxId: string, userId: string) 
       if (!row) continue;
       const copyId = newId();
       await db.mediaBlobs.add(ownCopy(row, copyId));
-      // 同時に入れた画像も順番を保つ
-      await db.media.add({ ...m, id: copyId, boxId, uploadedBy: userId, createdAt: now + k, fav: false, trashed: false, rev: 0, libIds: [] });
+      // 同時に入れた画像も順番を保つ。自動の名前の画像は、入れた先のボックスで最後の番号になる
+      await db.media.add({ ...m, id: copyId, boxId, uploadedBy: userId, createdAt: now + k, fav: false, trashed: false, rev: 0, libIds: [], ...(m.title !== undefined && { seq: APPEND }) });
       out.push(copyId);
       copied++;
     }
   });
+  if (copied) await renumber(boxId);
   return { ids: out, copied };
 }
 

@@ -254,6 +254,136 @@ async function profileOf(buf: ArrayBuffer): Promise<string | null> {
   return null;
 }
 
+/**
+ * 画像の中に記録された、撮影した日時・作った日時（制作日に使う）。記録が無ければ null。
+ * EXIF（JPEG・PNG・WebP）→ XMP（Photoshop など。PSD も）→ PNG の「Creation Time」の順に探す
+ */
+export async function readRecordedDate(blob: Blob): Promise<number | null> {
+  try {
+    const head = await blob.slice(0, HEAD_SIZE).arrayBuffer();
+    return exifDateIn(head) ?? xmpDateIn(head) ?? pngTextDateIn(head);
+  } catch {
+    return null;
+  }
+}
+
+/** 日時として使える値か（壊れた記録や、時計の合っていないカメラの 1970 年などを除く） */
+const plausible = (t: number) => Number.isFinite(t) && t > Date.UTC(1971, 0, 1) && t < Date.now() + 86_400_000;
+
+/** EXIF の日時「2025:01:01 12:34:56」（時差の記録は無いので、端末の時刻として読む） */
+function exifTime(s: string): number | null {
+  const g = /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(s);
+  if (!g) return null;
+  const t = new Date(+g[1], +g[2] - 1, +g[3], +g[4], +g[5], +g[6]).getTime();
+  return plausible(t) ? t : null;
+}
+
+/** EXIF（TIFF の形）から、撮影日時 → デジタル化した日時 → ファイルの日時の順に読む。t は TIFF の頭の位置 */
+function tiffDate(v: DataView, t: number): number | null {
+  const le = v.getUint16(t) === 0x4949;
+  const entry = (ifd: number, tag: number) => {
+    const n = v.getUint16(ifd, le);
+    for (let i = 0; i < n; i++) if (v.getUint16(ifd + 2 + i * 12, le) === tag) return ifd + 2 + i * 12;
+    return -1;
+  };
+  const text = (e: number) => {
+    if (e < 0) return "";
+    const count = v.getUint32(e + 4, le);
+    const at = count > 4 ? t + v.getUint32(e + 8, le) : e + 8;
+    let s = "";
+    for (let i = 0; i < count - 1 && at + i < v.byteLength; i++) s += String.fromCharCode(v.getUint8(at + i));
+    return s;
+  };
+  const ifd0 = t + v.getUint32(t + 4, le);
+  const exifPtr = entry(ifd0, 0x8769);
+  const exif = exifPtr >= 0 ? t + v.getUint32(exifPtr + 8, le) : -1;
+  const found = exif >= 0 ? [0x9003, 0x9004].map((tag) => exifTime(text(entry(exif, tag)))) : [];
+  return found.find((x) => x !== null) ?? exifTime(text(entry(ifd0, 0x0132)));
+}
+
+function exifDateIn(buf: ArrayBuffer): number | null {
+  try {
+    const v = new DataView(buf);
+    const bytes = new Uint8Array(buf);
+    const fourcc = (p: number) => String.fromCharCode(bytes[p], bytes[p + 1], bytes[p + 2], bytes[p + 3]);
+    if (v.getUint16(0) === 0xffd8) {
+      // JPEG：「Exif」の印が付いた APP1
+      let p = 2;
+      while (p < v.byteLength - 4) {
+        const marker = v.getUint16(p);
+        if (marker >> 8 !== 0xff || marker === 0xffda) break;
+        if (marker === 0xffe1 && v.getUint32(p + 4) === 0x45786966) return tiffDate(v, p + 10);
+        p += 2 + v.getUint16(p + 2);
+      }
+    } else if (v.getUint32(0) === 0x89504e47) {
+      // PNG：eXIf の中身がそのまま TIFF の形
+      let p = 8;
+      while (p < v.byteLength - 12) {
+        const len = v.getUint32(p);
+        const type = fourcc(p + 4);
+        if (type === "IDAT") break;
+        if (type === "eXIf") return tiffDate(v, p + 8);
+        p += 12 + len;
+      }
+    } else if (fourcc(0) === "RIFF" && fourcc(8) === "WEBP") {
+      // WebP：EXIF の中身（先頭に「Exif」の印が付いていることもある）
+      let p = 12;
+      while (p < v.byteLength - 8) {
+        const size = v.getUint32(p + 4, true);
+        if (fourcc(p) === "EXIF") return tiffDate(v, fourcc(p + 8) === "Exif" ? p + 14 : p + 8);
+        p += 8 + size + (size % 2);
+      }
+    }
+  } catch {
+    // 壊れた記録は「無い」として扱う
+  }
+  return null;
+}
+
+/** ISO の日時。日付だけ・時差の無いものは端末の時刻として読む */
+function isoTime(s: string): number | null {
+  const g = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?/.exec(s);
+  if (!g) return null;
+  const t = g[7]
+    ? Date.parse(`${g[1]}-${g[2]}-${g[3]}T${g[4]}:${g[5]}:${g[6] ?? "00"}${g[7].length === 5 ? `${g[7].slice(0, 3)}:${g[7].slice(3)}` : g[7]}`)
+    : new Date(+g[1], +g[2] - 1, +g[3], +(g[4] ?? 0), +(g[5] ?? 0), +(g[6] ?? 0)).getTime();
+  return plausible(t) ? t : null;
+}
+
+/** XMP（Photoshop・Lightroom などが書く）から、撮影日時 → 作った日時を読む（日付だけのことがある photoshop:DateCreated は最後） */
+function xmpDateIn(buf: ArrayBuffer): number | null {
+  const text = new TextDecoder("latin1").decode(buf);
+  for (const key of ["exif:DateTimeOriginal", "xmp:CreateDate", "photoshop:DateCreated"]) {
+    const g = new RegExp(`${key}(?:=["']|>)\\s*([0-9][0-9T:.+\\-Z]+)`).exec(text);
+    const t = g && isoTime(g[1]);
+    if (t) return t;
+  }
+  return null;
+}
+
+/** PNG の文字の記録「Creation Time」（決まった書き方は無いので、読めるものだけ） */
+function pngTextDateIn(buf: ArrayBuffer): number | null {
+  const v = new DataView(buf);
+  if (v.byteLength < 8 || v.getUint32(0) !== 0x89504e47) return null;
+  const bytes = new Uint8Array(buf);
+  let p = 8;
+  while (p < v.byteLength - 12) {
+    const len = v.getUint32(p);
+    const type = String.fromCharCode(bytes[p + 4], bytes[p + 5], bytes[p + 6], bytes[p + 7]);
+    if (type === "IDAT") break;
+    if (type === "tEXt") {
+      const data = new TextDecoder("latin1").decode(bytes.subarray(p + 8, p + 8 + len));
+      const [key, value] = data.split("\0");
+      if (key === "Creation Time" && value) {
+        const t = isoTime(value.trim()) ?? Date.parse(value);
+        if (t && plausible(t)) return t;
+      }
+    }
+    p += 12 + len;
+  }
+  return null;
+}
+
 /** PNG の iCCP の中身（zlib で圧縮されている）を戻す */
 async function inflate(data: Uint8Array): Promise<Uint8Array> {
   const stream = new Blob([data.slice()]).stream().pipeThrough(new DecompressionStream("deflate"));

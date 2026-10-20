@@ -1,9 +1,11 @@
 import type { Library, Media } from "@/lib/local/db";
+import { madeOf } from "./autoname";
 import { PSD_MIME } from "./psd";
 
 // 試作「依頼ノート」のメディアの決まりごとを、画面から切り離した純粋な関数にしたもの
 
-export type SortKey = "new" | "name" | "size";
+/** 並べる基準：追加日時・制作日・名前・容量 */
+export type SortKey = "new" | "made" | "name" | "size";
 export type SortDir = "asc" | "desc";
 /** ライブラリーの配置：基本（子ライブラリーは印の画像だけ）／全て表示／シングル（子ライブラリーの画像を出さない） */
 export type LibMode = "rep" | "all" | "single";
@@ -17,25 +19,29 @@ export type ListColumn =
   | "pixels"
   | "ratio"
   | "size"
+  | "made"
   | "date"
   | "uploader"
   | "libs";
 /** 列の名前と幅。はじめは画像サイズ・容量・追加日時だけを出す */
 export const LIST_COLUMNS: { id: ListColumn; name: string; width: string }[] = [
-  { id: "fileName", name: "ファイル名", width: "12rem" },
+  { id: "fileName", name: "元のファイル名", width: "12rem" },
   { id: "type", name: "形式", width: "5.5rem" },
   { id: "dims", name: "画像サイズ", width: "7.5rem" },
   { id: "dpi", name: "解像度", width: "5rem" },
   { id: "pixels", name: "画素数", width: "5rem" },
   { id: "ratio", name: "縦横比", width: "4.5rem" },
   { id: "size", name: "容量", width: "4.5rem" },
+  { id: "made", name: "制作日", width: "6rem" },
   { id: "date", name: "追加日時", width: "8.5rem" },
   { id: "uploader", name: "追加した人", width: "7rem" },
   { id: "libs", name: "ライブラリー", width: "12rem" },
 ];
 
-/** プレビュー欄の詳細に出す項目 */
+/** プレビュー欄の詳細に出す項目。タイトルと制作日は、その場で書き換えられる */
 export type PreviewField =
+  | "title"
+  | "made"
   | "fileName"
   | "type"
   | "dims"
@@ -50,7 +56,9 @@ export type PreviewField =
   | "libs";
 /** プレビュー欄の詳細の項目と名前。はじめはすべて、この順に出す */
 export const PREVIEW_FIELDS: { id: PreviewField; name: string }[] = [
-  { id: "fileName", name: "ファイル名" },
+  { id: "title", name: "タイトル" },
+  { id: "made", name: "制作日" },
+  { id: "fileName", name: "元のファイル名" },
   { id: "type", name: "形式" },
   { id: "dims", name: "画像サイズ" },
   { id: "dpi", name: "解像度" },
@@ -80,11 +88,15 @@ export type MediaPrefs = {
   previewRatio: "original" | "square";
   /** プレビュー欄の詳細に出す項目（並べた順） */
   previewFields: PreviewField[];
+  /** 入れた画像の名前を「20250101_タイトル」の形に自動で付ける（同じものが2枚以上なら _01 から番号付き） */
+  autoName: boolean;
+  /** 保存した設定の版。項目が増えたときに、前からの設定へ足すのに使う */
+  v?: number;
 };
 
 export const DEFAULT_PREFS: MediaPrefs = {
   sort: "new",
-  dirs: { new: "desc", name: "asc", size: "desc" },
+  dirs: { new: "desc", made: "desc", name: "asc", size: "desc" },
   level: 3,
   libMode: "rep",
   imageView: "icon",
@@ -92,6 +104,8 @@ export const DEFAULT_PREFS: MediaPrefs = {
   showExt: false,
   previewRatio: "original",
   previewFields: PREVIEW_FIELDS.map((f) => f.id),
+  autoName: false,
+  v: 2,
 };
 
 export const THUMB_SIZES = [96, 128, 164, 220];
@@ -164,6 +178,9 @@ export function shownName(m: Media, showExt: boolean): string {
   return showExt ? `${m.name}.${extOf(m)}` : m.name;
 }
 
+/** 名前を変えるときに書き換える所：自動で名前を付けた画像はタイトル、それ以外は名前 */
+export const editableName = (m: Media) => m.title ?? m.name;
+
 /** ファイル名の拡張子（小文字・点なし）。無ければ形式から */
 export function extOf(m: Media): string {
   const dot = m.fileName.lastIndexOf(".");
@@ -206,6 +223,7 @@ export function arrange(list: Media[], prefs: MediaPrefs): Media[] {
     a.localeCompare(b, "ja", { numeric: true });
   const cmp: Record<SortKey, (a: Media, b: Media) => number> = {
     new: (a, b) => a.createdAt - b.createdAt,
+    made: (a, b) => madeOf(a) - madeOf(b),
     name: (a, b) => text(a.name, b.name),
     size: (a, b) => a.size - b.size,
   };

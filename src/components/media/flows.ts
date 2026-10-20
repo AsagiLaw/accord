@@ -3,6 +3,7 @@
 import { choose, confirmAction, promptText, toast } from "@/components/ui/overlay";
 import type { Library, Media } from "@/lib/local/db";
 import {
+  applyAutoName,
   createLibrary,
   deleteForever,
   duplicateMedia,
@@ -18,23 +19,46 @@ import {
   revertEdit,
   saveEdit,
   saveEditAsCopy,
+  setTitle,
   uploadFiles,
   type Undo,
 } from "@/lib/local/media";
 import { canPickSaveLocation, copyImage, downloadOriginals, saveFileAs, saveZip, type ZipItem } from "@/lib/media/export";
 import type { ImageEdit } from "@/lib/media/edit";
+import type { ImportFile } from "@/lib/media/folders";
 import { chain, descendants } from "@/lib/media/logic";
 
 // 確認・お知らせ・元に戻すを含む、画面からの操作の流れ
 
 const undoable = (message: string, undo: Undo) => toast(message, { label: "元に戻す", run: () => void undo() });
 
-export async function uploadFlow(boxId: string, userId: string, files: File[], openUnsorted: () => void) {
+export async function uploadFlow(boxId: string, userId: string, files: (File | ImportFile)[], openUnsorted: () => void) {
   if (!files.length) return;
   toast(`${files.length}枚を読み込み中…`);
   const { ids, failed } = await uploadFiles(boxId, userId, files);
   if (ids.length) toast(`${ids.length}枚を追加しました${failed ? `（${failed}枚は読み込めない形式のため追加できません）` : ""}`, { label: "整理する", run: openUnsorted });
   else toast("画像を追加できませんでした");
+}
+
+/** 選んだ画像のタイトルをまとめて変える。番号は制作日ごとに付け直す（自動の名前でなかった画像も、この形になる） */
+export async function retitleFlow(list: Media[]) {
+  if (!list.length) return;
+  const titles = new Set(list.map((m) => m.title));
+  const current = titles.size === 1 ? ([...titles][0] ?? "") : "";
+  const title = (await promptText(`${list.length}枚のタイトルを変更`, current, "タイトル"))?.trim();
+  if (!title) return;
+  const undo = await setTitle(
+    list.map((m) => m.id),
+    title,
+  );
+  undoable(`${list.length}枚のタイトルを「${title}」にしました`, undo);
+}
+
+/** 今ある画像に、自動の名前（20250101_タイトル。同じものが2枚以上なら _01 から番号付き）を付ける */
+export async function autoNameFlow(list: Media[]) {
+  const ids = list.filter((m) => m.title === undefined).map((m) => m.id);
+  if (!ids.length) return;
+  undoable(`${ids.length}枚に名前を付けました`, await applyAutoName(ids));
 }
 
 /** 元の画像をクリップボードにコピーする（Discord などに Ctrl+V で貼れる）。コピーできるのは1枚だけ */
