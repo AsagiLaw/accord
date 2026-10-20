@@ -48,7 +48,8 @@ function BoxCard({ box, data, summary, note, me, editable }: { box: MediaBox; da
   const shares = data.shares.get(box.id) ?? [];
   // 自分のボックスは共有先を、共有されたボックスは「見るだけ」かどうかを出す
   const viewOnly = data.access.get(box.id) === "view";
-  const shareNote = editable
+  // マイメディアは共有できないので、渡された説明（自分専用）を出す
+  const shareNote = editable || box.kind === "mine"
     ? shares.length
       ? shares.map((x) => `${x.label}${x.canEdit ? "" : "（見るだけ）"}`).join("・")
       : note

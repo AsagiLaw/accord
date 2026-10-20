@@ -7,16 +7,20 @@ import { dmChatId } from "./dm";
 import { sb, supa } from "./sync";
 
 // Supabase 版：ルームの中のもの（カテゴリー・チャット・発言・既読・イメージユーザー：2-2、データベース・ページ・ビュー・予定・ToDo・ノート・ウィンドウ：2-3）を、
-// 行ごとに Supabase の synced_rows（0011・0013）に写す。
+// 画像の情報・ライブラリー（2-4）を、行ごとに Supabase の synced_rows（0011・0013・0014）に写す。
+// 置き場所は、ルーム・DM・ボックス（画像の情報とライブラリー）のどれか1つ。画像のファイルそのものは、まだ送らない（第3段階）。
 // 画面や処理は今までどおりブラウザの中（IndexedDB）に書く。書いた行は Dexie のフックで拾い、書き終わってから Supabase に送る。
 // ほかの人が書いた行は Realtime で届き、届かなかった分は「最後に読んだ時刻」より後の行だけを読み直す（全部は読まない）。
 // 表を足すときは、TABLES・scopeOf・belongs と、synced_rows の tbl の決まり（SQL）に足す
 
-const TABLES = ["categories", "chats", "messages", "chatReads", "imageUsers", "databases", "dbPages", "dbViews", "events", "todos", "notes", "windows"] as const;
+const TABLES = ["categories", "chats", "messages", "chatReads", "imageUsers", "databases", "dbPages", "dbViews", "events", "todos", "notes", "windows", "media", "libraries"] as const;
 type Tbl = (typeof TABLES)[number];
 
-type Scope = { room_id: string; dm: null } | { room_id: null; dm: string[] };
-type ServerRow = { tbl: Tbl; id: string; room_id: string | null; dm: string[] | null; data: Record<string, unknown>; deleted: boolean; updated_at: string };
+type Scope = { room_id: string; dm: null; box_id: null } | { room_id: null; dm: string[]; box_id: null } | { room_id: null; dm: null; box_id: string };
+type ServerRow = { tbl: Tbl; id: string; room_id: string | null; dm: string[] | null; box_id: string | null; data: Record<string, unknown>; deleted: boolean; updated_at: string };
+
+/** どこまで読んだかを覚えるときの、置き場所の名前（ルームは ID、ボックスは「box:ID」、DM はまとめて "dm"） */
+const scopeKey = (r: { room_id: string | null; box_id: string | null }) => r.room_id ?? (r.box_id ? `box:${r.box_id}` : "dm");
 
 type Row = Record<string, unknown>;
 const tableOf = (tbl: Tbl) => db.table(tbl) as Table<Row, unknown>;
@@ -28,8 +32,8 @@ const keyOf = (tbl: Tbl, id: string) => (tbl === "chatReads" ? id.split("|") : i
 
 /** その行が、どのルームか・どの DM か。分からない（チャットがまだ無いなど）ときは null で、送らない */
 async function scopeOf(tbl: Tbl, row: Row): Promise<Scope | null> {
-  const room = (roomId: unknown): Scope | null => (typeof roomId === "string" && roomId ? { room_id: roomId, dm: null } : null);
-  const dmOf = (dm: unknown): Scope | null => (Array.isArray(dm) && dm.length === 2 ? { room_id: null, dm: [...(dm as string[])].sort() } : null);
+  const room = (roomId: unknown): Scope | null => (typeof roomId === "string" && roomId ? { room_id: roomId, dm: null, box_id: null } : null);
+  const dmOf = (dm: unknown): Scope | null => (Array.isArray(dm) && dm.length === 2 ? { room_id: null, dm: [...(dm as string[])].sort(), box_id: null } : null);
   const byChat = async (chatId: unknown) => {
     const chat = typeof chatId === "string" ? await db.chats.get(chatId) : undefined;
     return chat ? (room(chat.roomId) ?? dmOf(chat.dm)) : null;
@@ -48,6 +52,9 @@ async function scopeOf(tbl: Tbl, row: Row): Promise<Scope | null> {
       const database = typeof row.dbId === "string" ? await db.databases.get(row.dbId) : undefined;
       return room(database?.roomId);
     }
+    case "media":
+    case "libraries":
+      return typeof row.boxId === "string" && row.boxId ? { room_id: null, dm: null, box_id: row.boxId } : null;
     case "chats":
       return room(row.roomId) ?? dmOf(row.dm);
     case "messages":
@@ -100,7 +107,7 @@ async function flush() {
       if (!it.row) continue;
       const scope = await scopeOf(it.tbl, it.row);
       if (!scope) continue;
-      const key = scope.room_id ?? scope.dm.join(",");
+      const key = scope.room_id ?? scope.box_id ?? (scope.dm ?? []).join(",");
       groups.set(key, [...(groups.get(key) ?? []), { tbl: it.tbl, id: it.id, ...scope, data: it.row, deleted: false }]);
     }
     for (const rows of groups.values()) {
@@ -163,6 +170,8 @@ function hookTables() {
 async function belongs(r: ServerRow): Promise<boolean> {
   const d = r.data;
   if (!d || idOf(r.tbl, d) !== r.id) return false;
+  if (r.box_id) return (r.tbl === "media" || r.tbl === "libraries") && d.boxId === r.box_id;
+  if (r.tbl === "media" || r.tbl === "libraries") return false;
   const roomOf = async (chatId: unknown) => (typeof chatId === "string" ? (await db.chats.get(chatId))?.roomId : undefined);
   if (r.room_id) {
     if (r.tbl === "dbViews") {
@@ -243,8 +252,8 @@ const since = (at: string | undefined) => (at ? new Date(new Date(at).getTime() 
 
 async function pullScope(scope: string) {
   for (;;) {
-    let q = sb().from("synced_rows").select("tbl,id,room_id,dm,data,deleted,updated_at").gt("updated_at", since(cursors[scope]));
-    q = scope === "dm" ? q.not("dm", "is", null) : q.eq("room_id", scope);
+    let q = sb().from("synced_rows").select("tbl,id,room_id,dm,box_id,data,deleted,updated_at").gt("updated_at", since(cursors[scope]));
+    q = scope === "dm" ? q.not("dm", "is", null) : scope.startsWith("box:") ? q.eq("box_id", scope.slice(4)) : q.eq("room_id", scope);
     const { data, error } = await q.order("updated_at").limit(500).returns<ServerRow[]>();
     if (error) {
       console.warn("Supabase から読めませんでした", error.message);
@@ -268,9 +277,11 @@ export function pullRows(onlyNew = false): Promise<void> {
   pulling = (async () => {
     try {
       const rooms = (await db.rooms.toCollection().primaryKeys()) as string[];
-      const scopes = ["dm", ...rooms].filter((s) => !onlyNew || !cursors[s]);
-      // 抜けた・消えたルームは、どこまで読んだかを忘れる（また入ったら最初から読む）
-      for (const s of Object.keys(cursors)) if (s !== "dm" && !rooms.includes(s)) delete cursors[s];
+      const boxes = ((await db.mediaBoxes.toCollection().primaryKeys()) as string[]).map((id) => `box:${id}`);
+      const all = ["dm", ...rooms, ...boxes];
+      const scopes = all.filter((s) => !onlyNew || !cursors[s]);
+      // 抜けた・消えたルームとボックスは、どこまで読んだかを忘れる（また入ったら最初から読む）
+      for (const s of Object.keys(cursors)) if (!all.includes(s)) delete cursors[s];
       for (const s of scopes) await pullScope(s);
       saveCursors();
     } finally {
@@ -316,7 +327,7 @@ export async function startRowSync(userId: string | null) {
       const row = payload.new as ServerRow | undefined;
       if (!row?.tbl) return;
       void applyRows([row]).then(() => {
-        advance(row.room_id ?? "dm", row.updated_at);
+        advance(scopeKey(row), row.updated_at);
         saveCursors();
       });
     })
@@ -329,8 +340,8 @@ export async function startRowSync(userId: string | null) {
   document.addEventListener("visibilitychange", onVisible);
 }
 
-/** 送り足しの版。送る表を増やしたら上げる（2-3 でデータベース・ノート・ウィンドウなどを足した） */
-const BACKFILL_VERSION = 3;
+/** 送り足しの版。送る表を増やしたら上げる（2-3 でデータベース・ノート・ウィンドウなど、2-4 で画像の情報とライブラリーを足した） */
+const BACKFILL_VERSION = 4;
 
 /**
  * 自分がホストのルームの中身のうち、まだ Supabase に無い行を送る（このブラウザで1回だけ）。
@@ -348,7 +359,7 @@ async function backfillHostedRooms(userId: string) {
     }
     const rows: Omit<ServerRow, "updated_at">[] = [];
     const add = (tbl: Tbl, list: Row[]) => {
-      for (const r of list) rows.push({ tbl, id: idOf(tbl, r), room_id: room.id, dm: null, data: r, deleted: false });
+      for (const r of list) rows.push({ tbl, id: idOf(tbl, r), room_id: room.id, dm: null, box_id: null, data: r, deleted: false });
     };
     const inRoom = (tbl: Tbl) => tableOf(tbl).where("roomId").equals(room.id).toArray();
     for (const tbl of ["categories", "chats", "imageUsers", "databases", "dbPages", "events", "todos", "notes", "windows"] as const) add(tbl, await inRoom(tbl));
@@ -358,26 +369,64 @@ async function backfillHostedRooms(userId: string) {
     add("messages", ((await inRoom("messages")) as Row[]).filter((m) => m.authorId === userId));
     const chatIds = new Set(((await inRoom("chats")) as Row[]).map((c) => c.id));
     add("chatReads", ((await db.chatReads.where("userId").equals(userId).toArray()) as unknown as Row[]).filter((r) => chatIds.has(r.chatId)));
-    let ok = true;
-    for (let i = 0; i < rows.length; i += 200) {
-      const batch = rows.slice(i, i + 200);
-      const { error } = await sb().from("synced_rows").upsert(batch, { onConflict: "tbl,id", ignoreDuplicates: true });
-      if (!error) continue;
-      // まとめて送れなければ1行ずつ。決まりで断られた行（大きすぎるなど）は飛ばし、つながらなかったときだけ、次にまた送る
-      for (const row of batch) {
-        const one = await sb().from("synced_rows").upsert(row, { onConflict: "tbl,id", ignoreDuplicates: true });
-        if (!one.error) continue;
-        console.warn("ルームの中身を送れませんでした", room.name, row.tbl, row.id, one.error.message);
-        if (!one.error.code) ok = false;
-      }
-    }
-    if (!ok) continue;
+    if (!(await sendMissing(rows, room.name))) continue;
     try {
       localStorage.setItem(flag, String(BACKFILL_VERSION));
     } catch {
       // 覚えられなくても、次にまた送るだけ
     }
   }
+  // 自分のボックス（マイメディアも）の、自分が入れた画像の情報とライブラリー（2-4）
+  for (const box of await db.mediaBoxes.where("ownerId").equals(userId).toArray()) {
+    const flag = `accord:backfill:${userId}:box:${box.id}`;
+    try {
+      if (Number(localStorage.getItem(flag)) >= BACKFILL_VERSION) continue;
+    } catch {
+      // 読めなければ送る
+    }
+    const rows: Omit<ServerRow, "updated_at">[] = [];
+    for (const m of await db.media.where("boxId").equals(box.id).toArray()) if (m.uploadedBy === userId) rows.push({ tbl: "media", id: m.id, room_id: null, dm: null, box_id: box.id, data: m as unknown as Row, deleted: false });
+    for (const l of await db.libraries.where("boxId").equals(box.id).toArray()) rows.push({ tbl: "libraries", id: l.id, room_id: null, dm: null, box_id: box.id, data: l as unknown as Row, deleted: false });
+    if (!(await sendMissing(rows, box.name))) continue;
+    try {
+      localStorage.setItem(flag, String(BACKFILL_VERSION));
+    } catch {
+      // 覚えられなくても、次にまた送るだけ
+    }
+  }
+}
+
+/** まだ Supabase に無い行だけを送る。つながらなかったときは false（次にまた送る） */
+async function sendMissing(rows: Omit<ServerRow, "updated_at">[], label: string) {
+  let ok = true;
+  for (let i = 0; i < rows.length; i += 200) {
+    const batch = rows.slice(i, i + 200);
+    const { error } = await sb().from("synced_rows").upsert(batch, { onConflict: "tbl,id", ignoreDuplicates: true });
+    if (!error) continue;
+    // まとめて送れなければ1行ずつ。決まりで断られた行（大きすぎるなど）は飛ばし、つながらなかったときだけ、次にまた送る
+    for (const row of batch) {
+      const one = await sb().from("synced_rows").upsert(row, { onConflict: "tbl,id", ignoreDuplicates: true });
+      if (!one.error) continue;
+      console.warn("まだ送っていない行を送れませんでした", label, row.tbl, row.id, one.error.message);
+      if (!one.error.code) ok = false;
+    }
+  }
+  return ok;
+}
+
+/**
+ * 使えなくなったボックス（消された・共有をやめられた）の画像の情報とライブラリーを、ブラウザの中から片づける。
+ * Supabase では、入れた人のマイメディアに移っているか、消えている（ほかの人には知らせが届かないため、ここで消す）
+ */
+export async function forgetBoxes(boxIds: string[]) {
+  if (!boxIds.length) return;
+  await db.transaction("rw", [db.media, db.libraries], async (tx) => {
+    (tx as unknown as Record<symbol, boolean>)[REMOTE] = true;
+    await db.media.where("boxId").anyOf(boxIds).delete();
+    await db.libraries.where("boxId").anyOf(boxIds).delete();
+  });
+  for (const id of boxIds) delete cursors[`box:${id}`];
+  saveCursors();
 }
 
 /**

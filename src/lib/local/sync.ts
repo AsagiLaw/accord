@@ -5,8 +5,8 @@ import type { IndexableType, Table } from "dexie";
 import { authMode } from "@/lib/auth/mode";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/components/ui/overlay";
-import { db, newMyMediaBox, type Friendship, type Presence, type Profile, type Room, type RoomInvite, type RoomMember, type WorkStatus } from "./db";
-import { freshChannel, pullRows, startRowSync } from "./rowSync";
+import { db, type BoxShare, type Friendship, type MediaBox, type Presence, type Profile, type Room, type RoomInvite, type RoomMember, type WorkStatus } from "./db";
+import { forgetBoxes, freshChannel, pullRows, startRowSync } from "./rowSync";
 
 // Supabase 版：プロフィール・ルーム・メンバー・フレンド・招待は Supabase に保存し、ブラウザの中（IndexedDB）に写して使う。
 // 画面は今までどおりブラウザの中を読む（useLiveQuery）。書き込みは Supabase に送ってから pull() で写し直す。
@@ -41,6 +41,8 @@ type Stamp = { id: string; updated_at: string };
 type MemberRow = { room_id: string; user_id: string; role: RoomMember["role"]; joined_at: string };
 type FriendshipRow = { id: string; from_id: string; to_id: string; status: Friendship["status"]; created_at: string; responded_at: string | null };
 type InviteRow = { id: string; room_id: string; from_id: string; to_id: string; created_at: string; expires_at: string; accepted_at: string | null };
+type BoxRow = { id: string; owner_id: string; name: string; kind: MediaBox["kind"]; created_at: string };
+type ShareRow = { id: string; box_id: string; user_id: string | null; room_id: string | null; can_edit: boolean; created_at: string };
 
 function toProfile(r: ProfileRow): Profile {
   // ほかの人のオフライン表示は、窓口（profiles_public）では offline になる。ブラウザの中では、オフライン表示と同じ扱いにする
@@ -78,6 +80,17 @@ const toFriendship = (r: FriendshipRow): Friendship => ({
   status: r.status,
   createdAt: ms(r.created_at) ?? 0,
   ...(r.responded_at ? { respondedAt: ms(r.responded_at) } : {}),
+});
+
+const toBox = (r: BoxRow): MediaBox => ({ id: r.id, ownerId: r.owner_id, name: r.name, kind: r.kind, createdAt: ms(r.created_at) ?? 0 });
+
+const toShare = (r: ShareRow): BoxShare => ({
+  id: r.id,
+  boxId: r.box_id,
+  ...(r.user_id ? { userId: r.user_id } : {}),
+  ...(r.room_id ? { roomId: r.room_id } : {}),
+  canEdit: r.can_edit,
+  createdAt: ms(r.created_at) ?? 0,
 });
 
 const toInvite = (r: InviteRow): RoomInvite => ({
@@ -151,15 +164,18 @@ async function changedRows<T extends { id: string; updated_at: string }>(table: 
 
 async function pullOnce(userId: string) {
   const s = sb();
-  const [profiles, rooms, members, friendships, invites] = await Promise.all([
+  const [profiles, rooms, members, friendships, invites, boxes, shares] = await Promise.all([
     // 自分も窓口（profiles_public）に入っている（自分には本当の状態を返す：0005）
     changedRows<ProfileRow>("profiles_public", seenProfiles),
     changedRows<RoomRow>("rooms", seenRooms),
     s.from("room_members").select("*").returns<MemberRow[]>(),
     s.from("friendships").select("*").returns<FriendshipRow[]>(),
     s.from("room_friend_invites").select("*").returns<InviteRow[]>(),
+    // 使えるボックス（自分の・共有された・紐づいたルームの）と、その共有先（0003）
+    s.from("media_boxes").select("*").returns<BoxRow[]>(),
+    s.from("box_shares").select("*").returns<ShareRow[]>(),
   ]);
-  const failed = [profiles, rooms, members, friendships, invites].find((r) => r.error);
+  const failed = [profiles, rooms, members, friendships, invites, boxes, shares].find((r) => r.error);
   // 読めなかったときは、ブラウザの中をそのままにする（消してしまわないように）
   if (failed?.error || !profiles.rows || !rooms.rows || !rooms.ids) {
     console.warn("Supabase から読めませんでした", failed?.error?.message);
@@ -172,8 +188,20 @@ async function pullOnce(userId: string) {
   const memberList = (members.data ?? []).map(toMember);
   const friendList = (friendships.data ?? []).map(toFriendship);
   const inviteList = (invites.data ?? []).map(toInvite);
+  let boxList = (boxes.data ?? []).map(toBox);
+  let shareList = (shares.data ?? []).map(toShare);
+  // 自分のボックスで、まだ Supabase に無いもの（2-4 より前にこのブラウザで作ったルームのメディアなど）は、消さずに送る
+  if (await sendLocalBoxes(userId, new Set(boxList.map((b) => b.id)))) {
+    const [b2, s2] = await Promise.all([s.from("media_boxes").select("*").returns<BoxRow[]>(), s.from("box_shares").select("*").returns<ShareRow[]>()]);
+    if (b2.error || s2.error) return;
+    boxList = b2.data.map(toBox);
+    shareList = s2.data.map(toShare);
+  }
+  const mineId = boxList.find((b) => b.ownerId === userId && b.kind === "mine")?.id;
+  const boxIds = new Set(boxList.map((b) => b.id));
+  const goneBoxes = ((await db.mediaBoxes.toCollection().primaryKeys()) as string[]).filter((id) => !boxIds.has(id));
 
-  await db.transaction("rw", [db.profiles, db.rooms, db.roomMembers, db.friendships, db.roomInvites], async () => {
+  await db.transaction("rw", [db.profiles, db.rooms, db.roomMembers, db.friendships, db.roomInvites, db.mediaBoxes, db.boxShares, db.media, db.libraries], async () => {
     // ID は重ならない（&username）。名前を変えた人の古い写しが残っていたら、先に外す
     const names = new Map(profileList.map((p) => [p.username, p.id]));
     const stale = await db.profiles.where("username").anyOf([...names.keys()]).filter((p) => names.get(p.username) !== p.id).primaryKeys();
@@ -186,15 +214,52 @@ async function pullOnce(userId: string) {
     await mirror(db.roomMembers, memberList, (m): [string, string] => [m.roomId, m.userId]);
     await mirror(db.friendships, friendList, (f) => f.id);
     await mirror(db.roomInvites, inviteList, (i) => i.id);
+    // マイメディアは Supabase のもの（登録したときに作られる：0003）を使う。このブラウザで作っていたマイメディアの画像は、そちらに移す
+    if (mineId) {
+      const oldMine = (await db.mediaBoxes.where("ownerId").equals(userId).filter((b) => b.kind === "mine" && b.id !== mineId).primaryKeys()) as string[];
+      if (oldMine.length) {
+        await db.media.where("boxId").anyOf(oldMine).modify({ boxId: mineId });
+        await db.libraries.where("boxId").anyOf(oldMine).modify({ boxId: mineId });
+      }
+    }
+    await mirror(db.mediaBoxes, boxList, (b) => b.id);
+    await mirror(db.boxShares, shareList, (x) => x.id);
   });
+  // 使えなくなったボックスの画像の情報とライブラリーを片づける（マイメディアに移したものは残る）
+  await forgetBoxes(goneBoxes.filter((id) => !mineId || id !== mineId));
   for (const r of profiles.rows) seenProfiles.set(r.id, r.updated_at);
   seenRooms = new Map([...rooms.rows.map((r): [string, string] => [r.id, r.updated_at]), ...[...seenRooms].filter(([id]) => rooms.ids!.includes(id) && !freshRooms.has(id))]);
 
-  if (!(await db.mediaBoxes.where("ownerId").equals(userId).filter((b) => b.kind === "mine").count())) {
-    await db.mediaBoxes.add(newMyMediaBox(userId));
-  }
-  // 新しく入ったルームの中身（チャットなど）を読む
+  // 新しく入ったルーム・使えるようになったボックスの中身を読む
   await pullRows(true);
+}
+
+/**
+ * 自分が持ち主のボックス（マイメディアでないもの）で、まだ Supabase に無いものを送る。共有先も、送れるもの（フレンドとの共有・自分が作ったルームとの紐づけ）を送る。
+ * 送ったら true（読み直す）。中の画像の情報とライブラリーは、rowSync の送り足しが送る
+ */
+async function sendLocalBoxes(userId: string, onServer: Set<string>) {
+  const local = await db.mediaBoxes.where("ownerId").equals(userId).filter((b) => b.kind === "box" && !onServer.has(b.id)).toArray();
+  if (!local.length) return false;
+  const s = sb();
+  const { error } = await s
+    .from("media_boxes")
+    .upsert(local.map((b) => ({ id: b.id, owner_id: userId, name: b.name, kind: "box", created_at: new Date(b.createdAt).toISOString() })), { onConflict: "id", ignoreDuplicates: true });
+  if (error) {
+    console.warn("ボックスを送れませんでした", error.message);
+    return false;
+  }
+  const ids = local.map((b) => b.id);
+  const hosted = new Set((await db.rooms.filter((r) => r.createdBy === userId).primaryKeys()) as string[]);
+  const shares = (await db.boxShares.where("boxId").anyOf(ids).toArray()).filter((x) => x.userId || (x.roomId && hosted.has(x.roomId)));
+  for (const x of shares) {
+    const one = await s
+      .from("box_shares")
+      .upsert({ id: x.id, box_id: x.boxId, user_id: x.userId ?? null, room_id: x.roomId ?? null, can_edit: x.canEdit, created_at: new Date(x.createdAt).toISOString() }, { onConflict: "id", ignoreDuplicates: true });
+    // フレンドでなくなった人への共有や、もうほかのボックスが紐づいているルームは送れない（飛ばす）
+    if (one.error) console.warn("共有先を送れませんでした", one.error.message);
+  }
+  return true;
 }
 
 /** ブラウザの中の表を、Supabase と同じ行にそろえる（無くなった行は消す） */
@@ -242,7 +307,7 @@ export async function startSync(userId: string | null) {
   await startRowSync(userId);
   const ch = freshChannel(`sync:${userId}`);
   // room_members は知らせを出さない（0010）。ほかの人がルームに入ったのは、しばらくおきの読み直しで分かる
-  for (const table of ["profiles", "rooms", "friendships", "room_friend_invites"]) {
+  for (const table of ["profiles", "rooms", "friendships", "room_friend_invites", "media_boxes", "box_shares"]) {
     ch.on("postgres_changes", { event: "*", schema: "public", table }, pullSoon);
   }
   channel = ch.subscribe();

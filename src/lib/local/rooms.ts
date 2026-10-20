@@ -95,6 +95,16 @@ export async function createRoom(name: string, userId: string, template: RoomTem
   // 自分のボックスを紐づけるときは、自分で作ったボックスか確かめる（マイメディアは紐づけられない）
   const existing = choice.kind === "box" ? await db.mediaBoxes.get(choice.boxId) : undefined;
   const linkExisting = choice.kind === "box" && existing?.ownerId === userId && existing.kind === "box";
+  // Supabase 版：ルームのボックスと紐づけも Supabase に作る（2-4）。作れなくてもルームはできているので、知らせだけ出す
+  if (supa) {
+    const s = sb();
+    const box = fresh && (await s.from("media_boxes").insert({ id: fresh.box.id, owner_id: userId, name: fresh.box.name, kind: "box" }));
+    const link = fresh
+      ? !box?.error && (await s.from("box_shares").insert({ id: fresh.share.id, box_id: fresh.box.id, room_id: id, can_edit: fresh.share.canEdit }))
+      : linkExisting && choice.kind === "box" && (await s.from("box_shares").insert({ box_id: choice.boxId, room_id: id, can_edit: choice.canEdit }));
+    const error = box?.error ?? (link ? link.error : null);
+    if (error) void Promise.reject(new SaveError(`ルームのメディアを用意できませんでした（${error.message}）`));
+  }
   await db.transaction("rw", [db.rooms, db.roomMembers, db.chats, db.databases, db.dbViews, db.categories, db.notes, db.windows, db.mediaBoxes, db.boxShares], async () => {
     await db.rooms.put({ id, name, ...(icon ? { icon } : {}), createdBy: userId, createdAt: now });
     if (fresh) {

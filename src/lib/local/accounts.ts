@@ -168,7 +168,7 @@ export async function deleteLocalUserData(userId: string): Promise<AuthResult> {
   // ほかの人のボックスの、この人への共有（入れてあった画像は、ボックスにそのまま残す）
   await db.boxShares.where("userId").equals(userId).delete();
   const boxes = await db.mediaBoxes.where("ownerId").equals(userId).toArray();
-  for (const b of boxes.filter((b) => b.kind !== "mine")) await deleteBox(b.id);
+  for (const b of boxes.filter((b) => b.kind !== "mine")) await deleteBox(b.id, { localOnly: true });
   // マイメディア（自分のボックスを消したときに移ってきた、自分の画像も入っている）
   await db.transaction("rw", [db.mediaBoxes, db.boxShares, db.media, db.mediaBlobs, db.libraries], async () => {
     for (const b of boxes.filter((b) => b.kind === "mine")) {

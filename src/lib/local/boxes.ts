@@ -3,6 +3,8 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, newId, newMyMediaBox, type BoxShare, type Media, type MediaBox } from "./db";
 import type { MemberWithProfile } from "./rooms";
+import { forgetBoxes, pullRows } from "./rowSync";
+import { pull, SaveError, sb, supa } from "./sync";
 
 // メディアのボックス：持ち主・共有先（フレンド・ルーム）と、だれが見られる・編集できるか
 
@@ -183,6 +185,14 @@ export async function shareBoxWithFriend(boxId: string, userId: string, canEdit:
   const box = await db.mediaBoxes.get(boxId);
   if (!box || box.kind === "mine" || box.ownerId === userId) return;
   const found = await db.boxShares.where("boxId").equals(boxId).filter((s) => s.userId === userId).first();
+  if (supa) {
+    const { error } = found
+      ? await sb().from("box_shares").update({ can_edit: canEdit }).eq("id", found.id)
+      : await sb().from("box_shares").insert({ box_id: boxId, user_id: userId, can_edit: canEdit });
+    if (error) throw new SaveError(`共有できませんでした（${error.message}）`);
+    await pull();
+    return;
+  }
   if (found) await db.boxShares.update(found.id, { canEdit });
   else await db.boxShares.add({ id: newId(), boxId, userId, canEdit, createdAt: Date.now() });
 }
@@ -201,6 +211,17 @@ export async function linkBoxToRoom(boxId: string, roomId: string, canEdit: bool
   if (!(await canChangeRoomMedia(roomId, by))) return "forbidden";
   const box = await db.mediaBoxes.get(boxId);
   if (!box || box.kind === "mine") return "taken";
+  if (supa) {
+    const found = await db.boxShares.where("roomId").equals(roomId).first();
+    if (found && found.boxId !== boxId) return "taken";
+    const { error } = found
+      ? await sb().from("box_shares").update({ can_edit: canEdit }).eq("id", found.id)
+      : await sb().from("box_shares").insert({ box_id: boxId, room_id: roomId, can_edit: canEdit });
+    // 23505：ほかのボックスが、もう紐づいている（box_shares_room_idx）
+    if (error) return error.code === "23505" ? "taken" : "forbidden";
+    await pull();
+    return "ok";
+  }
   return db.transaction("rw", db.boxShares, async () => {
     const found = await db.boxShares.where("roomId").equals(roomId).first();
     if (found && found.boxId !== boxId) return "taken";
@@ -212,11 +233,23 @@ export async function linkBoxToRoom(boxId: string, roomId: string, canEdit: bool
 
 /** 共有の権限を変える（見るだけ／編集もできる）。見るだけにしても、入れてあった画像はそのまま */
 export async function setShareCanEdit(shareId: string, canEdit: boolean) {
+  if (supa) {
+    const { error } = await sb().from("box_shares").update({ can_edit: canEdit }).eq("id", shareId);
+    if (error) throw new SaveError(`権限を変えられませんでした（${error.message}）`);
+  }
   await db.boxShares.update(shareId, { canEdit });
 }
 
 /** 共有をやめる（フレンドとの共有・ルームとの紐づけ）。使えなくなった人が入れた画像は、その人のマイメディアに移る。移した枚数を返す */
 export async function removeShare(shareId: string) {
+  // Supabase 版：使えなくなった人の画像を、その人のマイメディアに移すのは Supabase の関数で行う（ほかの人のマイメディアは見られないため：0014）
+  if (supa) {
+    const { data, error } = await sb().rpc("remove_box_share", { share: shareId });
+    if (error) throw new SaveError(`共有をやめられませんでした（${error.message}）`);
+    await pull();
+    await pullRows();
+    return typeof data === "number" ? data : 0;
+  }
   const share = await db.boxShares.get(shareId);
   if (!share) return 0;
   const losers = await losersIfRemoved(share);
@@ -246,6 +279,8 @@ export async function ensureMyMedia(userId: string) {
   return db.transaction("rw", db.mediaBoxes, async () => {
     const found = await db.mediaBoxes.where("ownerId").equals(userId).filter((b) => b.kind === "mine").first();
     if (found) return found.id;
+    // Supabase 版のマイメディアは、登録したときに Supabase で作られて写ってくる（ここでは作らない）
+    if (supa) throw new SaveError("マイメディアを読み込んでいます。少し待ってから、もう一度試してください");
     const box = newMyMediaBox(userId);
     await db.mediaBoxes.add(box);
     return box.id;
@@ -265,11 +300,19 @@ export async function uploadBoxForRoom(roomId: string, userId: string) {
 
 export async function createBox(ownerId: string, name: string) {
   const box: MediaBox = { id: newId(), ownerId, name, kind: "box", createdAt: Date.now() };
+  if (supa) {
+    const { error } = await sb().from("media_boxes").insert({ id: box.id, owner_id: ownerId, name, kind: "box" });
+    if (error) throw new SaveError(`ボックスを作れませんでした（${error.message}）`);
+  }
   await db.mediaBoxes.add(box);
   return box;
 }
 
 export async function renameBox(boxId: string, name: string) {
+  if (supa) {
+    const { error } = await sb().from("media_boxes").update({ name }).eq("id", boxId);
+    if (error) throw new SaveError(`名前を変えられませんでした（${error.message}）`);
+  }
   await db.mediaBoxes.update(boxId, { name });
 }
 
@@ -277,9 +320,26 @@ export async function renameBox(boxId: string, name: string) {
  * ボックスを削除する（マイメディアは消せない）。中の画像は消さず、それぞれ入れた人のマイメディアに移す。
  * ライブラリーと共有先は消える。移した画像はライブラリーから外れるので、マイメディアの「未整理」に入る
  */
-export async function deleteBox(boxId: string) {
+export async function deleteBox(boxId: string, opts: { localOnly?: boolean } = {}) {
   const box = await db.mediaBoxes.get(boxId);
   if (!box || box.kind === "mine") return;
+  // Supabase 版：中の画像を入れた人のマイメディアに移すのは、Supabase の関数で行う（0014）。localOnly：もう Supabase で消えている
+  if (supa && !opts.localOnly) {
+    const { error } = await sb().rpc("delete_box", { target: boxId });
+    if (error) throw new SaveError(`ボックスを削除できませんでした（${error.message}）`);
+    await pull();
+    await pullRows();
+    return;
+  }
+  // Supabase で、もう消えている：ブラウザの中を片づけるだけ（画像の移し替えは Supabase が済ませている）
+  if (supa) {
+    await forgetBoxes([boxId]);
+    await db.transaction("rw", db.mediaBoxes, db.boxShares, async () => {
+      await db.boxShares.where("boxId").equals(boxId).delete();
+      await db.mediaBoxes.delete(boxId);
+    });
+    return;
+  }
   const uploaders = [...new Set((await db.media.where("boxId").equals(boxId).toArray()).map((m) => m.uploadedBy))];
   const known = new Set((await db.profiles.bulkGet(uploaders)).flatMap((p) => (p ? [p.id] : [])));
   // 入れた人がもういなければ、持ち主のマイメディアへ
