@@ -1,0 +1,329 @@
+"use client";
+
+import Dexie, { type Table, type Transaction } from "dexie";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+import { db } from "./db";
+import { dmChatId } from "./dm";
+import { sb, supa } from "./sync";
+
+// Supabase 版：ルームの中のもの（2-2 ではカテゴリー・チャット・発言・既読・イメージユーザー）を、行ごとに Supabase の synced_rows（0011）に写す。
+// 画面や処理は今までどおりブラウザの中（IndexedDB）に書く。書いた行は Dexie のフックで拾い、書き終わってから Supabase に送る。
+// ほかの人が書いた行は Realtime で届き、届かなかった分は「最後に読んだ時刻」より後の行だけを読み直す（全部は読まない）。
+// 2-3 で表を足すときは、TABLES と scopeOf に足す
+
+const TABLES = ["categories", "chats", "messages", "chatReads", "imageUsers"] as const;
+type Tbl = (typeof TABLES)[number];
+
+type Scope = { room_id: string; dm: null } | { room_id: null; dm: string[] };
+type ServerRow = { tbl: Tbl; id: string; room_id: string | null; dm: string[] | null; data: Record<string, unknown>; deleted: boolean; updated_at: string };
+
+type Row = Record<string, unknown>;
+const tableOf = (tbl: Tbl) => db.table(tbl) as Table<Row, unknown>;
+
+/** Supabase での行の ID（既読は「チャットの ID|人の ID」） */
+const idOf = (tbl: Tbl, row: Row) => (tbl === "chatReads" ? `${row.chatId}|${row.userId}` : String(row.id));
+/** ブラウザの中の主キー */
+const keyOf = (tbl: Tbl, id: string) => (tbl === "chatReads" ? id.split("|") : id);
+
+/** その行が、どのルームか・どの DM か。分からない（チャットがまだ無いなど）ときは null で、送らない */
+async function scopeOf(tbl: Tbl, row: Row): Promise<Scope | null> {
+  const room = (roomId: unknown): Scope | null => (typeof roomId === "string" && roomId ? { room_id: roomId, dm: null } : null);
+  const dmOf = (dm: unknown): Scope | null => (Array.isArray(dm) && dm.length === 2 ? { room_id: null, dm: [...(dm as string[])].sort() } : null);
+  const byChat = async (chatId: unknown) => {
+    const chat = typeof chatId === "string" ? await db.chats.get(chatId) : undefined;
+    return chat ? (room(chat.roomId) ?? dmOf(chat.dm)) : null;
+  };
+  switch (tbl) {
+    case "categories":
+    case "imageUsers":
+      return room(row.roomId);
+    case "chats":
+      return room(row.roomId) ?? dmOf(row.dm);
+    case "messages":
+      return room(row.roomId) ?? (await byChat(row.chatId));
+    case "chatReads":
+      return byChat(row.chatId);
+  }
+}
+
+// ---- 書いた行を送る ----
+
+/** 送る前の行（同じ行は最後の形だけ送る）。null は消した行 */
+const outbox = new Map<string, { tbl: Tbl; id: string; row: Row | null }>();
+/** 送っている途中の行（届いた古い形で、書いたばかりの形を上書きしないため） */
+const sending = new Set<string>();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Supabase から届いた行を書いている途中の印（その書き込みは送り返さない） */
+const REMOTE = Symbol("remote");
+const isRemote = (trans: Transaction) => !!(trans as unknown as Record<symbol, boolean>)[REMOTE];
+
+function enqueue(tbl: Tbl, id: string, row: Row | null) {
+  outbox.set(`${tbl}:${id}`, { tbl, id, row });
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = setTimeout(() => void flush(), 200);
+}
+
+function retryLater(tbl: Tbl, id: string, row: Row) {
+  outbox.set(`${tbl}:${id}`, { tbl, id, row });
+  if (!flushTimer) flushTimer = setTimeout(() => void flush(), 10_000);
+}
+
+async function flush() {
+  flushTimer = null;
+  if (!me || !outbox.size) return;
+  const items = [...outbox.entries()];
+  outbox.clear();
+  for (const [k] of items) sending.add(k);
+  try {
+    // 消した行：印を付ける（どこの行かは、もう Supabase が知っている）
+    const gone = new Map<Tbl, string[]>();
+    for (const [, it] of items) if (!it.row) gone.set(it.tbl, [...(gone.get(it.tbl) ?? []), it.id]);
+    for (const [tbl, ids] of gone) {
+      const { error } = await sb().from("synced_rows").update({ deleted: true }).eq("tbl", tbl).in("id", ids);
+      if (error) console.warn("Supabase で消せませんでした", tbl, error.message);
+    }
+    // 書いた行：どこの行かごとにまとめて送る（見られないルームの行が混ざっても、ほかの行は送れるように）
+    const groups = new Map<string, Omit<ServerRow, "updated_at">[]>();
+    for (const [, it] of items) {
+      if (!it.row) continue;
+      const scope = await scopeOf(it.tbl, it.row);
+      if (!scope) continue;
+      const key = scope.room_id ?? scope.dm.join(",");
+      groups.set(key, [...(groups.get(key) ?? []), { tbl: it.tbl, id: it.id, ...scope, data: it.row, deleted: false }]);
+    }
+    for (const rows of groups.values()) {
+      for (let i = 0; i < rows.length; i += 200) {
+        const batch = rows.slice(i, i + 200);
+        const { error } = await sb().from("synced_rows").upsert(batch, { onConflict: "tbl,id" });
+        if (!error) continue;
+        // まとめて送れなかったら1行ずつ送り直す（送れない1行のせいで、ほかの行まで止めないため）
+        for (const row of batch) {
+          const one = await sb().from("synced_rows").upsert(row, { onConflict: "tbl,id" });
+          if (!one.error) continue;
+          console.warn("Supabase に送れませんでした", row.tbl, row.id, one.error.message);
+          // つながらなかった（エラーの番号が無い）ときは、しばらくしてから送り直す。決まりで断られたものは送り直さない
+          if (!one.error.code && !outbox.has(`${row.tbl}:${row.id}`)) retryLater(row.tbl, row.id, row.data);
+        }
+      }
+    }
+  } finally {
+    for (const [k] of items) sending.delete(k);
+  }
+}
+
+let hooked = false;
+
+/** ブラウザの中の書き込みを拾うフック（Supabase 版のときだけ、1回だけ付ける） */
+function hookTables() {
+  if (hooked) return;
+  hooked = true;
+  // 閉じる前に、まだ送っていない行を送る
+  window.addEventListener("pagehide", () => void flush());
+  for (const tbl of TABLES) {
+    const table = tableOf(tbl);
+    table.hook("creating", function (_key, obj, trans) {
+      if (!me || isRemote(trans)) return;
+      const row = Dexie.deepClone(obj);
+      trans.on("complete", () => enqueue(tbl, idOf(tbl, row), row));
+    });
+    table.hook("updating", function (mods, _key, obj, trans) {
+      if (!me || isRemote(trans)) return;
+      const row = Dexie.deepClone(obj);
+      for (const [path, value] of Object.entries(mods)) Dexie.setByKeyPath(row, path, value);
+      trans.on("complete", () => enqueue(tbl, idOf(tbl, row), row));
+    });
+    table.hook("deleting", function (_key, obj, trans) {
+      // obj が無い：ブラウザの中に無い行を消そうとした（何も消えていない）
+      if (!me || !obj || isRemote(trans)) return;
+      const id = idOf(tbl, obj);
+      trans.on("complete", () => enqueue(tbl, id, null));
+    });
+  }
+}
+
+// ---- 届いた行を書く ----
+
+/**
+ * 届いた行の中身が、その行の置き場所（ルームか DM）と合っているか。
+ * Supabase は「置き場所のメンバーか」しか見ないので、ルーム A に、ルーム B の ID を中身に書いた行を置かれると、
+ * 両方にいる人のブラウザで、ルーム B のチャットや発言を書き換えられてしまう。合わない行は書かない
+ */
+async function belongs(r: ServerRow): Promise<boolean> {
+  const d = r.data;
+  if (!d || idOf(r.tbl, d) !== r.id) return false;
+  const roomOf = async (chatId: unknown) => (typeof chatId === "string" ? (await db.chats.get(chatId))?.roomId : undefined);
+  if (r.room_id) {
+    if (r.tbl === "chatReads" || r.tbl === "messages") {
+      // まだ届いていないチャットの発言は通す（チャットが届けば、そのルームのものとして出る）
+      const room = await roomOf(d.chatId);
+      if (room !== undefined && room !== r.room_id) return false;
+    }
+    return r.tbl === "chatReads" || d.roomId === r.room_id;
+  }
+  if (!r.dm || r.dm.length !== 2) return false;
+  const dmId = dmChatId(r.dm[0], r.dm[1]);
+  switch (r.tbl) {
+    case "chats":
+      return d.id === dmId && !d.roomId && Array.isArray(d.dm) && [...(d.dm as string[])].sort().join() === [...r.dm].sort().join();
+    case "messages":
+      return d.chatId === dmId && !d.roomId;
+    case "chatReads":
+      return d.chatId === dmId;
+    default:
+      return false;
+  }
+}
+
+async function applyRows(rows: ServerRow[]) {
+  const usable: ServerRow[] = [];
+  for (const r of rows) {
+    if (!(TABLES as readonly string[]).includes(r.tbl) || outbox.has(`${r.tbl}:${r.id}`) || sending.has(`${r.tbl}:${r.id}`)) continue;
+    if (await belongs(r)) usable.push(r);
+    else console.warn("置き場所と合わない行を書きませんでした", r.tbl, r.id);
+  }
+  if (!usable.length) return;
+  await db.transaction("rw", TABLES.map(tableOf), async (tx) => {
+    (tx as unknown as Record<symbol, boolean>)[REMOTE] = true;
+    for (const r of usable) {
+      const table = tableOf(r.tbl);
+      if (r.deleted) await table.delete(keyOf(r.tbl, r.id));
+      else await table.put(r.data);
+    }
+  });
+}
+
+// ---- 読み直し ----
+
+let me: string | null = null;
+/** どこまで読んだか（ルームの ID か "dm" → いちばん新しい行の時刻） */
+let cursors: Record<string, string> = {};
+const cursorKey = () => `accord:rows:${me}`;
+
+function loadCursors() {
+  try {
+    cursors = JSON.parse(localStorage.getItem(cursorKey()) ?? "{}") ?? {};
+  } catch {
+    cursors = {};
+  }
+}
+function saveCursors() {
+  try {
+    localStorage.setItem(cursorKey(), JSON.stringify(cursors));
+  } catch {
+    // 保存できなくても、次に開いたときに読み直すだけ
+  }
+}
+function advance(scope: string, at: string) {
+  if (!cursors[scope] || cursors[scope] < at) cursors[scope] = at;
+}
+
+/** 少し前から読み直す（同じころに書かれて、あとから届いた行を落とさないため。同じ行を読んでも害はない） */
+const since = (at: string | undefined) => (at ? new Date(new Date(at).getTime() - 5000).toISOString() : "1970-01-01T00:00:00Z");
+
+async function pullScope(scope: string) {
+  for (;;) {
+    let q = sb().from("synced_rows").select("tbl,id,room_id,dm,data,deleted,updated_at").gt("updated_at", since(cursors[scope]));
+    q = scope === "dm" ? q.not("dm", "is", null) : q.eq("room_id", scope);
+    const { data, error } = await q.order("updated_at").limit(500).returns<ServerRow[]>();
+    if (error) {
+      console.warn("Supabase から読めませんでした", error.message);
+      return;
+    }
+    if (!data.length) return;
+    await applyRows(data);
+    const before = cursors[scope];
+    advance(scope, data[data.length - 1].updated_at);
+    saveCursors();
+    if (data.length < 500 || cursors[scope] === before) return;
+  }
+}
+
+let pulling: Promise<void> | null = null;
+
+/** 参加しているルームと DM の、前に読んだあとに変わった行を読む。onlyNew：まだ一度も読んでいないルームだけ */
+export function pullRows(onlyNew = false): Promise<void> {
+  if (!supa || !me) return Promise.resolve();
+  if (pulling) return pulling.then(() => pullRows(onlyNew));
+  pulling = (async () => {
+    try {
+      const rooms = (await db.rooms.toCollection().primaryKeys()) as string[];
+      const scopes = ["dm", ...rooms].filter((s) => !onlyNew || !cursors[s]);
+      // 抜けた・消えたルームは、どこまで読んだかを忘れる（また入ったら最初から読む）
+      for (const s of Object.keys(cursors)) if (s !== "dm" && !rooms.includes(s)) delete cursors[s];
+      for (const s of scopes) await pullScope(s);
+      saveCursors();
+    } finally {
+      pulling = null;
+    }
+  })();
+  return pulling;
+}
+
+let channel: RealtimeChannel | null = null;
+let timer: ReturnType<typeof setInterval> | null = null;
+
+const onVisible = () => {
+  if (document.visibilityState === "visible") void pullRows();
+};
+
+/** 同じ名前のつながりが残っていたら外してから作る（同じ名前だと、前のつながりが返ってきて知らせを足せないため） */
+export function freshChannel(name: string) {
+  for (const ch of sb().getChannels()) if (ch.topic === `realtime:${name}`) void sb().removeChannel(ch);
+  return sb().channel(name);
+}
+
+/** ログインした人が替わったら、写す相手と知らせの受け取りを替える（ログアウトなら止める） */
+export async function startRowSync(userId: string | null) {
+  if (!supa || userId === me) return;
+  if (me) await flush();
+  me = userId;
+  if (channel) void sb().removeChannel(channel);
+  channel = null;
+  if (timer) clearInterval(timer);
+  timer = null;
+  document.removeEventListener("visibilitychange", onVisible);
+  if (!userId) return;
+  hookTables();
+  await forgetLocalOnlyDms(userId);
+  loadCursors();
+  await pullRows();
+  // Supabase から届いた分にも、決まった ID でない DM があれば片づける
+  await forgetLocalOnlyDms(userId);
+  channel = freshChannel(`rows:${userId}`)
+    .on("postgres_changes", { event: "*", schema: "public", table: "synced_rows" }, (payload) => {
+      const row = payload.new as ServerRow | undefined;
+      if (!row?.tbl) return;
+      void applyRows([row]).then(() => {
+        advance(row.room_id ?? "dm", row.updated_at);
+        saveCursors();
+      });
+    })
+    .subscribe((status) => {
+      // つながり直したら、切れていた間の分を読む
+      if (status === "SUBSCRIBED") void pullRows();
+    });
+  // 知らせが届かなかったときのために、しばらくおきにも読む
+  timer = setInterval(() => void pullRows(), 5 * 60_000);
+  document.addEventListener("visibilitychange", onVisible);
+}
+
+/**
+ * 2人で決まる ID（dmChatId）でない DM を片づける。Supabase につなぐ前にこのブラウザの中だけで作った DM は相手に届いておらず、
+ * 2人の DM が二重に出てしまうため（データは移さずに新しく始める：2026-10-20）。
+ * 「dm:」で始まるものは、作りかけの形で Supabase にも送ってしまったので、Supabase でも消す
+ */
+async function forgetLocalOnlyDms(userId: string) {
+  const old = await db.chats.where("dm").equals(userId).filter((c) => !!c.dm && c.id !== dmChatId(c.dm[0], c.dm[1])).primaryKeys();
+  if (!old.length) return;
+  const sent = old.filter((id) => id.startsWith("dm:"));
+  await db.transaction("rw", TABLES.map(tableOf), async (tx) => {
+    (tx as unknown as Record<symbol, boolean>)[REMOTE] = true;
+    const local = old.filter((id) => !sent.includes(id));
+    await db.messages.filter((m) => local.includes(m.chatId)).delete();
+    await db.chatReads.filter((r) => local.includes(r.chatId)).delete();
+    await db.chats.bulkDelete(local);
+  });
+  if (sent.length) await db.chats.bulkDelete(sent);
+}
+

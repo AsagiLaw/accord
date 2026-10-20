@@ -2,7 +2,8 @@
 
 import Dexie from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, newId, type Chat, type Profile } from "./db";
+import { db, type Chat, type Profile } from "./db";
+import { supa } from "./sync";
 
 // ダイレクトメッセージ：2人だけのチャット。ふつうのチャットと同じ表に入れ、roomId は空、dm に2人を入れる
 
@@ -15,17 +16,27 @@ export type DmRow = {
   unread: number;
 };
 
+/**
+ * 2人の DM の ID。2人のどちらが先に作っても同じ ID になるので、Supabase で1つにまとまる。
+ * ローカル版で前に作った DM は、ランダムな ID のまま（openDm は2人で探す）
+ */
+export const dmChatId = (a: string, b: string) => `dm_${[a, b].sort().join("_")}`;
+
 /** その人との DM を開く。まだ無ければ作る */
 export async function openDm(me: string, other: string) {
   const pair = [me, other].sort();
   return db.transaction("rw", db.chats, async () => {
-    const found = await db.chats
+    if (await db.chats.get(dmChatId(me, other))) return dmChatId(me, other);
+    // Supabase 版では、2人で決まる ID の DM だけを使う（ほかの ID の DM は rowSync が片づける）
+    const found = supa
+      ? undefined
+      : await db.chats
       .where("dm")
       .equals(pair[0])
       .filter((c) => !!c.dm?.includes(pair[1]))
       .first();
     if (found) return found.id;
-    const chat: Chat = { id: newId(), roomId: "", name: "", kind: "normal", order: 0, createdAt: Date.now(), dm: pair };
+    const chat: Chat = { id: dmChatId(me, other), roomId: "", name: "", kind: "normal", order: 0, createdAt: Date.now(), dm: pair };
     await db.chats.add(chat);
     return chat.id;
   });

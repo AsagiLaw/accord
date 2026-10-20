@@ -5,7 +5,7 @@ import type { IconName } from "@/components/Icon";
 import { unlinkRoom } from "./boxes";
 import { presetRecords } from "./roomPresetRecords";
 import { db, defaultCategories, defaultChat, newId, newRoomMediaBox, type Chat, type Profile, type RoomRole } from "./db";
-import { errorText, profilePatchRow, pull, roomsBeingCreated, SaveError, sb, supa } from "./sync";
+import { errorText, profilePatchRow, pull, SaveError, sb, supa } from "./sync";
 
 export type MemberWithProfile = {
   userId: string;
@@ -78,7 +78,6 @@ export async function createRoom(name: string, userId: string, template: RoomTem
     const { data, error } = await sb().rpc("create_room", { room_name: name, room_icon: icon ?? null });
     if (error || typeof data !== "string") throw new SaveError(`ルームを作れませんでした（${errorText(error)}）`);
     id = data;
-    roomsBeingCreated.add(id);
   }
   const now = Date.now();
   const categories = defaultCategories(id);
@@ -121,10 +120,7 @@ export async function createRoom(name: string, userId: string, template: RoomTem
       await db.notes.add({ id: newId(), roomId: id, title: "はじめに", blocks: [], pageId: null, order: 1, createdAt: now, updatedAt: now, updatedBy: userId, categoryId: noteCat.id, navOrder: 1 });
     }
   });
-  if (supa) {
-    roomsBeingCreated.delete(id);
-    await pull();
-  }
+  if (supa) await pull();
   return id;
 }
 

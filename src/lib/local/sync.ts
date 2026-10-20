@@ -5,13 +5,14 @@ import type { IndexableType, Table } from "dexie";
 import { authMode } from "@/lib/auth/mode";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/components/ui/overlay";
-import { db, defaultCategories, defaultChat, newMyMediaBox, type Friendship, type Presence, type Profile, type Room, type RoomInvite, type RoomMember, type WorkStatus } from "./db";
-import { openDm } from "./dm";
+import { db, newMyMediaBox, type Friendship, type Presence, type Profile, type Room, type RoomInvite, type RoomMember, type WorkStatus } from "./db";
+import { freshChannel, pullRows, startRowSync } from "./rowSync";
 
 // Supabase 版：プロフィール・ルーム・メンバー・フレンド・招待は Supabase に保存し、ブラウザの中（IndexedDB）に写して使う。
 // 画面は今までどおりブラウザの中を読む（useLiveQuery）。書き込みは Supabase に送ってから pull() で写し直す。
 // ほかの人の変更は Realtime（0010）で知らせを受けて写し直す。届かないとき（プロフィールの変更など）のために、しばらくおきにも写す。
-// ルームの中のもの（チャット・データベース・ノートなど）は、まだブラウザの中だけ（2-2・2-3 で移す）
+// プロフィールとルームは、変わった分だけを読む（アイコンの画像が大きいので、転送量を抑える：0011）。
+// ルームの中のもの（チャットなど）は rowSync.ts で行ごとに写す
 
 export const supa = authMode === "supabase";
 
@@ -33,8 +34,10 @@ type ProfileRow = {
   links: Profile["links"] | null;
   work_status: string | null;
   created_at: string;
+  updated_at: string;
 };
-type RoomRow = { id: string; name: string; icon: string | null; created_by: string; created_at: string; members_can_invite: boolean };
+type RoomRow = { id: string; name: string; icon: string | null; created_by: string; created_at: string; members_can_invite: boolean; updated_at: string };
+type Stamp = { id: string; updated_at: string };
 type MemberRow = { room_id: string; user_id: string; role: RoomMember["role"]; joined_at: string };
 type FriendshipRow = { id: string; from_id: string; to_id: string; status: Friendship["status"]; created_at: string; responded_at: string | null };
 type InviteRow = { id: string; room_id: string; from_id: string; to_id: string; created_at: string; expires_at: string; accepted_at: string | null };
@@ -103,9 +106,6 @@ export function profilePatchRow(patch: Partial<Profile>) {
   return row;
 }
 
-/** 作っている途中のルーム（作った人のブラウザでは、テンプレートの中身を createRoom が入れるので、既定の中身を入れない） */
-export const roomsBeingCreated = new Set<string>();
-
 let me: string | null = null;
 let running: Promise<void> | null = null;
 let again = false;
@@ -130,48 +130,71 @@ export function pull(): Promise<void> {
   return running;
 }
 
+/** 前に読んだときの「最後に変えた時刻」（ID → 時刻）。変わっていなければ、中身は読まない */
+let seenProfiles = new Map<string, string>();
+let seenRooms = new Map<string, string>();
+
+/** 時刻だけを先に読み、変わった行の中身だけを読む */
+async function changedRows<T extends { id: string; updated_at: string }>(table: string, seen: Map<string, string>) {
+  const s = sb();
+  const stamps = await s.from(table).select("id,updated_at").returns<Stamp[]>();
+  if (stamps.error) return { error: stamps.error };
+  const changed = stamps.data.filter((r) => seen.get(r.id) !== r.updated_at).map((r) => r.id);
+  const rows: T[] = [];
+  for (let i = 0; i < changed.length; i += 100) {
+    const { data, error } = await s.from(table).select("*").in("id", changed.slice(i, i + 100)).returns<T[]>();
+    if (error) return { error };
+    rows.push(...data);
+  }
+  return { ids: stamps.data.map((r) => r.id), rows };
+}
+
 async function pullOnce(userId: string) {
   const s = sb();
-  const [own, others, rooms, members, friendships, invites] = await Promise.all([
-    s.from("profiles").select("*").eq("id", userId).maybeSingle<ProfileRow>(),
-    s.from("profiles_public").select("*").returns<ProfileRow[]>(),
-    s.from("rooms").select("*").returns<RoomRow[]>(),
+  const [profiles, rooms, members, friendships, invites] = await Promise.all([
+    // 自分も窓口（profiles_public）に入っている（自分には本当の状態を返す：0005）
+    changedRows<ProfileRow>("profiles_public", seenProfiles),
+    changedRows<RoomRow>("rooms", seenRooms),
     s.from("room_members").select("*").returns<MemberRow[]>(),
     s.from("friendships").select("*").returns<FriendshipRow[]>(),
     s.from("room_friend_invites").select("*").returns<InviteRow[]>(),
   ]);
-  const failed = [own, others, rooms, members, friendships, invites].find((r) => r.error);
+  const failed = [profiles, rooms, members, friendships, invites].find((r) => r.error);
   // 読めなかったときは、ブラウザの中をそのままにする（消してしまわないように）
-  if (failed?.error) {
-    console.warn("Supabase から読めませんでした", failed.error.message);
+  if (failed?.error || !profiles.rows || !rooms.rows || !rooms.ids) {
+    console.warn("Supabase から読めませんでした", failed?.error?.message);
     return;
   }
   if (me !== userId) return;
 
-  const profiles = [...(others.data ?? []).filter((p) => p.id !== userId).map(toProfile), ...(own.data ? [toProfile(own.data)] : [])];
-  const roomList = (rooms.data ?? []).map(toRoom);
+  const profileList = profiles.rows.map(toProfile);
+  const freshRooms = new Map(rooms.rows.map((r) => [r.id, toRoom(r)]));
   const memberList = (members.data ?? []).map(toMember);
   const friendList = (friendships.data ?? []).map(toFriendship);
   const inviteList = (invites.data ?? []).map(toInvite);
 
   await db.transaction("rw", [db.profiles, db.rooms, db.roomMembers, db.friendships, db.roomInvites], async () => {
     // ID は重ならない（&username）。名前を変えた人の古い写しが残っていたら、先に外す
-    const names = new Map(profiles.map((p) => [p.username, p.id]));
+    const names = new Map(profileList.map((p) => [p.username, p.id]));
     const stale = await db.profiles.where("username").anyOf([...names.keys()]).filter((p) => names.get(p.username) !== p.id).primaryKeys();
     await db.profiles.bulkDelete(stale);
     // プロフィールは消さない（もう見られない人の発言にも、名前を出すため）
-    await db.profiles.bulkPut(profiles);
-    await mirror(db.rooms, roomList, (r) => r.id);
+    await db.profiles.bulkPut(profileList);
+    // ルームは、変わっていないものはブラウザの中の写しをそのまま使う
+    const kept = (await db.rooms.bulkGet(rooms.ids!.filter((id) => !freshRooms.has(id)))).filter((r): r is Room => !!r);
+    await mirror(db.rooms, [...kept, ...freshRooms.values()], (r) => r.id);
     await mirror(db.roomMembers, memberList, (m): [string, string] => [m.roomId, m.userId]);
     await mirror(db.friendships, friendList, (f) => f.id);
     await mirror(db.roomInvites, inviteList, (i) => i.id);
   });
+  for (const r of profiles.rows) seenProfiles.set(r.id, r.updated_at);
+  seenRooms = new Map([...rooms.rows.map((r): [string, string] => [r.id, r.updated_at]), ...[...seenRooms].filter(([id]) => rooms.ids!.includes(id) && !freshRooms.has(id))]);
 
-  await scaffoldRooms(roomList);
-  await deliverInvites(userId, inviteList);
   if (!(await db.mediaBoxes.where("ownerId").equals(userId).filter((b) => b.kind === "mine").count())) {
     await db.mediaBoxes.add(newMyMediaBox(userId));
   }
+  // 新しく入ったルームの中身（チャットなど）を読む
+  await pullRows(true);
 }
 
 /** ブラウザの中の表を、Supabase と同じ行にそろえる（無くなった行は消す） */
@@ -181,32 +204,6 @@ async function mirror<T, K extends IndexableType>(table: Table<T, K, any>, rows:
   const gone = (await table.toArray()).map(key).filter((k) => !keep.has(JSON.stringify(k)));
   await table.bulkDelete(gone);
   await table.bulkPut(rows);
-}
-
-/** このブラウザで初めて見るルーム（招待されて参加した・ほかの端末で作った）に、既定のカテゴリーとチャット「雑談」を用意する */
-async function scaffoldRooms(rooms: Room[]) {
-  for (const room of rooms) {
-    if (roomsBeingCreated.has(room.id)) continue;
-    await db.transaction("rw", db.categories, db.chats, async () => {
-      if (await db.categories.where("roomId").equals(room.id).count()) return;
-      if (await db.chats.where("roomId").equals(room.id).count()) return;
-      const cats = defaultCategories(room.id);
-      await db.categories.bulkAdd(cats);
-      await db.chats.add({ ...defaultChat(room.id), categoryId: cats[0].id, navOrder: 1 });
-    });
-  }
-}
-
-/**
- * 届いた招待を、送った人との DM に招待のカードとして出す。
- * DM はまだブラウザの中だけ（2-2 で移す）なので、送った人のブラウザで送ったカードは届かない。代わりに、届いた側で同じカードを作る
- */
-async function deliverInvites(userId: string, invites: RoomInvite[]) {
-  for (const invite of invites) {
-    if (invite.toId !== userId || (await db.messages.get(invite.id))) continue;
-    const chatId = await openDm(userId, invite.fromId);
-    await db.messages.add({ id: invite.id, chatId, roomId: "", authorId: invite.fromId, speaker: null, text: "", mediaIds: [], replyTo: null, createdAt: invite.createdAt, editedAt: null, inviteId: invite.id });
-  }
 }
 
 let channel: RealtimeChannel | null = null;
@@ -230,21 +227,27 @@ const onVisible = () => {
 export async function startSync(userId: string | null) {
   if (!supa || userId === me) return;
   me = userId;
+  seenProfiles = new Map();
+  seenRooms = new Map();
   if (channel) void sb().removeChannel(channel);
   channel = null;
   if (timer) clearInterval(timer);
   timer = null;
   document.removeEventListener("visibilitychange", onVisible);
-  if (!userId) return;
+  if (!userId) {
+    await startRowSync(null);
+    return;
+  }
   await pull();
-  const ch = sb().channel(`sync:${userId}`);
+  await startRowSync(userId);
+  const ch = freshChannel(`sync:${userId}`);
   // room_members は知らせを出さない（0010）。ほかの人がルームに入ったのは、しばらくおきの読み直しで分かる
   for (const table of ["profiles", "rooms", "friendships", "room_friend_invites"]) {
     ch.on("postgres_changes", { event: "*", schema: "public", table }, pullSoon);
   }
   channel = ch.subscribe();
-  // 窓口（profiles_public）とメンバーの変更は知らせが届かないので、しばらくおきに写す
-  timer = setInterval(pullSoon, 30_000);
+  // 窓口（profiles_public）とメンバーの変更は知らせが届かないので、しばらくおきに写す（変わった分だけ読む）
+  timer = setInterval(pullSoon, 2 * 60_000);
   document.addEventListener("visibilitychange", onVisible);
 }
 
