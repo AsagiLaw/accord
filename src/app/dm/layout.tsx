@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
 import { Icon, type IconName } from "@/components/Icon";
+import { UploadIndicator } from "@/components/media/UploadIndicator";
 import { TopBarSlot } from "@/components/TopBarSlot";
 import { usePageFade } from "@/components/usePageFade";
 import { useChat } from "@/lib/local/chat";
@@ -92,6 +93,8 @@ export default function DmLayout({ children }: { children: React.ReactNode }) {
               )}
             </span>
             <div ref={setSlot} data-name="上部バーの操作" className={`flex items-center gap-2 ${inBox ? "min-w-0 flex-1" : "shrink-0"}`} />
+            {/* 画像を R2 に置いている間だけ出る */}
+            <UploadIndicator />
           </header>
           <TopBarSlot.Provider value={slot}>
             <div ref={content} data-name="メイン画面の中身" className="min-h-0 flex-1 overflow-auto px-[clamp(16px,4vw,40px)] pt-4 pb-7 [scrollbar-gutter:stable]">

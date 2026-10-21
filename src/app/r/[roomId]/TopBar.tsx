@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Icon, type IconName } from "@/components/Icon";
 import { DEFAULT_PAGE_ICON, IconMark } from "@/components/IconMark";
 import { IconPicker } from "@/components/IconPicker";
+import { UploadIndicator } from "@/components/media/UploadIndicator";
 import { usePopover } from "@/components/ui/Popover";
 import { setChannelIcon, type ChannelKind } from "@/lib/local/channels";
 import { renameChat, useChat } from "@/lib/local/chat";
@@ -51,6 +52,8 @@ export function TopBar({
         ) : null}
       </nav>
       <div ref={slotRef} data-name="上部バーの操作" className={`flex items-center gap-2 ${kind === "media" ? "min-w-0 flex-1" : "shrink-0"}`} />
+      {/* 画像を R2 に置いている間だけ出る */}
+      <UploadIndicator />
       {/* メンバー一覧の開け閉め。開いている間は色を濃くする */}
       <button
         type="button"

@@ -57,22 +57,86 @@ const waiting = new Map<string, number>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 let me: string | null = null;
 
-// ---- 置く進み具合（一覧のゲージに出す） ----
+// ---- 置く進み具合（一覧のゲージと、上部バーのサークルゲージに出す） ----
 
-/** 置き終わっていない画像（ID → 0〜1。順番を待っている間は 0） */
-const progress = new Map<string, number>();
+/** 置き終わっていない画像（ID → その画像のファイル全部の量・送った量。量は、置き始めるまでは画像の容量で見積もる） */
+const items = new Map<string, { total: number; sent: number }>();
+/** 今のひとまとまり（置き終わっていない画像が無くなるまで）で、置き終わった画像の量（サークルゲージが戻らないように） */
+let finishedBytes = 0;
+/** これまでに送った量（速さを出すため。送り直した分も入る） */
+let sentBytes = 0;
+/** 送った量の記録（最近10秒の分で速さを出す） */
+let samples: { at: number; bytes: number }[] = [];
+const SPEED_WINDOW = 10_000;
+
+/** 上部バーに出す、置いている画像のまとめ。速さ（バイト/秒）と残りの時間（秒）は、まだ分からなければ null */
+export type UploadSummary = { count: number; ratio: number; speed: number | null; remaining: number | null };
+let summary: UploadSummary | null = null;
+
+function summarize(): UploadSummary | null {
+  if (!items.size) return null;
+  const now = Date.now();
+  samples.push({ at: now, bytes: sentBytes });
+  samples = samples.filter((s) => s.at >= now - SPEED_WINDOW);
+  const first = samples[0];
+  // 1秒以上たたないと、速さはあてにならない
+  const speed = now - first.at >= 1000 ? ((sentBytes - first.bytes) * 1000) / (now - first.at) : null;
+  let total = finishedBytes;
+  let sent = finishedBytes;
+  for (const it of items.values()) {
+    total += it.total;
+    sent += Math.min(it.sent, it.total);
+  }
+  return {
+    count: items.size,
+    ratio: total ? sent / total : 0,
+    speed,
+    remaining: speed ? (total - sent) / speed : null,
+  };
+}
+
 const progressListeners = new Set<() => void>();
 let progressFrame = 0;
+let tick: ReturnType<typeof setInterval> | null = null;
 
-/** 進み具合を変える（null で外す）。画面に知らせるのは、描くたびに1回だけにまとめる */
-function setProgress(id: string, value: number | null) {
-  if (value === null) progress.delete(id);
-  else progress.set(id, value);
+/** 画面に知らせる。描くたびに1回だけにまとめる */
+function notifyProgress() {
   if (progressFrame) return;
   progressFrame = requestAnimationFrame(() => {
     progressFrame = 0;
+    summary = summarize();
+    if (!items.size) {
+      finishedBytes = 0;
+      samples = [];
+    }
+    // 送っていない間も速さと残りの時間が変わるので、置いている間は1秒おきに出し直す
+    if (items.size && !tick) tick = setInterval(notifyProgress, 1000);
+    if (!items.size && tick) {
+      clearInterval(tick);
+      tick = null;
+    }
     progressListeners.forEach((f) => f());
   });
+}
+
+/** 置く画像に足す（量は、画像の容量で見積もっておく） */
+function track(id: string) {
+  if (items.has(id)) return;
+  items.set(id, { total: 1, sent: 0 });
+  notifyProgress();
+  void db.media.get(id).then((m) => {
+    const it = items.get(id);
+    if (it && it.sent === 0 && m?.size) it.total = m.size;
+  });
+}
+
+/** 置き終わった（done）・あきらめたときに外す。あきらめた画像は、次に開いたときにまた置く */
+function untrack(id: string, done: boolean) {
+  const it = items.get(id);
+  if (!it) return;
+  if (done) finishedBytes += it.total;
+  items.delete(id);
+  notifyProgress();
 }
 
 function subscribeProgress(f: () => void) {
@@ -80,19 +144,31 @@ function subscribeProgress(f: () => void) {
   return () => progressListeners.delete(f);
 }
 
-/** その画像を R2 に置く進み具合（0〜1）。置き終わっている・このブラウザで置くものでなければ undefined */
+/** その画像を R2 に置く進み具合（0〜1。順番を待っている間は 0）。置き終わっている・このブラウザで置くものでなければ undefined */
 export function useUploadProgress(id: string) {
   return useSyncExternalStore(
     subscribeProgress,
-    () => progress.get(id),
+    () => {
+      const it = items.get(id);
+      return it ? Math.min(1, it.sent / it.total) : undefined;
+    },
     () => undefined,
+  );
+}
+
+/** このブラウザで R2 に置いている画像のまとめ。置いている画像が無ければ null */
+export function useUploadSummary() {
+  return useSyncExternalStore(
+    subscribeProgress,
+    () => summary,
+    () => null,
   );
 }
 
 function queueUpload(id: string, tries = 0) {
   if (!supa || !me) return;
   waiting.set(id, tries);
-  if (!progress.has(id)) setProgress(id, 0);
+  track(id);
   if (!timer) timer = setTimeout(() => void flushUploads(), tries ? Math.min(30_000, 3000 * tries) : 1500);
 }
 
@@ -104,8 +180,8 @@ async function flushUploads() {
     const ok = await uploadOne(id).catch(() => false);
     // 画像の情報がまだ Supabase に届いていない・つながらなかったときは、しばらくして置き直す（10回まで）
     if (!ok && tries < 10) queueUpload(id, tries + 1);
-    // 置けた・あきらめたときは、ゲージを消す（あきらめた画像は、次に開いたときにまた置く）
-    else if (!waiting.has(id)) setProgress(id, null);
+    // 置けた・あきらめたときは、ゲージから外す
+    else if (!waiting.has(id)) untrack(id, ok);
   }
 }
 
@@ -136,12 +212,22 @@ async function uploadOne(id: string) {
   const urls = await sign(parts.map(([kind]) => ({ id, rev, kind, op: "put" })));
   if (!urls || urls.some((u) => !u)) return false;
   // ゲージは、その画像のファイル全部を合わせた量で進める
-  const total = parts.reduce((n, [, blob]) => n + blob.size, 0) || 1;
+  const item = items.get(id) ?? { total: 1, sent: 0 };
+  items.set(id, item);
+  item.total = parts.reduce((n, [, blob]) => n + blob.size, 0) || 1;
+  item.sent = 0;
   let done = 0;
   for (const [i, [, blob]] of parts.entries()) {
-    const ok = await put(urls[i]!, blob, (sent) => setProgress(id, (done + sent) / total));
+    let last = 0;
+    const ok = await put(urls[i]!, blob, (sent) => {
+      sentBytes += sent - last;
+      last = sent;
+      item.sent = done + sent;
+      notifyProgress();
+    });
     if (!ok) {
-      setProgress(id, 0);
+      item.sent = 0;
+      notifyProgress();
       return false;
     }
     done += blob.size;
