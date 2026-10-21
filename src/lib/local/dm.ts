@@ -51,10 +51,11 @@ export function useMyDms(userId: string | undefined) {
     const others = await db.profiles.bulkGet(chats.map((c) => c.dm!.find((id) => id !== userId) ?? userId));
     const rows = await Promise.all(
       chats.map(async (chat, i): Promise<DmRow> => {
-        const messages = db.messages.where("[chatId+createdAt]").between([chat.id, Dexie.minKey], [chat.id, Dexie.maxKey]);
-        const last = await messages.last();
+        // last() は問い合わせの中身を変える（逆順・1件に絞る）ので、数えるのは別に作る
+        const messages = () => db.messages.where("[chatId+createdAt]").between([chat.id, Dexie.minKey], [chat.id, Dexie.maxKey]);
+        const last = await messages().last();
         const read = reads.get(chat.id) ?? 0;
-        const unread = await messages.filter((m) => m.authorId !== userId && m.createdAt > read).count();
+        const unread = await messages().filter((m) => m.authorId !== userId && m.createdAt > read).count();
         return { chat, other: others[i], lastAt: last?.createdAt ?? chat.createdAt, unread };
       }),
     );

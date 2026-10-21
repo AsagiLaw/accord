@@ -57,15 +57,34 @@ self.addEventListener("push", (e) => {
   e.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
       if (list.some((c) => c.visibilityState === "visible")) return;
-      return self.registration.showNotification(n.title, {
-        body: n.body,
-        tag: n.tag,
-        icon: n.icon || "/icons/icon-192.png",
-        data: { href: n.href || "/" },
-      });
+      return Promise.all([
+        self.registration.showNotification(n.title, {
+          body: n.body,
+          tag: n.tag,
+          icon: n.icon || "/icons/icon-192.png",
+          data: { href: n.href || "/" },
+        }),
+        addBadge(),
+      ]);
     }),
   );
 });
+
+// アイコンの未読の数（src/lib/local/appBadge.ts と同じ置き場所）。閉じている間は、届いた通知の分だけ足す。
+// 開いたら、アプリが本当の数に数え直す
+const BADGE_CACHE = "accord-badge";
+const BADGE_KEY = "/accord-badge-count";
+
+async function addBadge() {
+  try {
+    const cache = await caches.open(BADGE_CACHE);
+    const now = Number(await (await cache.match(BADGE_KEY))?.text()) || 0;
+    await cache.put(BADGE_KEY, new Response(String(now + 1)));
+    await self.navigator.setAppBadge?.(now + 1);
+  } catch {
+    // 使えない端末
+  }
+}
 
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
