@@ -13,7 +13,8 @@ export function LongText({ text, className, children }: { text: string; classNam
   const folded = cut !== null && !open;
   return (
     <div className={className}>
-      <p className="break-words whitespace-pre-wrap">
+      {/* wrap-anywhere：URL など切れ目のない長い文字も、狭いチャットの中で折り返す */}
+      <p className="wrap-anywhere whitespace-pre-wrap">
         {folded ? `${text.slice(0, cut).trimEnd()}…` : text}
         {children}
       </p>

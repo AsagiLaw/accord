@@ -338,7 +338,7 @@ function MessageItem({
             <div className="mb-0.5 max-w-full truncate rounded-[10px] border-l-4 border-accent bg-tint px-2 py-0.5 text-xs text-muted">削除された発言</div>
           )
         ) : null}
-        <div className="flex items-end gap-1">
+        <div className="flex max-w-full min-w-0 items-end gap-1">
           {mine && <Actions canEdit={canEdit} onReply={onReply} onEdit={m.inviteId ? undefined : () => setEditing(true)} invite={!!m.inviteId} id={m.id} />}
           {readMark}
           {/* ルームへの招待は、吹き出しの代わりにカードで出す */}
@@ -346,11 +346,12 @@ function MessageItem({
             <InviteCard inviteId={m.inviteId} meId={meId} mine={mine} />
           ) : (
             // 画像は吹き出しに入れず、そのまま並べる（LINE と同じ）。文字や編集中の欄があるときだけ、その下に吹き出しを出す
-            <div className={`flex flex-col gap-1 ${mine ? "items-end" : "items-start"}`}>
+            // 狭いブロックの中では、画像も吹き出しも幅に合わせて縮む
+            <div className={`flex min-w-0 flex-col gap-1 ${mine ? "items-end" : "items-start"}`}>
               {images.length > 0 && (
-                <div className={`grid gap-1 ${images.length > 1 ? "grid-cols-2" : ""}`}>
+                <div className={`grid max-w-full gap-1 ${images.length > 1 ? "w-[324px] grid-cols-2 sm:w-[388px]" : "w-40 sm:w-48"}`}>
                   {images.map((id, i) => (
-                    <button key={id} onClick={() => onOpen(i)} className="block h-40 w-40 overflow-hidden rounded-[10px] sm:h-48 sm:w-48" aria-label={`画像を開く：${media.get(id)?.name}`}>
+                    <button key={id} onClick={() => onOpen(i)} className="block aspect-square w-full overflow-hidden rounded-[10px]" aria-label={`画像を開く：${media.get(id)?.name}`}>
                       <ThumbImage id={id} alt={media.get(id)?.name ?? ""} />
                     </button>
                   ))}
@@ -358,7 +359,7 @@ function MessageItem({
               )}
               {(missing > 0 || editing || !!m.text) && (
                 <div
-                  className={`rounded-[16px] px-3 py-2 ${
+                  className={`max-w-full rounded-[16px] px-3 py-2 ${
                     speakerTone !== undefined
                       ? SPEAKER_TONES[Math.max(0, speakerTone) % SPEAKER_TONES.length]
                       : mine
@@ -381,7 +382,7 @@ function MessageItem({
                           if (e.key === "Escape") setEditing(false);
                         }}
                         rows={Math.min(6, draft.split("\n").length + 1)}
-                        className="field min-w-56 text-ink"
+                        className="field w-56 max-w-full text-ink"
                       />
                       <div className="flex justify-end gap-1 text-xs">
                         <button className="rounded-full px-2 py-0.5 underline" onClick={() => setEditing(false)}>
