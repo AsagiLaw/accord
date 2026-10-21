@@ -295,16 +295,21 @@ async function applyRows(rows: ServerRow[]) {
 let me: string | null = null;
 /** どこまで読んだか（ルームの ID か "dm" → いちばん新しい行の時刻） */
 let cursors: Record<string, string> = {};
-const cursorKey = () => `accord:rows:${me}`;
+// v2：読み直しが同じ時刻の行の500件で止まっていた（2026-10-21 に直した）。それまでの印では取りこぼした行があるので、一度だけ最初から読み直す
+const cursorKey = () => `accord:rows:v2:${me}`;
 
 function loadCursors() {
   try {
+    localStorage.removeItem(`accord:rows:${me}`);
+    localStorage.removeItem("accord:rows:null");
     cursors = JSON.parse(localStorage.getItem(cursorKey()) ?? "{}") ?? {};
   } catch {
     cursors = {};
   }
 }
 function saveCursors() {
+  // ログアウトしたあとに届いた行で、誰のものでもない覚え（accord:rows:null）を作らない
+  if (!me) return;
   try {
     localStorage.setItem(cursorKey(), JSON.stringify(cursors));
   } catch {
@@ -318,21 +323,45 @@ function advance(scope: string, at: string) {
 /** 少し前から読み直す（同じころに書かれて、あとから届いた行を落とさないため。同じ行を読んでも害はない） */
 const since = (at: string | undefined) => (at ? new Date(new Date(at).getTime() - 5000).toISOString() : "1970-01-01T00:00:00Z");
 
+/** 少し前から読み直す行が、これより多ければ読み直さない（まとめて送った画像などを、読み直すたびに全部読まないように） */
+const OVERLAP_MAX = 200;
+
+/**
+ * どの時刻より後を読むか。ふだんは少し前（since）から読み直すが、その間の行が多いときは、前に読んだ所の続きから読む
+ * （まとめて書かれた行の中に、あとから届いた行が混ざることはまず無いため）
+ */
+async function startOf(scope: string) {
+  const at = cursors[scope];
+  if (!at) return since(at);
+  let q = sb().from("synced_rows").select("id", { count: "exact", head: true }).gt("updated_at", since(at)).lte("updated_at", at);
+  q = scope === "dm" ? q.not("dm", "is", null) : scope.startsWith("box:") ? q.eq("box_id", scope.slice(4)) : q.eq("room_id", scope);
+  const { count, error } = await q;
+  return !error && (count ?? 0) > OVERLAP_MAX ? at : since(at);
+}
+
 async function pullScope(scope: string) {
+  // 2回目からは、前の回の最後の行の続きから読む。同じ時刻の行が500件より多いと（送り足しでまとめて送った画像など）、
+  // 時刻だけでは続きが分からず、同じ500件を読み直して止まってしまうため、時刻・ID・表の順で続きを決める
+  let after: ServerRow | null = null;
   for (;;) {
-    let q = sb().from("synced_rows").select("tbl,id,room_id,dm,box_id,data,deleted,updated_at").gt("updated_at", since(cursors[scope]));
+    let q = sb().from("synced_rows").select("tbl,id,room_id,dm,box_id,data,deleted,updated_at");
     q = scope === "dm" ? q.not("dm", "is", null) : scope.startsWith("box:") ? q.eq("box_id", scope.slice(4)) : q.eq("room_id", scope);
-    const { data, error } = await q.order("updated_at").limit(500).returns<ServerRow[]>();
+    if (after) {
+      const at = JSON.stringify(after.updated_at);
+      const id = JSON.stringify(after.id);
+      q = q.or(`updated_at.gt.${at},and(updated_at.eq.${at},id.gt.${id}),and(updated_at.eq.${at},id.eq.${id},tbl.gt.${after.tbl})`);
+    } else q = q.gt("updated_at", await startOf(scope));
+    const { data, error } = await q.order("updated_at").order("id").order("tbl").limit(500).returns<ServerRow[]>();
     if (error) {
       console.warn("Supabase から読めませんでした", error.message);
       return;
     }
     if (!data.length) return;
     await applyRows(data);
-    const before = cursors[scope];
-    advance(scope, data[data.length - 1].updated_at);
+    after = data[data.length - 1];
+    advance(scope, after.updated_at);
     saveCursors();
-    if (data.length < 500 || cursors[scope] === before) return;
+    if (data.length < 500) return;
   }
 }
 
