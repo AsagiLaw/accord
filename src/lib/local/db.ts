@@ -553,10 +553,15 @@ export type Note = {
  */
 export type Category = { id: string; roomId: string; name: string; order: number; createdAt: number; dbId?: string };
 
-/** イメージチャットで使う「イメージユーザー」。ルームの誰でもどのブロックでも使える */
+/** イメージチャットで使う「イメージユーザー」。ルームの誰でも使えるが、出るのは作った区切り（scope）の中だけ */
 export type ImageUser = {
   id: string;
   roomId: string;
+  /**
+   * どこのイメージユーザーか。データベースのチャットの項目は「prop:データベースの ID:項目の ID」（その項目のどのページでも同じ）、
+   * それ以外のブロックは「chat:チャットの ID」。無いのは前に作った（ルーム全体の）もので、発言に使ったチャットにだけ出す
+   */
+  scope?: string;
   name: string;
   /** 絵文字（icon）か、メディアの画像（mediaId） */
   icon?: string;

@@ -241,8 +241,30 @@ export async function setChatAllowed(chatId: string, allowed: string[] | undefin
   await db.chats.update(chatId, { allowed });
 }
 
+/** ルームのイメージユーザー全部（発言の名前を引くとき） */
 export function useImageUsers(roomId: string) {
   return useLiveQuery(async () => (await db.imageUsers.where("roomId").equals(roomId).toArray()).sort((a, b) => a.createdAt - b.createdAt), [roomId]);
+}
+
+/** イメージユーザーの区切り：データベースのチャットの項目ごと（どのページでも同じ）と、ブロックのチャットごと */
+export const propImageScope = (dbId: string, propId: string) => `prop:${dbId}:${propId}`;
+export const blockImageScope = (chatId: string) => `chat:${chatId}`;
+
+/** そのイメージチャットで選べるイメージユーザー：区切り（scope）のものと、前に作った区切りの無いもののうち、このチャットの発言に使ったもの */
+export function useScopedImageUsers(roomId: string, scope: string, chatId: string) {
+  return useLiveQuery(async () => {
+    const all = await db.imageUsers.where("roomId").equals(roomId).toArray();
+    const old = new Set(all.filter((u) => !u.scope).map((u) => u.id));
+    const used = new Set<string>();
+    if (old.size)
+      await db.messages
+        .where("[chatId+createdAt]")
+        .between([chatId, Dexie.minKey], [chatId, Dexie.maxKey])
+        .each((m) => {
+          if (m.speaker && old.has(m.speaker)) used.add(m.speaker);
+        });
+    return all.filter((u) => u.scope === scope || used.has(u.id)).sort((a, b) => a.createdAt - b.createdAt);
+  }, [roomId, scope, chatId]);
 }
 
 export async function saveImageUser(user: Omit<ImageUser, "id" | "createdAt"> & { id?: string }) {

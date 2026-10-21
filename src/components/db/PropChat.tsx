@@ -6,7 +6,7 @@ import { ImageChatView } from "@/components/chat/ImageChatView";
 import { Icon } from "@/components/Icon";
 import { seedUsers } from "@/components/pageBlocks";
 import { PopupDialog } from "@/components/ui/Dialog";
-import { useChat, useChatSummary } from "@/lib/local/chat";
+import { propImageScope, useChat, useChatSummary } from "@/lib/local/chat";
 import type { DbPage, Profile, Property } from "@/lib/local/db";
 import { ensurePropChat } from "@/lib/local/requests";
 import type { MemberWithProfile } from "@/lib/local/rooms";
@@ -61,7 +61,7 @@ export function PropChatPopup({
         {!chat ? (
           <p className="text-sm text-muted">準備中…</p>
         ) : chat.kind === "image" ? (
-          <ImageChatView key={chat.id} chat={chat} me={me} readOnlyNotice={notice} fixedUsers={prop.seed === "page" ? seedUsers(page.roomId, page, members, prop.allowed) : []} />
+          <ImageChatView key={chat.id} chat={chat} me={me} scope={propImageScope(page.dbId, prop.id)} readOnlyNotice={notice} fixedUsers={prop.seed === "page" ? seedUsers(page.roomId, page, members, prop.allowed) : []} />
         ) : (
           <ChatView key={chat.id} chat={chat} me={me} members={members} readOnlyNotice={notice} />
         )}

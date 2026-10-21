@@ -9,7 +9,7 @@ import { EmojiPicker } from "@/components/db/meta";
 import { IconMark } from "@/components/IconMark";
 import { MenuDivider, MenuItem, MenuLabel, Popover, usePopover } from "@/components/ui/Popover";
 import { confirmAction } from "@/components/ui/overlay";
-import { deleteImageUser, deleteMessage, editMessage, changeSpeaker, saveImageUser, sendMessage, useImageUsers } from "@/lib/local/chat";
+import { deleteImageUser, deleteMessage, editMessage, changeSpeaker, saveImageUser, sendMessage, useScopedImageUsers } from "@/lib/local/chat";
 import type { Chat, ImageUser, Media, Message, Profile } from "@/lib/local/db";
 import { useMediaByIds } from "@/lib/local/media";
 import { LongText } from "./LongText";
@@ -35,9 +35,22 @@ const isFixed = (u: ImageUser) => u.id.startsWith("@");
  * イメージチャット：イメージユーザー（名前とアイコン）で会話を再現する。
  * 下で選んでいるイメージユーザーの発言が右、それ以外が左。別の人に切り替えると左右が入れ替わる。
  */
-export function ImageChatView({ chat, me, readOnlyNotice, fixedUsers = [] }: { chat: Chat; me: Profile; readOnlyNotice?: string; fixedUsers?: ImageUser[] }) {
+export function ImageChatView({
+  chat,
+  me,
+  scope,
+  readOnlyNotice,
+  fixedUsers = [],
+}: {
+  chat: Chat;
+  me: Profile;
+  /** イメージユーザーの区切り（データベースの項目ごと・ブロックごと。ImageUser の scope） */
+  scope: string;
+  readOnlyNotice?: string;
+  fixedUsers?: ImageUser[];
+}) {
   // fixedUsers：最初から入っている話す人（依頼者・参加者など）。名前はページやメンバーから取るので、ここでは直せない
-  const roomUsers = useImageUsers(chat.roomId);
+  const roomUsers = useScopedImageUsers(chat.roomId, scope, chat.id);
   const users = [...fixedUsers, ...(roomUsers ?? [])];
   // 発言は新しい方から少しずつ読み込む（上の端まで戻ると、その前を足す）
   const win = useMessageWindow(chat.id, me.id);
@@ -140,7 +153,7 @@ export function ImageChatView({ chat, me, readOnlyNotice, fixedUsers = [] }: { c
       {readOnlyNotice ? (
         <p className="border-t border-line pt-2 text-center text-sm text-muted">{readOnlyNotice}</p>
       ) : (
-        <ImageComposer chat={chat} me={me} users={users} speaker={speaker} onSpeaker={setSpeaker} onSent={win.dismissUnread} />
+        <ImageComposer chat={chat} me={me} scope={scope} users={users} speaker={speaker} onSpeaker={setSpeaker} onSent={win.dismissUnread} />
       )}
       {viewer && <ImageViewer items={viewer.items} start={viewer.start} roomId={chat.roomId} onClose={() => setViewer(null)} />}
     </div>
@@ -177,13 +190,13 @@ function ImageMessage({
       <span className={grouped ? "invisible" : ""}>
         <ImageUserIcon user={user} size={34} />
       </span>
-      <div className={`flex max-w-[min(520px,78%)] flex-col ${right ? "items-end" : "items-start"}`}>
-        {!grouped && <span className="mb-0.5 px-1 text-xs font-bold text-muted">{name}</span>}
-        {/* 画像は吹き出しに入れず、そのまま並べる（LINE と同じ）。文字や編集中の欄があるときだけ、その下に吹き出しを出す */}
+      <div className={`flex max-w-[min(520px,78%)] min-w-0 flex-col ${right ? "items-end" : "items-start"}`}>
+        {!grouped && <span className="mb-0.5 max-w-full truncate px-1 text-xs font-bold text-muted">{name}</span>}
+        {/* 画像は吹き出しに入れず、そのまま並べる（LINE と同じ）。文字や編集中の欄があるときだけ、その下に吹き出しを出す。狭いブロックでは幅に合わせて縮む */}
         {images.length > 0 && (
-          <div className={`grid gap-1 ${images.length > 1 ? "grid-cols-2" : ""}`}>
+          <div className={`grid max-w-full gap-1 ${images.length > 1 ? "w-[324px] grid-cols-2" : "w-40"}`}>
             {images.map((id, i) => (
-              <button key={id} onClick={() => onOpen(i)} className="block h-40 w-40 overflow-hidden rounded-[12px]" aria-label="画像を開く">
+              <button key={id} onClick={() => onOpen(i)} className="block aspect-square w-full overflow-hidden rounded-[12px]" aria-label="画像を開く">
                 <ThumbImage id={id} alt="" />
               </button>
             ))}
@@ -191,7 +204,7 @@ function ImageMessage({
         )}
         {(editing || !!m.text) && (
           <div
-            className={`${images.length > 0 ? "mt-1 " : ""}rounded-[18px] px-3 py-2 ${right ? "rounded-br-[6px] bg-accent text-accent-ink" : "rounded-bl-[6px] border border-line bg-card"}`}
+            className={`${images.length > 0 ? "mt-1 " : ""}max-w-full rounded-[18px] px-3 py-2 ${right ? "rounded-br-[6px] bg-accent text-accent-ink" : "rounded-bl-[6px] border border-line bg-card"}`}
           >
             {editing ? (
               <div className="space-y-1">
@@ -207,7 +220,7 @@ function ImageMessage({
                     if (e.key === "Escape") setEditing(false);
                   }}
                   rows={Math.min(6, draft.split("\n").length + 1)}
-                  className="field min-w-56 text-ink"
+                  className="field w-56 max-w-full text-ink"
                 />
                 <div className="flex justify-end gap-2 text-xs">
                   <button className="underline" onClick={() => setEditing(false)}>
@@ -265,6 +278,7 @@ function ImageMessage({
 function ImageComposer({
   chat,
   me,
+  scope,
   users,
   speaker,
   onSpeaker,
@@ -272,6 +286,7 @@ function ImageComposer({
 }: {
   chat: Chat;
   me: Profile;
+  scope: string;
   users: ImageUser[];
   speaker: string | null;
   onSpeaker: (id: string) => void;
@@ -390,7 +405,7 @@ function ImageComposer({
             danger
             onClick={async () => {
               userMenu.close();
-              if (await confirmAction(`イメージユーザー「${menuUser.name}」を削除します`, "削除", "このユーザーの発言は「削除されたユーザー」として残ります。ほかのブロックからも使えなくなります。")) await deleteImageUser(menuUser.id);
+              if (await confirmAction(`イメージユーザー「${menuUser.name}」を削除します`, "削除", `このユーザーの発言は「削除されたユーザー」として残ります。${scope.startsWith("prop:") ? "この項目のほかのページからも使えなくなります。" : ""}`)) await deleteImageUser(menuUser.id);
             }}
           >
             削除
@@ -400,6 +415,7 @@ function ImageComposer({
       {editingUser && (
         <ImageUserDialog
           roomId={chat.roomId}
+          scope={scope}
           userId={me.id}
           user={editingUser === "new" ? null : editingUser}
           onClose={(id) => {
@@ -413,7 +429,7 @@ function ImageComposer({
 }
 
 /** イメージユーザーを作る・直す（名前と、絵文字かメディアの画像のアイコン） */
-function ImageUserDialog({ roomId, userId, user, onClose }: { roomId: string; userId: string; user: ImageUser | null; onClose: (id?: string) => void }) {
+function ImageUserDialog({ roomId, scope, userId, user, onClose }: { roomId: string; scope: string; userId: string; user: ImageUser | null; onClose: (id?: string) => void }) {
   const [name, setName] = useState(user?.name ?? "");
   const [icon, setIcon] = useState<string | undefined>(user?.icon);
   const [mediaId, setMediaId] = useState<string | undefined>(user?.mediaId);
@@ -429,13 +445,18 @@ function ImageUserDialog({ roomId, userId, user, onClose }: { roomId: string; us
         onSubmit={async (e) => {
           e.preventDefault();
           if (!name.trim()) return;
-          onClose(await saveImageUser({ id: user?.id, roomId, name: name.trim(), icon: mediaId ? undefined : icon, mediaId }));
+          // 新しく作るときだけ区切りを付ける（前に作った区切りの無いものは、直してもそのまま）
+          onClose(await saveImageUser({ id: user?.id, roomId, ...(user ? {} : { scope }), name: name.trim(), icon: mediaId ? undefined : icon, mediaId }));
         }}
         className="flex max-h-[92dvh] w-full max-w-md flex-col rounded-t-[20px] border border-line bg-card sm:rounded-[14px]"
       >
         {/* 見出しは、ほかのポップアップと同じ形（下に線、右上に「×」） */}
         <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
-          <h3 className="w-fit font-bold" title="作ったイメージユーザーは、ルームの誰でも、どのイメージチャットでも使えます">
+          <h3 className="w-fit font-bold" title={
+              scope.startsWith("prop:")
+                ? "作ったイメージユーザーは、このデータベースの項目のイメージチャットで（どのページでも）使えます"
+                : "作ったイメージユーザーは、このブロックのイメージチャットだけで使えます"
+            }>
             {user ? "イメージユーザーを直す" : "イメージユーザーを作る"}
           </h3>
           <button type="button" className="grid h-8 w-8 place-items-center rounded-full hover:bg-tint" aria-label="閉じる" onClick={() => onClose()}>
