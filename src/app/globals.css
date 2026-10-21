@@ -394,19 +394,34 @@ body {
 .ProseMirror-selectednode.node-calendarBlock > .bn-block-content > *::after,
 .doc-window:not(.doc-editing) .ProseMirror-selectednode > .bn-block-content > *::after { display: none; }
 
-/* ---- 左右に並んだブロック（列）：スマホの幅（768px 未満）ではタブにして、選んだ1列だけを横いっぱいに見せる（columnTabs.tsx） ---- */
-/* タブの並びは列の並びのすぐ前に置いてある。パソコンの幅では出さない。
-   見た目はタブのブロックと同じ：タブの並びと列の並びを1つの灰色の枠に見せ、選んだ列は角の丸い白い面にする */
+/* ---- 左右に並んだブロック（列）：スマホの幅（768px 未満）では選んだ1列だけを横いっぱいに見せる（columnTabs.tsx） ---- */
+/* 列の切り替え（選んでいる列の名前と ∨）は列の並びのすぐ前に置いてある。パソコンの幅では出さない。
+   スマホでは枠で囲まず、列の並びどうしは上下の間と細い線1本で分ける（枠が重なって窮屈に見えないように） */
 .col-tabs { display: none; }
 @media (max-width: 767.98px) {
-  .col-tabs { display: block; margin-top: 4px; background: var(--bg); border: 1px solid var(--line); border-bottom: 0; border-radius: 10px 10px 0 0; }
-  .col-tabs + .bn-block-column-list { background: var(--bg); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 10px 10px; margin-bottom: 4px; }
+  .col-tabs { display: block; margin-top: 4px; }
+  .bn-block-group > .col-tabs:not(:first-child) { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .col-tabs + .bn-block-column-list { margin-bottom: 4px; }
   .col-tabs + .bn-block-column-list > .col-tab-off { display: none !important; }
-  .col-tabs + .bn-block-column-list > .bn-block-column { padding: 0 !important; background: var(--card); border-radius: 8px 8px 9px 9px; overflow: hidden; }
-  /* 列の中のブロック：カード（チャット・ビューなど）は自分の枠・角の丸み・上下の間をなくして、タブの枠とつなげる。文章だけは左右に少し余白 */
+  /* カード（チャット・ビューなど）は中に自分の余白（12px）を持つので、列をその分だけ左右に広げて、中身の左端を見出しとそろえる */
+  .col-tabs + .bn-block-column-list > .bn-block-column { padding: 0 !important; margin-inline: -12px; overflow: hidden; }
+  /* 列の中のブロック：カードは自分の枠・角の丸み・上下の間・背景をなくす。カードでないもの（繋いだテキスト・ボタンなど）と文章は、左右にカードと同じ余白 */
   .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content { padding: 0 !important; }
-  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > * { border: 0 !important; border-radius: 0 !important; }
-  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .bn-block-content { padding: 6px 10px; }
+  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content:not(:has(> [class~="border"])) { padding: 0 12px !important; }
+  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > * { border: 0 !important; border-radius: 0 !important; background: transparent !important; }
+  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .bn-block-content { padding: 6px 12px; }
+
+  /* タブのブロック（読むだけのとき）：列と同じく、枠をなくして小さな切り替えだけを出す */
+  .bn-block:has(> .react-renderer [data-tabs][data-compact]) { background: transparent; border: 0; border-radius: 0; }
+  .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group { background: transparent; border-radius: 0; margin-inline: -12px !important; }
+  .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > * { background: transparent !important; }
+  .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content:not(:has(> [class~="border"])) { padding: 0 12px !important; }
+  .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group > .bn-block-outer > .bn-block > .bn-block-content { padding: 6px 12px; }
+
+  /* 読むだけのウィンドウの左右の余白は、画面の端から 16px */
+  .doc-window:not(.doc-editing) .ProseMirror { padding-inline: 16px; }
+  /* 大きな見出し（見出し1）は、スマホの幅では小さめに */
+  .bn-editor [data-content-type="heading"]:not([data-level]) { --level: 2em; }
 }
 
 /* 選んでいるタブ：上の角は丸く、下の両側は内側へ丸くして下の面とつなげる（Chrome のタブの形） */

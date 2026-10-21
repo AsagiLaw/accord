@@ -21,7 +21,8 @@ export function SidebarShell({ me, children }: { me: Profile; children: React.Re
   return (
     <>
       <button
-        className="btn-sub fixed top-2 left-2 z-30 w-11 bg-card px-0 md:hidden"
+        // 上のバーの中に、枠を付けずに置く（上のバーの高さ 52px の真ん中）
+        className="btn-sub fixed top-[7px] left-2 z-30 w-11 border-transparent bg-card px-0 md:hidden"
         aria-label="メニュー"
         aria-expanded={open}
         onClick={() => setOpen(!open)}

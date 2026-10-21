@@ -9,7 +9,7 @@ import { useNoteContext } from "@/components/embeds";
 import { Icon, type IconName } from "@/components/Icon";
 import { shownProps } from "@/components/pageBlocks";
 import { MenuDivider, MenuItem, Popover, usePopover } from "@/components/ui/Popover";
-import { TabStrip } from "@/components/ui/TabStrip";
+import { TabStrip, TabSwitch } from "@/components/ui/TabStrip";
 import { promptText } from "@/components/ui/overlay";
 import type { BlockKind } from "@/lib/local/db";
 import { useDatabase } from "@/lib/local/requests";
@@ -24,7 +24,7 @@ export type AnyBlock = { id: string; type: string; props: Record<string, unknown
 
 const TAB_MIME = "application/x-irai-tab";
 
-const parseTitles = (s: unknown): Record<string, string> => {
+export const parseTitles = (s: unknown): Record<string, string> => {
   try {
     return typeof s === "string" ? JSON.parse(s) : {};
   } catch {
@@ -55,16 +55,17 @@ function blockViewOf(views: string | undefined, active: string | undefined): { n
 }
 
 /**
- * タブのアイコンと名前。名前は：付けた名前 → 文章なら最初の文字 → シングルビューなら項目の名前
+ * タブのアイコンと名前。名前は：付けた名前 → 文章なら最初の文字 → シングルビュー・データベースと繋いだテキストなら項目の名前
  * → ページの項目なら見出し（無ければ、1つだけ出している項目の名前）→ オールビューならビューの名前 → ブロックの種類
  */
 export function TabLabel({ child, title }: { child: AnyBlock; title?: string }) {
   const ctx = useNoteContext();
   const p = child.props as Record<string, string>;
   const isSingle = child.type === "singleView";
+  const isField = child.type === "field";
   const isProps = child.type === "pageProps";
-  const database = useDatabase(isSingle || isProps ? (p.pageId === "@this" ? (ctx.page?.dbId ?? "") : (p.dbId ?? "")) : "");
-  const prop = isSingle ? database?.props.find((x) => x.id === p.propId) : undefined;
+  const database = useDatabase(isSingle || isField || isProps ? (p.pageId === "@this" ? (ctx.page?.dbId ?? "") : (p.dbId ?? "")) : "");
+  const prop = isSingle || isField ? database?.props.find((x) => x.id === p.propId) : undefined;
   const shown = isProps && database ? shownProps(database, p.visible) : [];
   const isView = child.type === "dbView";
   // オールビューは、ブロックが持つビューのうち選んでいるもの
@@ -91,6 +92,7 @@ export function TabLabel({ child, title }: { child: AnyBlock; title?: string }) 
     title ||
     (text ? (text.length > 12 ? `${text.slice(0, 12)}…` : text) : "") ||
     (isSingle ? (prop?.name ?? "シングルビュー") : "") ||
+    (isField ? (prop?.name ?? "") : "") ||
     (isProps ? p.heading || (shown.length === 1 ? shown[0].name : "") : "") ||
     view?.name ||
     kind?.short ||
@@ -222,9 +224,19 @@ export function TabsBlockView({ block, editor }: { block: AnyBlock; editor: Edit
   const index = children.findIndex((c) => c.id === menuTab);
 
   return (
-    <div className="w-full" contentEditable={false} data-tabs="" data-name="タブブロック">
+    // 読むだけのときは、スマホの幅ではタブの並びの代わりに小さな切り替えを出し、枠もなくす（data-compact。globals.css）
+    <div className="w-full" contentEditable={false} data-tabs="" data-compact={ctx.locked ? "" : undefined} data-name="タブブロック">
       {/* 選んでいないタブの中身（子のブロック）は隠す */}
       <style>{`[data-id="${block.id}"] > .bn-block > .bn-block-group > .bn-block-outer:not([data-id="${active}"]) { display: none !important; }`}</style>
+      {ctx.locked && (
+        <TabSwitch
+          items={children.map((c) => ({ id: c.id, content: <TabLabel child={c} title={titles[c.id]} /> }))}
+          active={active}
+          onSelect={select}
+          label="タブ"
+          className="md:hidden"
+        />
+      )}
       <TabStrip
         items={children.map((c) => ({ id: c.id, content: <TabLabel child={c} title={titles[c.id]} /> }))}
         active={active}
@@ -232,7 +244,7 @@ export function TabsBlockView({ block, editor }: { block: AnyBlock; editor: Edit
         label="タブ"
         stripRef={strip}
         // タブのブロックは、灰色の枠の上にタブが並び、下に角の丸い白い中身が出る（枠は globals.css）
-        className={`px-1 pt-1 ${hot ? "ring-2 ring-accent" : ""}`}
+        className={`px-1 pt-1 ${hot ? "ring-2 ring-accent" : ""} ${ctx.locked ? "max-md:hidden" : ""}`}
         title={ctx.locked ? undefined : "ほかのブロックの「⋮⋮」をここに落とすとタブに入ります"}
         draggable={!ctx.locked}
         onDragStartTab={(e, id) => {

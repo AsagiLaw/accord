@@ -20,7 +20,7 @@ import { renameWindow, useWindowPage } from "@/lib/local/windows";
  * Discord のような、メイン画面の上の細いバー。今の画面のアイコンと名前を出す（データベースのページは「データベース › ページ」）。
  * 今開いている画面のアイコン・名前は、押すとその場で変えられる。
  * 右には、画面ごとの操作（TopBarActions で入れる）と、いちばん右に Discord と同じメンバー一覧のボタン。
- * スマホでは、左のメニューのボタンの分をあける
+ * スマホでは、左のメニューのボタンの分をあける。前の階層は「‹」だけにし、テンプレートの印は出さない（1段に収めて、今の画面の名前を読めるように）
  */
 export function TopBar({
   roomId,
@@ -36,7 +36,7 @@ export function TopBar({
   const pathname = usePathname();
   const [kind, id, sub, subId] = pathname.slice(`/r/${roomId}`.length).split("/").filter(Boolean);
   return (
-    <header data-name="上部バー" className="flex h-[52px] shrink-0 items-center gap-2 border-b border-line pr-2 pl-[60px] text-sm md:h-8 md:px-[clamp(16px,4vw,40px)]">
+    <header data-name="上部バー" className="flex h-[52px] shrink-0 items-center gap-2 border-b border-line pr-2 pl-[60px] text-[15px] md:h-8 md:text-sm md:px-[clamp(16px,4vw,40px)]">
       {/* メディアは場所の表示と操作をまとめて右の場所に入れるので、ここには何も出さない */}
       <nav aria-label="今の画面" className={`min-w-0 flex-1 items-center gap-0.5 ${kind === "media" ? "hidden" : "flex"}`}>
         {kind === "window" ? (
@@ -79,10 +79,16 @@ function Crumb({ icon, label, href }: { icon: React.ReactNode; label: string; hr
     </>
   );
   return href ? (
-    // 前の階層（リンク）は、幅が足りないときに先に縮める（今開いているものの名前を残す）
-    <Link href={href} className="flex min-w-[2.8em] shrink-[1000] items-center gap-1.5 rounded-[6px] px-1 py-0.5 text-muted hover:bg-tint hover:text-ink">
-      {body}
-    </Link>
+    <>
+      {/* スマホでは、前の階層は戻るための「‹」だけ */}
+      <Link href={href} aria-label={`${label}へ戻る`} title={`${label}へ戻る`} className="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] text-muted hover:bg-tint hover:text-ink md:hidden">
+        <Icon name="l" size={22} />
+      </Link>
+      {/* 前の階層（リンク）は、幅が足りないときに先に縮める（今開いているものの名前を残す） */}
+      <Link href={href} className="hidden min-w-[2.8em] shrink-[1000] items-center gap-1.5 rounded-[6px] px-1 py-0.5 text-muted hover:bg-tint hover:text-ink md:flex">
+        {body}
+      </Link>
+    </>
   ) : (
     <span className="flex min-w-0 items-center gap-1.5 px-1 font-bold">{body}</span>
   );
@@ -185,7 +191,7 @@ function ChannelCrumb({ roomId, kind, id, name, icon, template }: { roomId: stri
   );
 }
 
-const Sep = () => <Icon name="rt" size={14} className="shrink-0 text-muted" />;
+const Sep = () => <Icon name="rt" size={14} className="shrink-0 text-muted max-md:hidden" />;
 
 function WindowCrumb({ roomId, id }: { roomId: string; id: string }) {
   const win = useWindowPage(id);
@@ -214,7 +220,7 @@ function NoteCrumb({ roomId, id }: { roomId: string; id: string }) {
 /** テンプレートと繋いでいるときの印（ソースのテンプレートの名前） */
 function SourceChip({ name }: { name: string }) {
   return (
-    <span className="ml-1 flex min-w-0 shrink items-center gap-1 rounded-full bg-tint px-2 py-0.5 text-xs text-muted" title="ソースのテンプレート">
+    <span className="ml-1 flex min-w-0 shrink items-center gap-1 rounded-full bg-tint px-2 py-0.5 text-xs text-muted max-md:hidden" title="ソースのテンプレート">
       <Icon name="link" size={12} className="shrink-0" />
       <span className="truncate">{name}</span>
     </span>

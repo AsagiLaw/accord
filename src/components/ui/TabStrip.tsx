@@ -2,7 +2,7 @@
 
 import { Fragment, type ReactNode, type Ref } from "react";
 import { Icon } from "@/components/Icon";
-import { Popover, usePopover } from "@/components/ui/Popover";
+import { type Anchor, Popover, usePopover } from "@/components/ui/Popover";
 
 /** タブ1つ分。content はアイコンと名前（一覧にも同じものを出す） */
 export type TabStripItem = { id: string; content: ReactNode; title?: string };
@@ -91,29 +91,85 @@ export function TabStrip({
       {items.length > 0 && <span aria-hidden className={`mb-2 h-4 w-px shrink-0 self-end ${items.at(-1)!.id !== active ? "bg-line" : "bg-transparent"}`} />}
       {after}
 
-      {overview.anchor && (
-        // タブを縦1列に並べる（1行ずつ、アイコンと名前を横書き）
-        <Popover anchor={overview.anchor} onClose={overview.close} width={260} label={`${unit}の一覧`}>
-          <p className="px-2 pt-1 pb-1.5 text-xs text-muted">
-            {unit} {items.length}つ
-          </p>
-          <div className="grid gap-0.5">
-            {items.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => {
-                  overview.close();
-                  onSelect(t.id);
-                }}
-                className={`flex h-8 min-w-0 items-center gap-2 rounded-[8px] px-2 text-left text-sm ${t.id === active ? "bg-tint font-bold" : "hover:bg-tint"}`}
-              >
-                {t.content}
-                {t.id === active && <Icon name="ok" size={14} className="shrink-0 text-accent" />}
-              </button>
-            ))}
-          </div>
-        </Popover>
-      )}
+      {overview.anchor && <TabList anchor={overview.anchor} onClose={overview.close} items={items} active={active} onSelect={onSelect} unit={unit} />}
     </div>
+  );
+}
+
+/**
+ * スマホ向けの小さなタブの切り替え。タブの並びの代わりに、選んでいるタブのアイコンと名前を見出しのように出し、
+ * 右の山形（∨）ごと押すと、タブの一覧から選べる
+ */
+export function TabSwitch({
+  items,
+  active,
+  onSelect,
+  label,
+  className = "",
+  unit = "タブ",
+}: {
+  items: TabStripItem[];
+  active: string;
+  onSelect: (id: string) => void;
+  label: string;
+  className?: string;
+  unit?: string;
+}) {
+  const list = usePopover();
+  const current = items.find((t) => t.id === active) ?? items[0];
+  return (
+    <div aria-label={label} data-tab-switch="" className={`flex min-w-0 ${className}`}>
+      <button
+        onClick={list.toggle}
+        aria-expanded={!!list.anchor}
+        title={`${unit}を切り替える（${items.length}つ）`}
+        // 文字の左端を中身の左端にそろえる（押せる範囲だけ左にはみ出す）
+        className={`-ml-1.5 flex h-8 min-w-0 items-center gap-1.5 rounded-[8px] px-1.5 text-sm font-bold transition ${list.anchor ? "bg-tint" : "hover:bg-tint"}`}
+      >
+        <span className="flex min-w-0 items-center gap-1.5">{current?.content}</span>
+        <Icon name="expand" size={18} className={`shrink-0 ${list.anchor ? "text-accent" : "text-muted"}`} />
+      </button>
+      {list.anchor && <TabList anchor={list.anchor} onClose={list.close} items={items} active={active} onSelect={onSelect} unit={unit} />}
+    </div>
+  );
+}
+
+/** タブを縦1列に並べた一覧（1行ずつ、アイコンと名前を横書き） */
+function TabList({
+  anchor,
+  onClose,
+  items,
+  active,
+  onSelect,
+  unit,
+}: {
+  anchor: Anchor;
+  onClose: () => void;
+  items: TabStripItem[];
+  active: string;
+  onSelect: (id: string) => void;
+  unit: string;
+}) {
+  return (
+    <Popover anchor={anchor} onClose={onClose} width={260} label={`${unit}の一覧`}>
+      <p className="px-2 pt-1 pb-1.5 text-xs text-muted">
+        {unit} {items.length}つ
+      </p>
+      <div className="grid gap-0.5">
+        {items.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => {
+              onClose();
+              onSelect(t.id);
+            }}
+            className={`flex h-8 min-w-0 items-center gap-2 rounded-[8px] px-2 text-left text-sm ${t.id === active ? "bg-tint font-bold" : "hover:bg-tint"}`}
+          >
+            {t.content}
+            {t.id === active && <Icon name="ok" size={14} className="shrink-0 text-accent" />}
+          </button>
+        ))}
+      </div>
+    </Popover>
   );
 }

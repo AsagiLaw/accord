@@ -671,8 +671,8 @@ function DbChatMenu({ database, kind, prop, onPick }: { database: Database; kind
 export type FieldProps = { level: string; dbId: string; pageId: string; propId: string; suffix: string; icon: string };
 
 // 見出しの大きさは、ノートの見出し（1.8・1.45・1.2倍）と同じ
-// 見出し1は標準の値なので data-level が付かず、ふつうの見出し1は BlockNote の 3em で出る。それに合わせる
-const LEVEL_CLASS: Record<string, string> = { "0": "text-[1em]", "1": "text-[3em] font-bold leading-tight", "2": "text-[1.45em] font-bold leading-snug", "3": "text-[1.2em] font-bold" };
+// 見出し1は標準の値なので data-level が付かず、ふつうの見出し1は BlockNote の 3em で出る。それに合わせる（スマホの幅では、見出し1と同じく 2em）
+const LEVEL_CLASS: Record<string, string> = { "0": "text-[1em]", "1": "text-[2em] font-bold leading-tight md:text-[3em]", "2": "text-[1.45em] font-bold leading-snug", "3": "text-[1.2em] font-bold" };
 const LEVEL_LABEL: Record<string, string> = { "0": "本文", "1": "見出し1", "2": "見出し2", "3": "見出し3" };
 /** 文字で直せる項目（それ以外は値を出すだけ） */
 const TYPABLE = new Set(["title", "text", "url", "email", "phone"]);

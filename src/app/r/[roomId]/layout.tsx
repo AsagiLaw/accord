@@ -49,10 +49,10 @@ export default function RoomLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <div className="flex h-dvh flex-col">
-      {/* 画面のいちばん上の細いバー：今いるルームの名前 */}
+      {/* 画面のいちばん上の細いバー：今いるルームの名前。スマホでは上のバーを1段にするため出さない（ルームの名前は左のメニューで見られる） */}
       <div
         data-name="ルーム名バー"
-        className="flex h-6 shrink-0 items-center justify-center gap-1.5 border-b border-line bg-rail px-4 text-xs font-bold text-muted"
+        className="hidden h-6 shrink-0 md:flex items-center justify-center gap-1.5 border-b border-line bg-rail px-4 text-xs font-bold text-muted"
       >
         {/* ルームバーと同じアイコン：画像が無ければ名前の最初の1文字 */}
         {room.icon ? (

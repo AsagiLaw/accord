@@ -6,9 +6,9 @@ import { Decoration, DecorationSet } from "prosemirror-view";
 import type { Node as PMNode } from "prosemirror-model";
 import { useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { TabStrip } from "@/components/ui/TabStrip";
+import { TabSwitch } from "@/components/ui/TabStrip";
 import type { NoteEditor as Editor } from "./blocks";
-import { TabLabel, textOf, type AnyBlock } from "./TabsBlock";
+import { parseTitles, TabLabel, textOf, type AnyBlock } from "./TabsBlock";
 
 // 左右に並んだブロック（列）を、スマホの幅ではタブにして1列ずつ見せる（ノート・ウィンドウ・ページの本文で共通）。
 // 保存する中身は変えない（パソコンでは今までどおり左右に並ぶ）。どの列を見ているかは画面の上だけで覚える。
@@ -139,26 +139,40 @@ function ColumnTabs({ editor, listId }: { editor: Editor; listId: string }) {
   // タブの名前に使うブロック（列の中の最初のブロック。空の行は飛ばす）
   const named = cols.map((c) => c.children.find((b) => !blank(b)));
   const ids = named.flatMap((b) => (b && /^[\w-]+$/.test(b.id) ? [b.id] : []));
+  // 読むだけのとき、中身がタブのブロックだけの列は、そのタブを列の一覧に並べる（切り替えが「列の中のタブ」の2段にならないように）
+  const inner = cols.map((c) => {
+    const rest = c.children.filter((b) => !blank(b));
+    return !editor.isEditable && rest.length === 1 && rest[0].type === "tabs" && rest[0].children.length > 0 ? rest[0] : undefined;
+  });
+  const innerIds = inner.flatMap((t) => (t && /^[\w-]+$/.test(t.id) ? [t.id] : []));
+  const items = cols.flatMap((c, i) => {
+    const tabs = inner[i];
+    if (!tabs) return [{ id: c.id, content: named[i] ? <TabLabel child={named[i]} /> : <span className="min-w-0 flex-1 truncate text-left">列 {i + 1}</span> }];
+    const titles = parseTitles(tabs.props.titles);
+    return tabs.children.map((t) => ({ id: `${c.id}:${t.id}`, content: <TabLabel child={t} title={titles[t.id]} /> }));
+  });
+  // 選んでいるもの：タブを並べた列なら、その中で選んでいるタブ
+  const activeTabs = inner[cols.findIndex((c) => c.id === active)];
+  const activeTab = activeTabs ? (activeTabs.children.find((t) => t.id === activeTabs.props.active) ?? activeTabs.children[0]) : undefined;
+  const activeItem = activeTab ? `${active}:${activeTab.id}` : active;
+  const pick = (itemId: string) => {
+    const [colId, tabId] = itemId.split(":");
+    const tabs = inner[cols.findIndex((c) => c.id === colId)];
+    if (tabs && tabId) editor.updateBlock(tabs.id, { props: { active: tabId } as never });
+    if (colId !== active) select(colId);
+  };
   return (
     <>
-      {/* タブのブロックと同じく、タブの名前に使ったブロックの見出しは出さない（読むだけのときは見出しの段ごと）。スマホの幅のときだけ */}
-      {ids.length > 0 && (
-        <style>{`@media (max-width: 767.98px) { ${ids
-          .map((id) => `[data-id="${id}"] > .bn-block > .react-renderer [data-block-title], [data-id="${id}"] > .bn-block > .react-renderer [data-block-head][data-locked]:not(:has([data-block-keep]))`)
-          .join(", ")} { display: none !important; } }`}</style>
+      {/* タブのブロックと同じく、タブの名前に使ったブロックの見出しは出さない（読むだけのときは見出しの段ごと）。
+          タブを列の一覧に並べたタブのブロックは、自分の切り替えを出さない。スマホの幅のときだけ */}
+      {ids.length + innerIds.length > 0 && (
+        <style>{`@media (max-width: 767.98px) { ${[
+          ...ids.map((id) => `[data-id="${id}"] > .bn-block > .react-renderer [data-block-title], [data-id="${id}"] > .bn-block > .react-renderer [data-block-head][data-locked]:not(:has([data-block-keep]))`),
+          ...innerIds.map((id) => `[data-id="${id}"] > .bn-block > .react-renderer [data-tab-switch]`),
+        ].join(", ")} { display: none !important; } }`}</style>
       )}
-      <TabStrip
-        items={cols.map((c, i) => ({
-          id: c.id,
-          content: named[i] ? <TabLabel child={named[i]} /> : <span className="min-w-0 flex-1 truncate text-left">列 {i + 1}</span>,
-        }))}
-        active={active}
-        onSelect={select}
-        label="左右に並んだブロック"
-        unit="列"
-        // タブのブロックと同じ：灰色の枠（globals.css）の上にタブが並び、下に角の丸い白い列が出る
-        className="px-1 pt-1"
-      />
+      {/* タブの並びの代わりに、選んでいる列の名前を見出しのように出し、押すと列の一覧から選べる */}
+      <TabSwitch items={items} active={activeItem} onSelect={pick} label="左右に並んだブロック" unit="列" />
     </>
   );
 }

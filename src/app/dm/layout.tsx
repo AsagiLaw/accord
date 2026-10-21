@@ -67,10 +67,10 @@ export default function DmLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-dvh flex-col">
-      {/* ルームの画面と同じ、いちばん上の細いバー */}
+      {/* ルームの画面と同じ、いちばん上の細いバー（スマホでは出さない） */}
       <div
         data-name="ルーム名バー"
-        className="flex h-6 shrink-0 items-center justify-center gap-1.5 border-b border-line bg-rail px-4 text-xs font-bold text-muted"
+        className="hidden h-6 shrink-0 md:flex items-center justify-center gap-1.5 border-b border-line bg-rail px-4 text-xs font-bold text-muted"
       >
         <Icon name="chat" size={14} />
         <span className="truncate">ダイレクトメッセージ</span>
@@ -80,7 +80,7 @@ export default function DmLayout({ children }: { children: React.ReactNode }) {
         <main data-name="メイン画面" className="flex min-w-0 flex-1 flex-col">
           <header
             data-name="上部バー"
-            className="flex h-[52px] shrink-0 items-center gap-2 border-b border-line pr-2 pl-[60px] text-sm md:h-8 md:px-[clamp(16px,4vw,40px)]"
+            className="flex h-[52px] shrink-0 items-center gap-2 border-b border-line pr-2 pl-[60px] text-[15px] md:h-8 md:px-[clamp(16px,4vw,40px)] md:text-sm"
           >
             <span className={`min-w-0 flex-1 items-center gap-1.5 px-1 font-bold ${inBox ? "hidden" : "flex"}`}>
               {page ? (
