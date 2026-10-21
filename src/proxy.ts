@@ -28,6 +28,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // 画像やスクリプトなどのファイル（ホーム画面のアイコン apple-icon も）には使わない
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|apple-icon|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico|js)$).*)"],
+  // 画像やスクリプトなどのファイル（ホーム画面のアイコン apple-icon・マニフェストも）には使わない
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|apple-icon|manifest.webmanifest|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico|js)$).*)"],
 };

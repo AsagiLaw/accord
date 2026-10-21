@@ -19,12 +19,19 @@ const zen = Zen_Kaku_Gothic_New({
 export const metadata: Metadata = {
   title: "Accord",
   description: "イラストレーターとマネージャーのための依頼・メディア・チャット管理",
+  // iPhone でホーム画面に追加したとき、アプリとして開く（マニフェストは app/manifest.ts）
+  appleWebApp: { capable: true, title: "Accord", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  // アプリとして開いたときの上の帯の色（globals.css の --bg に合わせる）
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f2f2f2" },
+    { media: "(prefers-color-scheme: dark)", color: "#0d0d0d" },
+  ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
