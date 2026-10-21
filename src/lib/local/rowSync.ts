@@ -3,6 +3,7 @@
 import Dexie, { type Table, type Transaction } from "dexie";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { db } from "./db";
+import { toast } from "@/components/ui/overlay";
 import { removeDeletedFiles } from "@/lib/media/remote";
 import { dmChatId } from "./dm";
 import { sb, supa } from "./sync";
@@ -394,6 +395,7 @@ export async function startRowSync(userId: string | null) {
   // Supabase から届いた分にも、決まった ID でない DM があれば片づける
   await forgetLocalOnlyDms(userId);
   await backfillHostedRooms(userId);
+  await sendMissingMedia(userId);
   channel = freshChannel(`rows:${userId}`)
     .on("postgres_changes", { event: "*", schema: "public", table: "synced_rows" }, (payload) => {
       const row = payload.new as ServerRow | undefined;
@@ -468,8 +470,11 @@ async function backfillHostedRooms(userId: string) {
   }
 }
 
-/** まだ Supabase に無い行だけを送る。つながらなかったときは false（次にまた送る） */
-async function sendMissing(rows: Omit<ServerRow, "updated_at">[], label: string) {
+/**
+ * まだ Supabase に無い行だけを送る。つながらなかったときは false（次にまた送る）。
+ * onRejected：決まりで断られた行（大きすぎる・編集できないボックスなど）
+ */
+async function sendMissing(rows: Omit<ServerRow, "updated_at">[], label: string, onRejected?: (message: string) => void) {
   let ok = true;
   for (let i = 0; i < rows.length; i += 200) {
     const batch = rows.slice(i, i + 200);
@@ -481,9 +486,56 @@ async function sendMissing(rows: Omit<ServerRow, "updated_at">[], label: string)
       if (!one.error) continue;
       console.warn("まだ送っていない行を送れませんでした", label, row.tbl, row.id, one.error.message);
       if (!one.error.code) ok = false;
+      else onRejected?.(one.error.message);
     }
   }
   return ok;
+}
+
+/**
+ * ブラウザの中にあって Supabase に無い、画像の情報とライブラリーを送る（開くたびに確かめる）。
+ * 送る仕組みを作る前に入れた画像や、閉じたせいで送りそこねた画像の情報を、あとから届けるため（送り足しはボックスごとに1回だけなので、それで漏れた分も）。
+ * 画像の情報が届けば、ファイルも R2 に置ける（このあと startMediaSync が、まだ置いていない画像を置く）。
+ * 送るのは、編集できるボックスの、自分が入れた画像とライブラリーだけ（ほかは決まりで断られる）
+ */
+async function sendMissingMedia(userId: string) {
+  const rooms = new Set((await db.roomMembers.where("userId").equals(userId).toArray()).map((m) => m.roomId));
+  const shares = await db.boxShares.toArray();
+  const editable = (await db.mediaBoxes.toArray()).filter(
+    (b) => b.ownerId === userId || shares.some((s) => s.boxId === b.id && s.canEdit && (s.userId === userId || (!!s.roomId && rooms.has(s.roomId)))),
+  );
+  const rejected = new Map<string, number>();
+  for (const box of editable) {
+    const local: Omit<ServerRow, "updated_at">[] = [];
+    for (const m of await db.media.where("boxId").equals(box.id).toArray()) if (m.uploadedBy === userId) local.push({ tbl: "media", id: m.id, room_id: null, dm: null, box_id: box.id, data: m as unknown as Row, deleted: false });
+    for (const l of await db.libraries.where("boxId").equals(box.id).toArray()) local.push({ tbl: "libraries", id: l.id, room_id: null, dm: null, box_id: box.id, data: l as unknown as Row, deleted: false });
+    if (!local.length) continue;
+    // Supabase にあるもの（消した印の付いた行も。消した画像を戻さないように）
+    const onServer = new Set<string>();
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await sb().from("synced_rows").select("tbl,id").eq("box_id", box.id).in("tbl", ["media", "libraries"]).range(from, from + 999).returns<{ tbl: Tbl; id: string }[]>();
+      // 読めなければ、このボックスは次に開いたときに確かめる
+      if (error) {
+        onServer.clear();
+        local.length = 0;
+        break;
+      }
+      for (const r of data) onServer.add(`${r.tbl}:${r.id}`);
+      if (data.length < 1000) break;
+    }
+    // ほかのボックスに動いた画像は、ここでは無いことになるが、送っても上書きしない（ignoreDuplicates）
+    const missing = local.filter((r) => !onServer.has(`${r.tbl}:${r.id}`));
+    if (!missing.length) continue;
+    await sendMissing(missing, box.name, (message) => rejected.set(message, (rejected.get(message) ?? 0) + 1));
+  }
+  // 編集できない・無いボックスに入っている自分の画像は送れない（どのボックスかを、あとで調べられるように残す）
+  const ids = new Set(editable.map((b) => b.id));
+  const stray = await db.media.filter((m) => m.uploadedBy === userId && !ids.has(m.boxId)).toArray();
+  if (stray.length) console.warn("編集できない・無いボックスに入っているので送れない画像", stray.length, [...new Set(stray.map((m) => m.boxId))]);
+  if (rejected.size) {
+    const n = [...rejected.values()].reduce((a, b) => a + b, 0);
+    toast(`画像の情報を ${n} 件送れませんでした（${[...rejected.keys()].join("／")}）`);
+  }
 }
 
 /**
