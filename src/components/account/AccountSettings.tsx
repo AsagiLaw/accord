@@ -443,7 +443,7 @@ function NotifySection({ me }: { me: Profile }) {
         </div>
         <NotifyBlocked denied={denied} />
         <p className="border-t border-line pt-4 text-muted">
-          この端末だけの設定です。取り込み中の間は出しません。Accord を開いている間だけ届きます（スマホは、Android の Chrome なら開いている間に届きます。iPhone はホーム画面に追加したときだけ使えます）。
+          この端末だけの設定です。取り込み中の間は出しません。チャットの通知は、Accord を閉じていても届きます（iPhone はホーム画面に追加したときだけ使えます）。
         </p>
       </section>
     </>
