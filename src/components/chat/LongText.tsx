@@ -14,7 +14,7 @@ export function LongText({ text, className, children }: { text: string; classNam
   return (
     <div className={className}>
       {/* wrap-anywhere：URL など切れ目のない長い文字も、狭いチャットの中で折り返す */}
-      <p className="wrap-anywhere whitespace-pre-wrap">
+      <p className="wrap-anywhere whitespace-pre-wrap select-text">
         {folded ? `${text.slice(0, cut).trimEnd()}…` : text}
         {children}
       </p>

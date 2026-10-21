@@ -234,6 +234,22 @@ body {
     height: max(100%, 44px);
     transform: translate(-50%, -50%);
   }
+
+  /* 長押しで、画面の部品（見出し・ボタン・サイドバーなど）の文字が選ばれないようにする。
+     選べるのは、書く欄と、ノートの文章・発言（select-text）だけ。WebKit では選べるかどうかが中に受け継がれるので、書く欄は選べるように戻す */
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  :is(input, textarea, [contenteditable]:not([contenteditable="false"]), .bn-inline-content) {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  /* 書いている途中のノートの中でも、チャット・ビューなどのブロックは部品なので選ばない（中の書く欄・文章は上の決まりで選べる） */
+  [contenteditable]:not([contenteditable="false"]) [contenteditable="false"] {
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 
 @layer components {
