@@ -224,17 +224,15 @@ export async function removeFromLibraryFlow(boxId: string, lib: Library, ids: st
   undoable(`${ids.length}枚を「${lib.name}」から出しました`, await removeFromLibrary(boxId, lib.id, ids));
 }
 
+/** 右クリックの「まとめる」：選んだ画像でライブラリーを作る。ライブラリーの中なら、その子ライブラリーにする */
 export async function groupFlow(boxId: string, ids: string[], current: Library | undefined) {
-  const name = await promptText(`選んだ${ids.length}枚で新しいライブラリーを作る`, "", "例：〇〇のイラスト");
-  if (!name) return;
-  let parentId: string | null = null;
-  if (current) {
-    const i = await choose("作る場所", [{ label: `「${current.name}」の子ライブラリー` }, { label: "最上位のライブラリー" }]);
-    if (i === null) return;
-    parentId = i === 0 ? current.id : null;
-  }
-  await groupIntoLibrary(boxId, ids, name, parentId);
+  const name = (
+    await promptText(current ? `「${current.name}」に子ライブラリーを作る` : "ライブラリーを作る", "", "ライブラリー名")
+  )?.trim();
+  if (!name) return false;
+  await groupIntoLibrary(boxId, ids, name, current?.id ?? null);
   toast(`${ids.length}枚で「${name}」を作りました`);
+  return true;
 }
 
 export async function newLibraryFlow(boxId: string, parentId: string | null, parentName?: string) {

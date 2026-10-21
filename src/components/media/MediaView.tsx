@@ -35,6 +35,7 @@ import {
   deleteForeverFlow,
   duplicateFlow,
   downloadFlow,
+  groupFlow,
   removeFromLibraryFlow,
   restoreFlow,
   retitleFlow,
@@ -415,6 +416,14 @@ export function MediaView({ view }: { view: MediaViewKind }) {
           onClick={run(() => s.setOrganizing(selected))}
         >
           整理
+        </MenuItem>
+        <MenuItem
+          icon={<Icon name="folder" size={16} />}
+          onClick={run(() =>
+            groupFlow(boxId, selected, lib).then((made) => made && done()),
+          )}
+        >
+          まとめる
         </MenuItem>
         {n === 1 && (
           <MenuItem
