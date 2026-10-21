@@ -3,9 +3,10 @@
 import { liveQuery } from "dexie";
 import { useEffect, useSyncExternalStore } from "react";
 import { askNotifyPermission, notifyPermission, showAppNotice, type AppNotice } from "@/lib/notify";
+import { subscribePush, unsubscribePush } from "@/lib/push";
 import { db, type Chat, type Message } from "./db";
 
-// チャットのブラウザの通知。アプリを開いている間、ほかの人の発言が届いたら知らせる（閉じているときの通知はサーバー版で）。
+// チャットのブラウザの通知。アプリを開いている間、ほかの人の発言が届いたら知らせる（閉じているときは、プッシュ通知：src/lib/push.ts）。
 // 出すかどうかは、人と端末（ブラウザ）ごとに覚える（ブラウザの許可も端末ごとのため）。チャットごとに切れる（chatReads.muted。どの端末でも同じ）。
 // 取り込み中の間と、もう読んだ発言（そのチャットを開いている画面では、すぐ既読になる）は知らせない
 
@@ -45,6 +46,8 @@ export async function setChatNotify(userId: string, on: boolean): Promise<boolea
     return false;
   }
   window.dispatchEvent(new Event(EVENT));
+  // アプリを閉じているときも、この端末に届くようにする（外すときは届かないようにする）
+  void (on ? subscribePush() : unsubscribePush());
   return true;
 }
 
@@ -83,6 +86,26 @@ async function canSee(chat: Chat, userId: string) {
   return !!(await db.roomMembers.get([chat.roomId, userId]));
 }
 
+/** 発言の通知の見出しと本文（読む人によらない。アプリを閉じている人へのプッシュ通知も、書いた人のアプリでこれを作る） */
+export async function noticeOf(m: Message): Promise<AppNotice | null> {
+  const chat = await db.chats.get(m.chatId);
+  if (!chat) return null;
+  const author = await db.profiles.get(m.authorId);
+  // 再現・イメージチャットは、話者（イメージユーザー）の名前で
+  const imageUser = m.speaker ? await db.imageUsers.get(m.speaker) : undefined;
+  const who = imageUser?.name ?? m.speaker ?? author?.displayName ?? "だれか";
+  // ルームへの招待のカードは、招待したルームの名前で
+  const invited = m.inviteId ? await db.roomInvites.get(m.inviteId) : undefined;
+  const invitedRoom = invited ? (await db.rooms.get(invited.roomId))?.name : undefined;
+  const text = m.text.trim() || (m.inviteId ? `ルーム「${invitedRoom ?? "（削除されたルーム）"}」に招待しました` : m.mediaIds.length ? `画像を${m.mediaIds.length}枚送りました` : "");
+  const place = await placeOf(chat);
+  const roomName = chat.roomId ? (await db.rooms.get(chat.roomId))?.name : undefined;
+  // DM は LINE と同じく、見出しに送った人・本文に発言。ルームのチャットは、見出しに場所・本文に「送った人：発言」
+  return chat.dm
+    ? { title: who, body: text, tag: `chat:${m.id}`, href: place.href, icon: author?.avatar }
+    : { title: roomName ? `${place.name}（${roomName}）` : place.name, body: `${who}：${text}`, tag: `chat:${m.id}`, href: place.href, icon: author?.avatar };
+}
+
 /** 届いた発言のうち、知らせるものを通知にする。多いときは1つにまとめる */
 async function notify(userId: string, messages: Message[]) {
   if (!read(userId) || notifyPermission() !== "granted") return;
@@ -96,22 +119,8 @@ async function notify(userId: string, messages: Message[]) {
     const state = await db.chatReads.get([chat.id, userId]);
     // 通知を切ったチャットと、もう読んだ発言（開いている画面で読んだ）は知らせない
     if (state?.muted || (state?.lastReadAt ?? 0) >= m.createdAt) continue;
-    const author = await db.profiles.get(m.authorId);
-    // 再現・イメージチャットは、話者（イメージユーザー）の名前で
-    const imageUser = m.speaker ? await db.imageUsers.get(m.speaker) : undefined;
-    const who = imageUser?.name ?? m.speaker ?? author?.displayName ?? "だれか";
-    // ルームへの招待のカードは、招待したルームの名前で
-    const invited = m.inviteId ? await db.roomInvites.get(m.inviteId) : undefined;
-    const invitedRoom = invited ? (await db.rooms.get(invited.roomId))?.name : undefined;
-    const text = m.text.trim() || (m.inviteId ? `ルーム「${invitedRoom ?? "（削除されたルーム）"}」に招待しました` : m.mediaIds.length ? `画像を${m.mediaIds.length}枚送りました` : "");
-    const place = await placeOf(chat);
-    const roomName = chat.roomId ? (await db.rooms.get(chat.roomId))?.name : undefined;
-    notices.push(
-      // DM は LINE と同じく、見出しに送った人・本文に発言。ルームのチャットは、見出しに場所・本文に「送った人：発言」
-      chat.dm
-        ? { title: who, body: text, tag: `chat:${m.id}`, href: place.href, icon: author?.avatar }
-        : { title: roomName ? `${place.name}（${roomName}）` : place.name, body: `${who}：${text}`, tag: `chat:${m.id}`, href: place.href, icon: author?.avatar },
-    );
+    const notice = await noticeOf(m);
+    if (notice) notices.push(notice);
   }
   const list =
     notices.length > 3
@@ -127,6 +136,8 @@ const SETTLE = 1500;
 export function useChatNotifications(userId: string | undefined) {
   useEffect(() => {
     if (!userId) return;
+    // 通知をオンにした端末は、開くたびに届け先を覚え直す（別の人がログインし直したときも、その人の届け先になる）
+    if (read(userId)) void subscribePush();
     // 開いた時刻より後の発言だけ（前から届いていたものは、未読の数で分かる）
     const since = Date.now();
     const seen = new Set<string>();

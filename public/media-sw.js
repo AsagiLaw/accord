@@ -2,7 +2,7 @@
 // 画像をドラッグして他のアプリ（Photoshop・デスクトップなど）に渡すと、この URL の最後の部分がファイル名になる。
 // サーバー版に移ったら、画像はサーバーの URL で表示するので、これは要らなくなる
 
-// ブラウザの通知（src/lib/notify.ts）もここから出す（Android の Chrome などは、ページから直接出せないため）。
+// ブラウザの通知（src/lib/notify.ts）もここから出す（Android の Chrome などは、ページから直接出せないため）。アプリを閉じているときのプッシュ通知も受ける。
 // 通知を押したら、開いているアプリの画面に知らせてそこで開く（アプリの中の移動で開く）。開いていなければ新しく開く
 
 self.addEventListener("install", () => self.skipWaiting());
@@ -43,6 +43,29 @@ function readOriginal(id) {
     };
   });
 }
+
+// アプリを閉じているときに届いた発言の通知（Web Push：src/app/api/push）。
+// アプリを画面に出している間は、アプリの側（src/lib/local/chatNotify.ts）が既読を見てから出すので、ここでは出さない
+self.addEventListener("push", (e) => {
+  let n = {};
+  try {
+    n = e.data ? e.data.json() : {};
+  } catch {
+    return;
+  }
+  if (!n.title) return;
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      if (list.some((c) => c.visibilityState === "visible")) return;
+      return self.registration.showNotification(n.title, {
+        body: n.body,
+        tag: n.tag,
+        icon: n.icon || "/icons/icon-192.png",
+        data: { href: n.href || "/" },
+      });
+    }),
+  );
+});
 
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();

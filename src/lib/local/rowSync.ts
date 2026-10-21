@@ -2,7 +2,9 @@
 
 import Dexie, { type Table, type Transaction } from "dexie";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { db } from "./db";
+import { db, type Message } from "./db";
+import { noticeOf } from "./chatNotify";
+import { pushMessage } from "@/lib/push";
 import { toast } from "@/components/ui/overlay";
 import { removeDeletedFiles } from "@/lib/media/remote";
 import { dmChatId } from "./dm";
@@ -137,6 +139,15 @@ function enqueue(tbl: Tbl, id: string, row: Row | null) {
   flushTimer = setTimeout(() => void flush(), 200);
 }
 
+/** 自分の発言が Supabase に届いたら、アプリを閉じている人にも通知を届けてもらう */
+function pushMine(rows: { tbl: Tbl; data: Row }[]) {
+  for (const { tbl, data } of rows) {
+    if (tbl !== "messages" || data.authorId !== me) continue;
+    const m = data as unknown as Message;
+    void pushMessage(m, () => noticeOf(m));
+  }
+}
+
 function retryLater(tbl: Tbl, id: string, row: Row) {
   outbox.set(`${tbl}:${id}`, { tbl, id, row });
   if (!flushTimer) flushTimer = setTimeout(() => void flush(), 10_000);
@@ -178,6 +189,7 @@ async function flush() {
         const { error } = await sb().from("synced_rows").upsert(batch, { onConflict: "tbl,id" });
         if (!error) {
           for (const row of batch) settle(`${row.tbl}:${row.id}`);
+          pushMine(batch);
           continue;
         }
         // まとめて送れなかったら1行ずつ送り直す（送れない1行のせいで、ほかの行まで止めないため）
@@ -189,6 +201,7 @@ async function flush() {
             // つながらなかった（エラーの番号が無い）ときは、しばらくしてから送り直す。決まりで断られたものは送り直さない
             if (!one.error.code && !outbox.has(k)) retryLater(row.tbl, row.id, row.data);
           }
+          else pushMine([row]);
           settle(k);
         }
       }

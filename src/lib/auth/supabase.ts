@@ -1,6 +1,7 @@
 "use client";
 
 import type { AuthError } from "@supabase/supabase-js";
+import { unsubscribePush } from "@/lib/push";
 import { createClient } from "@/lib/supabase/client";
 import { checkUsername, normalizeUsername } from "@/lib/username";
 import { checkEmail, checkPassword, type AuthResult } from "./validate";
@@ -108,6 +109,8 @@ export async function supaChangeEmail(email: string): Promise<AuthResult> {
 }
 
 export async function supaSignOut() {
+  // この端末に、ログアウトした人の通知が届かないようにする（ログインしている間に外す）
+  await unsubscribePush();
   await sb().auth.signOut();
 }
 
