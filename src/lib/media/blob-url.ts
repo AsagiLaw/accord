@@ -3,13 +3,54 @@
 import { useEffect, useReducer, useSyncExternalStore } from "react";
 import { db } from "@/lib/local/db";
 import { supa } from "@/lib/local/sync";
-import { loadShownBlob } from "./remote";
+import { loadShownBlob, MISSING } from "./remote";
 
 // 一度作った表示用 URL は使い回す。画像を編集して中身が変わったら refreshBlobUrls で作り直す
 const urls = new Map<string, string>();
 const pending = new Map<string, Promise<void>>();
 /** 取れなかった画像を取り直した回数 */
 const retries = new Map<string, number>();
+
+/**
+ * 取り直すまでの間。R2 にまだ無い画像は、入れた人のブラウザから置かれるまで時間がかかるので、
+ * 30秒から倍々にあけて5分おきまでにする（何百枚あっても、R2 と札の関数を何度も呼ばないように）。
+ * つながらなかったときは5秒から倍々に、1分おきまで
+ */
+function retryDelay(missing: boolean, tries: number) {
+  return missing ? Math.min(5 * 60_000, 30_000 * 2 ** tries) : Math.min(60_000, 5000 * 2 ** tries);
+}
+/** つながらなかったときに取り直す回数（R2 にまだ無い画像は、画面に出ている間は取り直し続ける） */
+const MAX_FAILED_TRIES = 12;
+
+/** 取り直す画像の ID → 取り直す時刻。まとめて1回で取り直す（1枚ごとに画面を描き直さないように） */
+const due = new Map<string, number>();
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleRetry(id: string, at: number) {
+  due.set(id, Math.min(due.get(id) ?? Infinity, at));
+  armRetry();
+}
+
+function armRetry() {
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
+  if (!due.size) return;
+  const next = Math.min(...due.values());
+  retryTimer = setTimeout(runRetry, Math.max(0, next - Date.now()));
+}
+
+function runRetry() {
+  retryTimer = null;
+  // 見えていないタブでは取り直さない（見えたら取り直す）
+  if (document.visibilityState !== "visible") return;
+  const now = Date.now();
+  const ids = [...due].filter(([, at]) => at <= now).map(([id]) => id);
+  for (const id of ids) due.delete(id);
+  if (ids.length) refreshBlobUrls(ids);
+  armRetry();
+}
+
+if (typeof document !== "undefined") document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && armRetry());
 /** 中身が変わったので作り直す URL（作り直すまでは古い URL を見せておき、表示が一瞬消えないようにする） */
 const stale = new Set<string>();
 
@@ -32,15 +73,17 @@ function load(id: string, kind: Kind): Promise<void> {
   let p = pending.get(key);
   if (!p) {
     // ブラウザの中に無ければ、その種類だけを R2 から取ってくる（Supabase 版）
-    p = loadShownBlob(id, kind).then((blob) => {
+    p = loadShownBlob(id, kind).then((got) => {
+      const blob = got instanceof Blob ? got : undefined;
       const old = urls.get(key);
       if (blob) urls.set(key, URL.createObjectURL(blob));
       else urls.delete(key);
-      // ほかの人が入れたばかりで、R2 にまだ置き終わっていないことがある。しばらくおきに取り直す（1分ほどまで）
+      // ほかの人が入れたばかりで、R2 にまだ置き終わっていないことがある。間をあけながら取り直す
+      const tries = retries.get(key) ?? 0;
       if (blob) retries.delete(key);
-      else if (supa && (retries.get(key) ?? 0) < 12) {
-        retries.set(key, (retries.get(key) ?? 0) + 1);
-        setTimeout(() => refreshBlobUrls([id]), 5000);
+      else if (supa && (got === MISSING || tries < MAX_FAILED_TRIES)) {
+        retries.set(key, tries + 1);
+        scheduleRetry(id, Date.now() + retryDelay(got === MISSING, tries));
       }
       if (old) URL.revokeObjectURL(old);
       stale.delete(key);

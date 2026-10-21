@@ -1,6 +1,7 @@
 "use client";
 
 import type { Transaction } from "dexie";
+import { useSyncExternalStore } from "react";
 import { db, type Media, type MediaBlob } from "@/lib/local/db";
 import { supa } from "@/lib/local/sync";
 import { PSD_MIME } from "./psd";
@@ -56,9 +57,42 @@ const waiting = new Map<string, number>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 let me: string | null = null;
 
+// ---- 置く進み具合（一覧のゲージに出す） ----
+
+/** 置き終わっていない画像（ID → 0〜1。順番を待っている間は 0） */
+const progress = new Map<string, number>();
+const progressListeners = new Set<() => void>();
+let progressFrame = 0;
+
+/** 進み具合を変える（null で外す）。画面に知らせるのは、描くたびに1回だけにまとめる */
+function setProgress(id: string, value: number | null) {
+  if (value === null) progress.delete(id);
+  else progress.set(id, value);
+  if (progressFrame) return;
+  progressFrame = requestAnimationFrame(() => {
+    progressFrame = 0;
+    progressListeners.forEach((f) => f());
+  });
+}
+
+function subscribeProgress(f: () => void) {
+  progressListeners.add(f);
+  return () => progressListeners.delete(f);
+}
+
+/** その画像を R2 に置く進み具合（0〜1）。置き終わっている・このブラウザで置くものでなければ undefined */
+export function useUploadProgress(id: string) {
+  return useSyncExternalStore(
+    subscribeProgress,
+    () => progress.get(id),
+    () => undefined,
+  );
+}
+
 function queueUpload(id: string, tries = 0) {
   if (!supa || !me) return;
   waiting.set(id, tries);
+  if (!progress.has(id)) setProgress(id, 0);
   if (!timer) timer = setTimeout(() => void flushUploads(), tries ? Math.min(30_000, 3000 * tries) : 1500);
 }
 
@@ -70,7 +104,22 @@ async function flushUploads() {
     const ok = await uploadOne(id).catch(() => false);
     // 画像の情報がまだ Supabase に届いていない・つながらなかったときは、しばらくして置き直す（10回まで）
     if (!ok && tries < 10) queueUpload(id, tries + 1);
+    // 置けた・あきらめたときは、ゲージを消す（あきらめた画像は、次に開いたときにまた置く）
+    else if (!waiting.has(id)) setProgress(id, null);
   }
+}
+
+/** R2 に1つのファイルを置く。送った量を onSent に知らせる（fetch では送った量が分からないので XMLHttpRequest を使う） */
+function put(url: string, blob: Blob, onSent: (bytes: number) => void): Promise<boolean> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("content-type", blob.type || "application/octet-stream");
+    xhr.upload.onprogress = (e) => onSent(e.loaded);
+    xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
+    xhr.onerror = xhr.onabort = xhr.ontimeout = () => resolve(false);
+    xhr.send(blob);
+  });
 }
 
 /** 1枚の画像のファイルを R2 に置く。置けたら true */
@@ -86,9 +135,16 @@ async function uploadOne(id: string) {
   if (row.sourceInfo || row.edit) parts.push(["meta", new Blob([JSON.stringify({ sourceInfo: row.sourceInfo, edit: row.edit })], { type: "application/json" })]);
   const urls = await sign(parts.map(([kind]) => ({ id, rev, kind, op: "put" })));
   if (!urls || urls.some((u) => !u)) return false;
+  // ゲージは、その画像のファイル全部を合わせた量で進める
+  const total = parts.reduce((n, [, blob]) => n + blob.size, 0) || 1;
+  let done = 0;
   for (const [i, [, blob]] of parts.entries()) {
-    const res = await fetch(urls[i]!, { method: "PUT", body: blob, headers: { "content-type": blob.type || "application/octet-stream" } }).catch(() => null);
-    if (!res?.ok) return false;
+    const ok = await put(urls[i]!, blob, (sent) => setProgress(id, (done + sent) / total));
+    if (!ok) {
+      setProgress(id, 0);
+      return false;
+    }
+    done += blob.size;
   }
   markDone(id, rev);
   // 編集して中身が変わったときは、前の版のファイルを消す（R2 に溜まらないように）
@@ -109,15 +165,63 @@ export async function removeDeletedFiles(ids: string[]) {
 
 // ---- 取ってくる ----
 
-/** ほかの人の画像のファイルの一部を、R2 から取ってくる。取れなければ null */
-async function fetchKinds(id: string, rev: number, kinds: Kind[]): Promise<(Blob | null)[] | null> {
-  const urls = await sign(kinds.map((kind) => ({ id, rev, kind, op: "get" })));
-  if (!urls) return null;
+/** 一度にもらえる札の数（/api/media/sign の MAX_OPS） */
+const MAX_OPS = 200;
+/** 読む札は1時間使える。少し余裕をみて、50分までは使い回す */
+const GET_REUSE = 50 * 60_000;
+
+/** もらった読む札（「ID:rev:種類」→ 札） */
+const signedGets = new Map<string, { url: string; until: number }>();
+/** 札を待っている読み込み。null：見られない・まだ情報が届いていない／undefined：つながらなかった */
+let getQueue: { op: Op; resolve: (url: string | null | undefined) => void }[] = [];
+let getTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 読む札をもらう。一覧で一度にたくさん出る画像の札は、まとめて1回でもらう */
+function signGet(id: string, rev: number, kind: Kind): Promise<string | null | undefined> {
+  const hit = signedGets.get(`${id}:${rev}:${kind}`);
+  if (hit && hit.until > Date.now()) return Promise.resolve(hit.url);
+  return new Promise((resolve) => {
+    getQueue.push({ op: { id, rev, kind, op: "get" }, resolve });
+    if (!getTimer) getTimer = setTimeout(() => void flushGets(), 30);
+  });
+}
+
+async function flushGets() {
+  getTimer = null;
+  const queued = getQueue;
+  getQueue = [];
+  const chunks: (typeof queued)[] = [];
+  for (let i = 0; i < queued.length; i += MAX_OPS) chunks.push(queued.slice(i, i + MAX_OPS));
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      const urls = await sign(chunk.map((q) => q.op));
+      for (const [i, q] of chunk.entries()) {
+        const url = urls ? urls[i] : undefined;
+        if (url) signedGets.set(`${q.op.id}:${q.op.rev}:${q.op.kind}`, { url, until: Date.now() + GET_REUSE });
+        q.resolve(url);
+      }
+    }),
+  );
+}
+
+/** R2 に無い（入れた人のブラウザから、まだ置かれていない）。つながらなかったときの null と分けて、取り直す間をあける */
+export const MISSING = "missing";
+type Got = Blob | typeof MISSING | null;
+
+/** ほかの人の画像のファイルの一部を、R2 から取ってくる。null はつながらなかったとき */
+async function fetchKinds(id: string, rev: number, kinds: Kind[]): Promise<Got[]> {
   return Promise.all(
-    urls.map(async (url) => {
-      if (!url) return null;
+    kinds.map(async (kind): Promise<Got> => {
+      const url = await signGet(id, rev, kind);
+      if (url === undefined) return null;
+      // 札が出ない：画像の情報がまだ届いていないか、見られない
+      if (url === null) return MISSING;
       const res = await fetch(url).catch(() => null);
-      return res?.ok ? res.blob() : null;
+      if (res?.ok) return res.blob();
+      if (res?.status === 404) return MISSING;
+      // 札の期限切れなど。次はもらい直す
+      signedGets.delete(`${id}:${rev}:${kind}`);
+      return null;
     }),
   );
 }
@@ -139,8 +243,7 @@ export async function loadBlobRow(id: string): Promise<MediaBlob | undefined> {
   const isPsd = media.mime === PSD_MIME;
   const kinds: Kind[] = ["thumb", "original", ...(isPsd ? (["view"] as const) : []), ...(media.edited ? (["source", "meta"] as const) : [])];
   const blobs = await fetchKinds(id, rev, kinds);
-  if (!blobs) return row;
-  const got = new Map(kinds.map((k, i) => [k, blobs[i]]));
+  const got = new Map(kinds.map((k, i) => [k, blobs[i] instanceof Blob ? blobs[i] : null]));
   const thumb = got.get("thumb");
   const original = got.get("original");
   if (!thumb || !original) return row;
@@ -164,9 +267,10 @@ export async function loadBlobRow(id: string): Promise<MediaBlob | undefined> {
 
 /**
  * 画面に出す画像のファイル（thumb：一覧の小さい画像／original：元の大きさ。PSD は表示用）。
- * ブラウザの中に無ければ、その種類だけを R2 から取ってきて残す（一覧で元の画像まで取りに行かないように）
+ * ブラウザの中に無ければ、その種類だけを R2 から取ってきて残す（一覧で元の画像まで取りに行かないように）。
+ * R2 にまだ無いときは MISSING、つながらなかったときは undefined
  */
-export async function loadShownBlob(id: string, kind: "thumb" | "original"): Promise<Blob | undefined> {
+export async function loadShownBlob(id: string, kind: "thumb" | "original"): Promise<Blob | typeof MISSING | undefined> {
   const row = await db.mediaBlobs.get(id);
   const media = supa ? await db.media.get(id) : undefined;
   const rev = revOf(media);
@@ -176,9 +280,8 @@ export async function loadShownBlob(id: string, kind: "thumb" | "original"): Pro
   const key = `${id}:${rev}:${want}`;
   const cached = await db.blobCache.get(key);
   if (cached) return cached.blob;
-  const blobs = await fetchKinds(id, rev, [want]);
-  const blob = blobs?.[0];
-  if (!blob) return undefined;
+  const [blob] = await fetchKinds(id, rev, [want]);
+  if (!(blob instanceof Blob)) return blob ?? undefined;
   await db.blobCache.put({ key, blob });
   return blob;
 }

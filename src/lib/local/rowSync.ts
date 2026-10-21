@@ -77,8 +77,61 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null;
 const REMOTE = Symbol("remote");
 const isRemote = (trans: Transaction) => !!(trans as unknown as Record<symbol, boolean>)[REMOTE];
 
+/**
+ * まだ Supabase に届いていない行（「表:ID」→ 消した行か）。送る前・送っている途中にサイトを閉じても、
+ * 開き直したときに送り直せるよう、ブラウザ（localStorage）にも覚えておく。行の中身は覚えず、送り直すときにブラウザの中から読む
+ */
+let unsent: Record<string, boolean> = {};
+const unsentKey = () => `accord:unsent:${me}`;
+
+function loadUnsent() {
+  try {
+    unsent = JSON.parse(localStorage.getItem(unsentKey()) ?? "{}") ?? {};
+  } catch {
+    unsent = {};
+  }
+}
+function saveUnsent() {
+  try {
+    if (Object.keys(unsent).length) localStorage.setItem(unsentKey(), JSON.stringify(unsent));
+    else localStorage.removeItem(unsentKey());
+  } catch {
+    // 覚えられなくても、開いている間は送る（閉じたときに送りそこねると、送り直せないだけ）
+  }
+}
+/** 届いた・送れないと決まった行を、覚えから外す（送っている間にまた書かれた行は残す） */
+function settle(k: string) {
+  if (outbox.has(k) || !(k in unsent)) return;
+  delete unsent[k];
+  saveUnsent();
+}
+
+/** 前に開いていたときに送りそこねた行を、今のブラウザの中の形で送り直す */
+async function resendUnsent() {
+  for (const [k, gone] of Object.entries(unsent)) {
+    const at = k.indexOf(":");
+    const tbl = k.slice(0, at) as Tbl;
+    const id = k.slice(at + 1);
+    if (!(TABLES as readonly string[]).includes(tbl)) {
+      delete unsent[k];
+      continue;
+    }
+    const row = await tableOf(tbl).get(keyOf(tbl, id) as never);
+    if (row) enqueue(tbl, id, row);
+    else if (gone) enqueue(tbl, id, null);
+    // 書いた行がもう無い：あとで消していれば、その消した行も覚えている
+    else delete unsent[k];
+  }
+  saveUnsent();
+}
+
 function enqueue(tbl: Tbl, id: string, row: Row | null) {
-  outbox.set(`${tbl}:${id}`, { tbl, id, row });
+  const k = `${tbl}:${id}`;
+  outbox.set(k, { tbl, id, row });
+  if (unsent[k] !== !row) {
+    unsent[k] = !row;
+    saveUnsent();
+  }
   if (flushTimer) clearTimeout(flushTimer);
   flushTimer = setTimeout(() => void flush(), 200);
 }
@@ -103,13 +156,18 @@ async function flush() {
       if (error) console.warn("Supabase で消せませんでした", tbl, error.message);
       // 完全に削除した画像は、R2 のファイルも消す（消したことが Supabase に伝わってから。入れた本人の画像だけが消える）
       else if (tbl === "media") void removeDeletedFiles(ids);
+      // つながらなかったときは覚えたままにして、次に開いたときに消し直す
+      if (!error || error.code) for (const id of ids) settle(`${tbl}:${id}`);
     }
     // 書いた行：どこの行かごとにまとめて送る（見られないルームの行が混ざっても、ほかの行は送れるように）
     const groups = new Map<string, Omit<ServerRow, "updated_at">[]>();
     for (const [, it] of items) {
       if (!it.row) continue;
       const scope = await scopeOf(it.tbl, it.row);
-      if (!scope) continue;
+      if (!scope) {
+        settle(`${it.tbl}:${it.id}`);
+        continue;
+      }
       const key = scope.room_id ?? scope.box_id ?? (scope.dm ?? []).join(",");
       groups.set(key, [...(groups.get(key) ?? []), { tbl: it.tbl, id: it.id, ...scope, data: it.row, deleted: false }]);
     }
@@ -117,14 +175,20 @@ async function flush() {
       for (let i = 0; i < rows.length; i += 200) {
         const batch = rows.slice(i, i + 200);
         const { error } = await sb().from("synced_rows").upsert(batch, { onConflict: "tbl,id" });
-        if (!error) continue;
+        if (!error) {
+          for (const row of batch) settle(`${row.tbl}:${row.id}`);
+          continue;
+        }
         // まとめて送れなかったら1行ずつ送り直す（送れない1行のせいで、ほかの行まで止めないため）
         for (const row of batch) {
+          const k = `${row.tbl}:${row.id}`;
           const one = await sb().from("synced_rows").upsert(row, { onConflict: "tbl,id" });
-          if (!one.error) continue;
-          console.warn("Supabase に送れませんでした", row.tbl, row.id, one.error.message);
-          // つながらなかった（エラーの番号が無い）ときは、しばらくしてから送り直す。決まりで断られたものは送り直さない
-          if (!one.error.code && !outbox.has(`${row.tbl}:${row.id}`)) retryLater(row.tbl, row.id, row.data);
+          if (one.error) {
+            console.warn("Supabase に送れませんでした", row.tbl, row.id, one.error.message);
+            // つながらなかった（エラーの番号が無い）ときは、しばらくしてから送り直す。決まりで断られたものは送り直さない
+            if (!one.error.code && !outbox.has(k)) retryLater(row.tbl, row.id, row.data);
+          }
+          settle(k);
         }
       }
     }
@@ -312,6 +376,9 @@ export async function startRowSync(userId: string | null) {
   if (!supa || userId === me) return;
   if (me) await flush();
   me = userId;
+  // 送りそこねた行の覚えも、その人のものに替える
+  if (userId) loadUnsent();
+  else unsent = {};
   if (channel) void sb().removeChannel(channel);
   channel = null;
   if (timer) clearInterval(timer);
@@ -320,6 +387,8 @@ export async function startRowSync(userId: string | null) {
   if (!userId) return;
   hookTables();
   await forgetLocalOnlyDms(userId);
+  // 読み直す前に送りそこねた行を並べる（並んでいる行は、Supabase の古い形で上書きしない）
+  await resendUnsent();
   loadCursors();
   await pullRows();
   // Supabase から届いた分にも、決まった ID でない DM があれば片づける

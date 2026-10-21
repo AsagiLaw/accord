@@ -5,6 +5,7 @@ import { Icon } from "@/components/Icon";
 import type { Media } from "@/lib/local/db";
 import { ThumbImage } from "@/components/ThumbImage";
 import { startMediaDrag, useOriginalUrl } from "@/lib/media/export";
+import { useUploadProgress } from "@/lib/media/remote";
 import { editableName, labelOf } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
 import { toast } from "@/components/ui/overlay";
@@ -12,6 +13,34 @@ import { toast } from "@/components/ui/overlay";
 export { ThumbImage };
 
 let warnedMulti = false;
+
+/**
+ * R2 に置いている途中の画像のゲージ。置き終わっている画像には何も出さない。
+ * 順番を待っている間は空のゲージ。詳しい割合はカーソルを置くと出る
+ */
+export function UploadGauge({ id, className = "" }: { id: string; className?: string }) {
+  const value = useUploadProgress(id);
+  if (value === undefined) return null;
+  const pct = Math.round(value * 100);
+  const label = value > 0 ? `アップロード中 ${pct}%` : "アップロード待ち";
+  return (
+    <span
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={pct}
+      title={label}
+      data-name="アップロードのゲージ"
+      className={`block overflow-hidden ${className}`}
+    >
+      <span
+        className="block h-full rounded-full bg-accent transition-[width] duration-200"
+        style={{ width: `${pct}%` }}
+      />
+    </span>
+  );
+}
 
 /**
  * 画像の上に重ねる、透明な元の画像。これをドラッグすると、他のアプリ（Photoshop・デスクトップなど）に元の画像のファイルとして渡る。
@@ -157,6 +186,11 @@ export function Thumb({
           {labelOf(m, showExt)}
         </span>
       )}
+      {/* R2 に置いている途中なら、名前の札のすぐ上にゲージを出す（明るい画像の上でも見えるよう、暗い下地と影を付ける） */}
+      <UploadGauge
+        id={m.id}
+        className="pointer-events-auto absolute right-2 bottom-[32px] left-2 h-1.5 rounded-full bg-black/50 shadow-[0_0_4px_#0008]"
+      />
       {/* 複数選んでいるときだけ、選んだ順の番号を出す（1枚だけのときは枠の色だけ） */}
       {selected && order !== undefined && (
         <span className="absolute top-1.5 left-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-accent px-1 text-xs font-bold text-accent-ink">

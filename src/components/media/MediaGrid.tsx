@@ -23,7 +23,7 @@ import { setRepresentative } from "@/lib/local/media";
 import { useMediaState } from "./MediaContext";
 import { libraryPaths } from "./PreviewPanel";
 import { rememberOpenedFrom } from "./Lightbox";
-import { DragOriginal, NameField, Thumb, ThumbImage } from "./Thumb";
+import { DragOriginal, NameField, Thumb, ThumbImage, UploadGauge } from "./Thumb";
 
 /** マウス操作の端末か（タッチ端末では、タップで開き「選択」モードで選ぶ） */
 export const isPointerFine = () =>
@@ -283,6 +283,7 @@ export function MediaGrid({
                 <Icon name="folder" size={12} />
               </span>
             )}
+            <UploadGauge id={m.id} className="h-1.5 w-16 shrink-0 rounded-full bg-line" />
           </span>
           {cols.map((c) => cell(c, detail(c, m)))}
         </div>
