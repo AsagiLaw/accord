@@ -176,12 +176,12 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
     if (stageProp) {
       const current = stageOf(stageProp, p).index;
       stageDates(stageProp, p).forEach((s, i) => {
-        push(s.date, { key: `${p.id}:${s.name}`, text: `${s.name}：${p.title}`, pageId: p.id, tone: i < current ? "done" : "auto" });
+        push(s.date, { key: `${p.id}:${s.name}`, text: `${p.title}：${s.name}期限`, pageId: p.id, tone: i < current ? "done" : "auto" });
       });
     }
     const dp = database.props.find((x) => x.id === dateId && x.type !== "stage");
     const dv = dp ? valueOf(p, dp.id) : undefined;
-    if (dp && isDate(dv)) push(dv, { key: `${p.id}:${dp.id}`, text: `${dp.name}：${p.title}`, pageId: p.id, tone: "auto" });
+    if (dp && isDate(dv)) push(dv, { key: `${p.id}:${dp.id}`, text: `${p.title}：${dp.name}`, pageId: p.id, tone: "auto" });
   }
   for (const e of events) push(e.date, { key: e.id, text: e.text, eventId: e.id, tone: "manual" });
 
@@ -232,7 +232,7 @@ export function CalendarView({ database, pages, view, events, compact, fit, user
       names.map((n) => ({ label: n })),
     );
     if (si === null) return;
-    await addEvent(database.roomId, date, `${names[si]}：${page.title}`, page.id);
+    await addEvent(database.roomId, date, `${page.title}：${names[si]}期限`, page.id);
   };
 
   /** 1日のマス。label は左上に出す日付 */

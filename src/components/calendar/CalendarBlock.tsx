@@ -120,12 +120,12 @@ export function collectItems({
         // 工程の期限：工程ごとに出す（終わった工程は線で消す）
         const current = stageOf(prop, p).index;
         stageDates(prop, p).forEach((st, i) =>
-          push(st.date, { key: `${p.id}:${prop.id}:${st.name}`, text: `${st.name}：${name}`, hue: DB_HUE, first: true, done: i < current, page: { database, pageId: p.id } }),
+          push(st.date, { key: `${p.id}:${prop.id}:${st.name}`, text: `${name}：${st.name}期限`, hue: DB_HUE, first: true, done: i < current, page: { database, pageId: p.id } }),
         );
         continue;
       }
       const v = valueOf(p, prop.id);
-      if (isDate(v)) push(v, { key: `${p.id}:${prop.id}`, text: `${prop.name}：${name}`, hue: DB_HUE, first: true, page: { database, pageId: p.id } });
+      if (isDate(v)) push(v, { key: `${p.id}:${prop.id}`, text: `${name}：${prop.name}`, hue: DB_HUE, first: true, page: { database, pageId: p.id } });
     }
   }
   for (const list of items.values()) list.sort((a, b) => (a.time ?? "").localeCompare(b.time ?? ""));
