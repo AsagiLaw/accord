@@ -94,15 +94,15 @@ function TitleInput({ value, onSave, suffix, placeholder }: { value: string; onS
   }
   return (
     <div className="flex min-w-0 flex-1 items-baseline gap-1">
-      <input
+      <FitInput
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => (draft.trim() && draft !== value ? onSave(draft.trim()) : setDraft(value))}
         onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (e.target as HTMLInputElement).blur()}
         aria-label="名前"
         placeholder={placeholder}
-        className="max-w-full min-w-[4em] rounded-[8px] bg-transparent text-[1.8em] font-bold outline-none [field-sizing:content] hover:bg-tint focus:bg-tint"
-        // 入力欄の幅を、中の文字の長さぴったりにする
+        wrapClassName="min-w-[4em] text-[1.8em] font-bold"
+        className="rounded-[8px] bg-transparent outline-none hover:bg-tint focus:bg-tint"
       />
       {suffix && <span className="shrink-0 font-bold text-muted">{suffix}</span>}
     </div>
@@ -840,15 +840,30 @@ function FieldInput({ value, onSave, placeholder }: { value: string; onSave: (v:
     setDraft(value);
   }
   return (
-    <input
+    <FitInput
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => draft !== value && onSave(draft)}
       onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (e.target as HTMLInputElement).blur()}
       placeholder={placeholder}
       aria-label={placeholder}
-      className="max-w-full min-w-[3em] rounded-[6px] bg-transparent outline-none [field-sizing:content] hover:bg-tint focus:bg-tint"
-      // 入力欄の幅を、中の文字の長さぴったりにする
+      wrapClassName="min-w-[3em]"
+      className="rounded-[6px] bg-transparent outline-none hover:bg-tint focus:bg-tint"
     />
+  );
+}
+
+/**
+ * 幅が中の文字の長さぴったりの入力欄。iPad などの Safari は field-sizing が効かず横いっぱいに広がるので、
+ * 同じ文字を見えないように重ねて置き、その幅に合わせる。文字の大きさ・太さは wrapClassName に付ける（入力欄はそれを受け継ぐ）
+ */
+function FitInput({ wrapClassName = "", className = "", ...props }: React.ComponentProps<"input"> & { value: string; wrapClassName?: string }) {
+  return (
+    <span className={`relative inline-block max-w-full ${wrapClassName}`}>
+      <span aria-hidden className="invisible block overflow-hidden whitespace-pre">
+        {props.value || props.placeholder}
+      </span>
+      <input {...props} className={`absolute inset-0 h-full w-full min-w-0 ${className}`} />
+    </span>
   );
 }

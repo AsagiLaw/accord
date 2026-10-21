@@ -12,7 +12,7 @@ import { confirmAction } from "@/components/ui/overlay";
 import { deleteImageUser, deleteMessage, editMessage, changeSpeaker, saveImageUser, sendMessage, useScopedImageUsers } from "@/lib/local/chat";
 import type { Chat, ImageUser, Media, Message, Profile } from "@/lib/local/db";
 import { useMediaByIds } from "@/lib/local/media";
-import { LongText } from "./LongText";
+import { copyText, LongText } from "./LongText";
 import { NewBelowButton, UnreadLine } from "./ChatView";
 import { useMessageWindow } from "./useMessageWindow";
 import { useReadProgress } from "./useReadProgress";
@@ -237,38 +237,47 @@ function ImageMessage({
           </div>
         )}
       </div>
-      {canEdit && (
+      {(canEdit || !!m.text) && (
         <button
           aria-label="この発言のメニュー"
           onClick={menu.toggle}
-          className="mb-1 grid h-7 w-7 shrink-0 place-items-center rounded-full text-muted opacity-0 group-hover:opacity-100 hover:bg-tint focus:opacity-100 max-md:opacity-60"
+          className="mb-1 grid h-7 w-7 shrink-0 place-items-center rounded-full text-muted opacity-0 group-hover:opacity-100 hover:bg-tint focus:opacity-100 max-md:opacity-60 pointer-coarse:opacity-60"
         >
           <Icon name="dots" size={16} />
         </button>
       )}
       {menu.anchor && (
         <Popover anchor={menu.anchor} onClose={menu.close} width={220} label="発言のメニュー">
-          <MenuItem icon={<Icon name="edit" size={16} />} onClick={() => (setEditing(true), menu.close())}>
-            文章を直す
-          </MenuItem>
-          <MenuDivider />
-          <MenuLabel>話している人を変える</MenuLabel>
-          {users.map((u) => (
-            <MenuItem key={u.id} icon={<ImageUserIcon user={u} size={20} />} active={u.id === m.speaker} onClick={() => (changeSpeaker(m.id, u.id), menu.close())}>
-              {u.name}
+          {m.text && (
+            <MenuItem icon={<Icon name="copy" size={16} />} onClick={() => (copyText(m.text), menu.close())}>
+              コピー
             </MenuItem>
-          ))}
-          <MenuDivider />
-          <MenuItem
-            icon={<Icon name="del" size={16} />}
-            danger
-            onClick={async () => {
-              menu.close();
-              if (await confirmAction("この発言を削除します", "削除")) await deleteMessage(m.id);
-            }}
-          >
-            削除
-          </MenuItem>
+          )}
+          {canEdit && (
+            <>
+              <MenuItem icon={<Icon name="edit" size={16} />} onClick={() => (setEditing(true), menu.close())}>
+                文章を直す
+              </MenuItem>
+              <MenuDivider />
+              <MenuLabel>話している人を変える</MenuLabel>
+              {users.map((u) => (
+                <MenuItem key={u.id} icon={<ImageUserIcon user={u} size={20} />} active={u.id === m.speaker} onClick={() => (changeSpeaker(m.id, u.id), menu.close())}>
+                  {u.name}
+                </MenuItem>
+              ))}
+              <MenuDivider />
+              <MenuItem
+                icon={<Icon name="del" size={16} />}
+                danger
+                onClick={async () => {
+                  menu.close();
+                  if (await confirmAction("この発言を削除します", "削除")) await deleteMessage(m.id);
+                }}
+              >
+                削除
+              </MenuItem>
+            </>
+          )}
         </Popover>
       )}
     </div>

@@ -17,7 +17,7 @@ import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { isImageFile } from "@/lib/media/image";
 import { useAllProfiles, type MemberWithProfile } from "@/lib/local/rooms";
 import { InviteCard } from "./InviteCard";
-import { LongText } from "./LongText";
+import { copyText, LongText } from "./LongText";
 import { jumpToMessage, useMessageWindow } from "./useMessageWindow";
 import { useReadProgress } from "./useReadProgress";
 import { ChatSkeleton } from "@/components/Skeleton";
@@ -339,7 +339,7 @@ function MessageItem({
           )
         ) : null}
         <div className="flex max-w-full min-w-0 items-end gap-1">
-          {mine && <Actions canEdit={canEdit} onReply={onReply} onEdit={m.inviteId ? undefined : () => setEditing(true)} invite={!!m.inviteId} id={m.id} />}
+          {mine && <Actions canEdit={canEdit} onReply={onReply} onEdit={m.inviteId ? undefined : () => setEditing(true)} invite={!!m.inviteId} id={m.id} text={m.text} />}
           {readMark}
           {/* ルームへの招待は、吹き出しの代わりにカードで出す */}
           {m.inviteId ? (
@@ -402,7 +402,7 @@ function MessageItem({
               )}
             </div>
           )}
-          {!mine && <Actions canEdit={canEdit} onReply={onReply} onEdit={m.inviteId ? undefined : () => setEditing(true)} invite={!!m.inviteId} id={m.id} />}
+          {!mine && <Actions canEdit={canEdit} onReply={onReply} onEdit={m.inviteId ? undefined : () => setEditing(true)} invite={!!m.inviteId} id={m.id} text={m.text} />}
         </div>
       </div>
     </div>
@@ -450,13 +450,18 @@ function ReadMark({ readers, audience, nameOf }: { readers: string[]; audience: 
 }
 
 /** 発言の横の操作。onEdit が無い発言（招待のカード）は、直せない。invite は招待のカード（消すと招待も取り消す） */
-function Actions({ canEdit, onReply, onEdit, invite, id }: { canEdit: boolean; onReply: () => void; onEdit?: () => void; invite?: boolean; id: string }) {
+function Actions({ canEdit, onReply, onEdit, invite, id, text }: { canEdit: boolean; onReply: () => void; onEdit?: () => void; invite?: boolean; id: string; text?: string }) {
   const btn = "grid h-8 w-8 place-items-center rounded-full text-muted hover:bg-tint hover:text-ink";
   return (
-    <div className="flex shrink-0 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 max-md:opacity-60">
+    <div className="flex shrink-0 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 max-md:opacity-60 pointer-coarse:opacity-60">
       <button className={btn} aria-label="返信" title="返信" onClick={onReply}>
         <Icon name="reply" size={16} />
       </button>
+      {text && (
+        <button className={btn} aria-label="コピー" title="コピー" onClick={() => copyText(text)}>
+          <Icon name="copy" size={16} />
+        </button>
+      )}
       {canEdit && (
         <>
           {onEdit && (

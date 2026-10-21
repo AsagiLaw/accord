@@ -79,7 +79,7 @@ export function ProfileExtras({ person }: { person: Profile }) {
         <div>
           <p className="mb-0.5 text-xs font-bold text-muted">自己紹介</p>
           {/* 長いときはカードが伸びすぎないよう、ここだけスクロール */}
-          <p className="max-h-36 overflow-y-auto text-sm break-words whitespace-pre-wrap select-text">{person.bio}</p>
+          <p className="max-h-36 overflow-y-auto text-sm break-words whitespace-pre-wrap">{person.bio}</p>
         </div>
       )}
       {links.length > 0 && (

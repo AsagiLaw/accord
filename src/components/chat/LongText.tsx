@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "@/components/ui/overlay";
 
 /** これより長い発言は、はじめは途中までだけ出す */
 const MAX_CHARS = 500;
@@ -14,7 +15,7 @@ export function LongText({ text, className, children }: { text: string; classNam
   return (
     <div className={className}>
       {/* wrap-anywhere：URL など切れ目のない長い文字も、狭いチャットの中で折り返す */}
-      <p className="wrap-anywhere whitespace-pre-wrap select-text">
+      <p className="wrap-anywhere whitespace-pre-wrap">
         {folded ? `${text.slice(0, cut).trimEnd()}…` : text}
         {children}
       </p>
@@ -25,6 +26,16 @@ export function LongText({ text, className, children }: { text: string; classNam
       )}
     </div>
   );
+}
+
+/** 発言の文章をコピーする（指で触る端末では、発言を長押しで選べないので、これでコピーする） */
+export async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("コピーしました");
+  } catch {
+    toast("コピーできませんでした");
+  }
 }
 
 /** どこで切るか。短ければ null（少しはみ出すくらいなら、切らずに全部出す） */

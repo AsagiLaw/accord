@@ -151,7 +151,7 @@ export function SelectEditor({
           setEditing(o);
           optionMenu.open(e);
         }}
-        className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-muted opacity-0 group-hover:opacity-100 hover:bg-tint focus:opacity-100 max-md:opacity-60"
+        className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-muted opacity-0 group-hover:opacity-100 hover:bg-tint focus:opacity-100 max-md:opacity-60 pointer-coarse:opacity-60"
       >
         <Icon name="dots" size={14} />
       </button>
