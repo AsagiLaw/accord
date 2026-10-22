@@ -25,6 +25,7 @@ type Place = "home" | "unsorted" | "fav" | `lib:${string}`;
  * 上に検索と「並べ替えと表示」（メディアの画面と同じ設定。変えるとメディアの画面にも効く）、真ん中に画像。ライブラリーへの整理はここではできない。
  * はじめはルームに紐づいたボックス（ルームの外や、紐づいていなければマイメディア）を出し、使えるほかのボックスにも切り替えられる。
  * 新しい画像もここからアップロードでき、開いているボックスの「未整理」に入る（見るだけのボックスなら、マイメディアに入る）。
+ * メディアの画面の「このライブラリーに画像を追加」もここを使う（box でボックスを決め、initial で今入っている画像を選んだ状態から始める）。
  */
 export function MediaPicker({
   roomId,
@@ -34,6 +35,11 @@ export function MediaPicker({
   single,
   pickLabel,
   mineOnly,
+  box,
+  initial,
+  title,
+  filter,
+  tools,
 }: {
   /** 開いているルーム（DM など、ルームの外なら空） */
   roomId: string;
@@ -46,12 +52,22 @@ export function MediaPicker({
   pickLabel?: string;
   /** マイメディアだけから選ぶ（自分のアイコンなど）。ほかのボックスには切り替えられない */
   mineOnly?: boolean;
+  /** このボックスだけから選ぶ。ほかのボックスには切り替えられない */
+  box?: string;
+  /** はじめから選んでおく画像。あるときは、選び方が変わったら決められる（全部外しても決められる） */
+  initial?: string[];
+  /** 上の見出し（無ければ「メディアから選ぶ」） */
+  title?: string;
+  /** 並べる画像を絞る */
+  filter?: (m: Media) => boolean;
+  /** 見出しの右に出す、呼び出し元の切り替えなど */
+  tools?: React.ReactNode;
 }) {
   const boxes = useMyBoxes(userId);
   const roomBox = useRoomBox(roomId);
   const [picked, setPicked] = useState<string | null>(null);
   const roomBoxId = roomBox && boxes?.access.has(roomBox.box.id) ? roomBox.box.id : undefined;
-  const boxId = mineOnly ? (boxes?.mine?.id ?? "") : (picked ?? roomBoxId ?? boxes?.mine?.id ?? "");
+  const boxId = box ?? (mineOnly ? (boxes?.mine?.id ?? "") : (picked ?? roomBoxId ?? boxes?.mine?.id ?? ""));
   const canAdd = ["owner", "edit"].includes(boxes?.access.get(boxId) ?? "");
   const media = useMedia(boxId);
   const libs = useLibraries(boxId);
@@ -59,7 +75,13 @@ export function MediaPicker({
   const prefs = useMediaPrefs();
   const [place, setPlace] = useState<Place>("home");
   const [query, setQuery] = useState("");
-  const [chosen, setChosen] = useState<string[]>([]);
+  const [chosen, setChosen] = useState<string[]>(initial ?? []);
+  // 上の欄に並べる画像。はじめから選んであるときは、新しく選んだものだけ（外したものは枚数だけ出す）
+  const fresh = initial ? chosen.filter((x) => !initial.includes(x)) : chosen;
+  const dropped = initial ? initial.filter((x) => !chosen.includes(x)).length : 0;
+  // 選んだ順の番号は、何も選んでいないところから選ぶときだけ
+  const numbered = !single && !initial;
+  const changed = initial ? chosen.length !== initial.length || chosen.some((x) => !initial.includes(x)) : chosen.length > 0;
   // 選んだ画像の名前（ほかのボックスへ移っても、選択中の欄に名前を出せるように）
   const [names, setNames] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -80,10 +102,11 @@ export function MediaPicker({
     else if (place === "fav") pool = alive.filter((m) => m.fav);
     else if (lib) pool = q ? alive.filter((m) => m.libIds.includes(lib.id)) : libraryView(alive, allLibs, lib.id, prefs.libMode);
     else pool = alive;
+    if (filter) pool = pool.filter(filter);
     const sorted = arrange(pool, prefs);
     if (!q) return sorted;
     return searchMedia(sorted, q, (id) => members?.find((x) => x.userId === id)?.displayName ?? "");
-  }, [place, alive, lib, allLibs, prefs, query, members]);
+  }, [place, alive, lib, allLibs, prefs, query, members, filter]);
 
   // ホームとライブラリーでは、すぐ下のライブラリーをカードで先に並べる（検索中は出さない）
   const cards = query.trim() || (place !== "home" && !lib) ? [] : childrenOf(allLibs, lib?.id ?? null);
@@ -141,6 +164,7 @@ export function MediaPicker({
   };
 
   const size = THUMB_SIZES[prefs.level - 1] ?? THUMB_SIZES[2];
+  const heading = title ?? (mineOnly ? "マイメディアから選ぶ" : "メディアから選ぶ");
   const placeName = place === "home" ? "ホーム" : place === "unsorted" ? "未整理" : place === "fav" ? "お気に入り" : (lib?.name ?? "");
 
   return (
@@ -148,7 +172,7 @@ export function MediaPicker({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={mineOnly ? "マイメディアから選ぶ" : "メディアから選ぶ"}
+        aria-label={heading}
         data-name="メディアから選ぶ"
         className="flex h-[92dvh] w-full max-w-5xl flex-col overflow-hidden rounded-t-[20px] border border-line bg-card sm:h-[min(88dvh,760px)] sm:rounded-[14px]"
         onDragOver={(e) => e.preventDefault()}
@@ -160,13 +184,15 @@ export function MediaPicker({
           void filesFromDrop(e.dataTransfer).then(upload);
         }}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3 sm:px-5">
-          <h3 className="min-w-0 truncate font-bold">{mineOnly ? "マイメディアから選ぶ" : "メディアから選ぶ"}</h3>
-          <div className="flex shrink-0 gap-2 whitespace-nowrap">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-3 sm:px-5">
+          <h3 className="min-w-0 truncate font-bold max-sm:flex-1">{heading}</h3>
+          {/* 見出しの右に、呼び出し元の切り替え（スマホでは下の段に全幅で） */}
+          {tools && <div className="flex gap-1.5 overflow-x-auto whitespace-nowrap max-sm:order-last max-sm:w-full">{tools}</div>}
+          <div className="ml-auto flex shrink-0 gap-2 whitespace-nowrap">
             <button className="btn-sub" onClick={onClose}>
               キャンセル
             </button>
-            <button className="btn" disabled={!chosen.length} onClick={() => onPick(chosen)}>
+            <button className="btn" disabled={!changed} onClick={() => onPick(chosen)}>
               {pickLabel ?? (chosen.length ? `${chosen.length}枚を貼る` : "貼る")}
             </button>
           </div>
@@ -179,7 +205,7 @@ export function MediaPicker({
             data-name="メディアから選ぶのサイドバー"
             className={`flex w-60 shrink-0 flex-col gap-2 border-r border-line bg-sidebar p-2 max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-20 max-md:w-[min(260px,80%)] max-md:shadow-xl ${navOpen ? "max-md:animate-[fade_.2s]" : "max-md:hidden"}`}
           >
-            {boxes && !mineOnly && (
+            {boxes && !mineOnly && !box && (
               <Select
                 value={boxId}
                 onChange={(v) => {
@@ -272,17 +298,17 @@ export function MediaPicker({
             </div>
 
             {/* 選んでいる画像（ライブラリーやボックスを移っても、何を選んでいるかがわかるように）。左から選んだ順 */}
-            {chosen.length > 0 && (
+            {(fresh.length > 0 || dropped > 0) && (
               <div data-name="選んでいる画像" className="flex items-center gap-2 border-b border-line bg-bg px-3 py-2">
                 <ol className="flex min-w-0 flex-1 gap-3 overflow-x-auto px-1.5 pt-2 pb-1">
-                  {chosen.map((id, i) => {
+                  {fresh.map((id, i) => {
                     const name = alive.find((m) => m.id === id)?.name ?? names[id] ?? "";
                     return (
                       <li key={id} className="anim-pop relative shrink-0" title={name}>
                         <span className="block h-11 w-11 overflow-hidden rounded-[8px] border border-accent bg-card">
                           <ThumbImage id={id} alt={name} />
                         </span>
-                        {!single && (
+                        {numbered && (
                           <span className="pointer-events-none absolute -top-1 -left-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-0.5 text-[11px] leading-none font-bold text-accent-ink">{i + 1}</span>
                         )}
                         <button
@@ -299,13 +325,23 @@ export function MediaPicker({
                 </ol>
                 {/* 右の端に「すべて外す」と、その下に枚数（場所を取らないように縦に重ねる） */}
                 <div className="flex shrink-0 flex-col items-center gap-0.5">
-                  {chosen.length > 1 && (
-                    <button className="rounded-full px-2 py-0.5 text-xs text-muted hover:bg-tint hover:text-ink" onClick={() => setChosen([])}>
+                  {fresh.length > 1 && (
+                    <button className="rounded-full px-2 py-0.5 text-xs text-muted hover:bg-tint hover:text-ink" onClick={() => setChosen(chosen.filter((x) => !fresh.includes(x)))}>
                       すべて外す
                     </button>
                   )}
-                  <span className="text-xs text-muted" aria-live="polite">
-                    <b className="text-ink">{chosen.length}</b>枚
+                  <span className="text-xs whitespace-nowrap text-muted" aria-live="polite">
+                    {initial ? (
+                      <>
+                        {fresh.length > 0 && <>＋<b className="text-ink">{fresh.length}</b>枚</>}
+                        {fresh.length > 0 && dropped > 0 && " "}
+                        {dropped > 0 && <>−<b className="text-ink">{dropped}</b>枚</>}
+                      </>
+                    ) : (
+                      <>
+                        <b className="text-ink">{chosen.length}</b>枚
+                      </>
+                    )}
                   </span>
                 </div>
               </div>
@@ -343,7 +379,7 @@ export function MediaPicker({
                           <ThumbImage id={m.id} alt="" />
                           {i >= 0 && (
                             <span className="absolute top-1.5 left-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-accent px-1 text-xs font-bold text-accent-ink">
-                              {single ? <Icon name="ok" size={14} /> : i + 1}
+                              {numbered ? i + 1 : <Icon name="ok" size={14} />}
                             </span>
                           )}
                           {m.fav && <Icon name="star" size={14} className="absolute right-1.5 bottom-1.5 text-yellow-300 drop-shadow" />}
