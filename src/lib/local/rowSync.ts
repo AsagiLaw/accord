@@ -458,6 +458,8 @@ async function applyRows(rows: ServerRow[]) {
     // 知っている形より古い（遅れて届いた知らせ）。updated_at の無い行（引いた画像の情報など）は書く
     const at = microsOf(r.updated_at);
     if (at !== null && at < (known.get(k) ?? -1)) continue;
+    // 送りそこねた行で、前に開いたときにもう読んでいた形（少し前から読み直した分）は書かない。ブラウザで書いたあとの形のほうが新しい
+    if (k in unsent && at !== null && at <= (readBefore[scopeKey(r)] ?? -1)) continue;
     if (await belongs(r)) usable.push(r);
     else console.warn("置き場所と合わない行を書きませんでした", r.tbl, r.id);
   }
@@ -478,6 +480,8 @@ async function applyRows(rows: ServerRow[]) {
 let me: string | null = null;
 /** どこまで読んだか（ルームの ID か "dm" → いちばん新しい行の時刻） */
 let cursors: Record<string, string> = {};
+/** 開いたときの、どこまで読んだか（マイクロ秒の数） */
+let readBefore: Record<string, number> = {};
 // v2：読み直しが同じ時刻の行の500件で止まっていた（2026-10-21 に直した）。
 // v3：Realtime で届いた行の時刻まで読んだことにしていたので、届かなかった行（まとめて整理した画像など）を読み直さなかった（2026-10-22 に直した）。
 // それまでの印では取りこぼした行があるので、一度だけ最初から読み直す
@@ -629,17 +633,19 @@ export async function startRowSync(userId: string | null) {
   if (!userId) return;
   hookTables();
   await forgetLocalOnlyDms(userId);
-  // 読み直す前に送りそこねた行を並べる（並んでいる行は、Supabase の古い形で上書きしない）
+  loadCursors();
+  readBefore = Object.fromEntries(Object.entries(cursors).map(([scope, at]) => [scope, microsOf(at) ?? -1]));
+  await pullRows();
+  // 送りそこねた行と、前に断られた行（ほかの人が入れた画像を直すと、いつも断られていた：2026-10-22 に直した）を送り直す。
+  // 読み直したあとに送る。先に送ると、閉じている間にほかの所で変わった行（ゴミ箱に入れた画像など）を、
+  // ブラウザの中の古い形で上書きして戻してしまう（2026-10-22 に直した）
   await resendUnsent();
-  // 前に断られた行も送り直す（ほかの人が入れた画像を直すと、いつも断られていた：2026-10-22 に直した）
   await resendRows(
     [...failed].map((k) => {
       const at = k.indexOf(":");
       return { tbl: k.slice(0, at) as Tbl, id: k.slice(at + 1) };
     }).filter((r) => (TABLES as readonly string[]).includes(r.tbl)),
   );
-  loadCursors();
-  await pullRows();
   // Supabase から届いた分にも、決まった ID でない DM があれば片づける
   await forgetLocalOnlyDms(userId);
   await backfillHostedRooms(userId);
