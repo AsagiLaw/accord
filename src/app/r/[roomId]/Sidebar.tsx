@@ -45,6 +45,11 @@ export function Sidebar({
   useEffect(() => {
     if (!inMedia) lastChannelPath.current = pathname;
   }, [inMedia, pathname]);
+  // メディアのボタンの行き先を先に読んでおく（押したらすぐ移れるように）
+  const hasBox = !!roomBox;
+  useEffect(() => {
+    if (hasBox) router.prefetch(inMedia ? (lastChannelPath.current ?? base) : `${base}/media`);
+  }, [hasBox, inMedia, base, router]);
 
   return (
     <SidebarShell me={me}>

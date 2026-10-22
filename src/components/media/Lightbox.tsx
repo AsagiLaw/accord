@@ -1,9 +1,10 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
-import { startMediaDrag, useOriginalUrl } from "@/lib/media/export";
+import { Spinner } from "@/components/ui/Spinner";
+import { startMediaDrag, useOriginalState } from "@/lib/media/export";
 import {
   arrange,
   chain,
@@ -16,6 +17,7 @@ import {
 import { useMediaPrefs } from "@/lib/media/prefs";
 import { copyImageFlow } from "./flows";
 import { useMediaState } from "./MediaContext";
+import { useMediaRouter } from "./MediaLink";
 import { ThumbImage } from "./Thumb";
 
 /** 一覧のサムネイルを押した位置（拡大して出てくる動きの始まり） */
@@ -35,7 +37,7 @@ export function Lightbox() {
     useMediaState();
   const prefs = useMediaPrefs();
   const pathname = usePathname();
-  const router = useRouter();
+  const router = useMediaRouter();
   const [ctxLib, setCtxLib] = useState<string | null>(null);
   const [box, setBox] = useState<{
     left: number;
@@ -57,7 +59,7 @@ export function Lightbox() {
 
   const m = viewing ? byId.get(viewing.id) : undefined;
   // 名前付きの URL で表示する（ドラッグして他のアプリに渡したとき、その名前のファイルになる）
-  const original = useOriginalUrl(m);
+  const { url: original, loading: loadingOriginal } = useOriginalState(m);
   const inLibPage = pathname.includes("/media/lib/");
 
   // 入っているライブラリー（一番深いものと、その親たち）
@@ -282,8 +284,12 @@ export function Lightbox() {
             className="block max-h-full max-w-full rounded-[14px] object-contain shadow-[0_20px_60px_#0007]"
           />
         ) : (
-          <div className="aspect-square h-1/2 overflow-hidden rounded-[14px] opacity-70">
-            <ThumbImage id={m.id} alt={m.name} className="object-contain" />
+          // 元の画像を取ってくる間は、小さい画像を薄く出し、その上にくるくるを出す（小さい画像の側のくるくるは重ねない）
+          <div className="relative aspect-square h-1/2">
+            <div className="h-full w-full overflow-hidden rounded-[14px] opacity-70 [&_[role=status]]:hidden">
+              <ThumbImage id={m.id} alt={m.name} className="object-contain" />
+            </div>
+            {loadingOriginal && <Spinner onImage />}
           </div>
         )}
         {navBtn("r", i < 0 || i >= list.length - 1, () => go(1))}

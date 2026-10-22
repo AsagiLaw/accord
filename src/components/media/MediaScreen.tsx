@@ -1,13 +1,13 @@
 "use client";
 
-import { notFound, useParams } from "next/navigation";
+import { notFound, useParams, usePathname } from "next/navigation";
 import type { Profile } from "@/lib/local/db";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 import { AddToLibraryDialog } from "./AddToLibraryDialog";
 import { ImageEditor } from "./ImageEditor";
 import { Lightbox } from "./Lightbox";
 import { MediaProvider, useMediaState } from "./MediaContext";
-import { MediaView } from "./MediaView";
+import { MediaView, type MediaViewKind } from "./MediaView";
 import { OrganizeDialog } from "./OrganizeDialog";
 
 function Overlays() {
@@ -46,28 +46,48 @@ export function MediaScreen({
 }) {
   return (
     <MediaProvider key={boxId} boxId={boxId} base={base} title={title} canEdit={canEdit} me={me} members={members}>
+      <CurrentView base={base} />
       {children}
       <Overlays />
     </MediaProvider>
   );
 }
 
-// ---- ページ（ルームと DM のルートから、そのまま使う） ----
+const VIEWS = { unsorted: "unsorted", all: "all", favorites: "fav", trash: "trash" } as const;
 
-export function MediaHomePage() {
-  return <MediaView view={{ kind: "home" }} />;
+/** URL の土台より後ろ（"" ・"/all"・"/lib/（ライブラリー）" など）から、開く場所を決める。違う形なら null */
+function viewOf(rest: string): MediaViewKind | null {
+  if (rest === "" || rest === "/") return { kind: "home" };
+  const lib = rest.match(/^\/lib\/([^/]+)\/?$/);
+  if (lib) return { kind: "lib", id: decodeURIComponent(lib[1]) };
+  const name = rest.replace(/^\/|\/$/g, "");
+  return Object.hasOwn(VIEWS, name) ? { kind: VIEWS[name as keyof typeof VIEWS] } : null;
 }
 
-const VIEWS = { unsorted: "unsorted", all: "all", favorites: "fav", trash: "trash" } as const;
+/**
+ * 今の URL の場所を出す。同じメディア画面の中の移動は URL だけを変える（MediaLink）ので、
+ * ページではなくここで URL から描く。場所ごとに作り直す（選択や検索は場所ごと）
+ */
+function CurrentView({ base }: { base: string }) {
+  const pathname = usePathname();
+  const view = pathname.startsWith(base) ? viewOf(pathname.slice(base.length)) : null;
+  if (!view) return null;
+  return <MediaView key={view.kind === "lib" ? `lib:${view.id}` : view.kind} view={view} />;
+}
+
+// ---- ページ（ルームと DM のルートから、そのまま使う）。中身は CurrentView が出すので、ここでは何も出さない ----
+
+export function MediaHomePage() {
+  return null;
+}
 
 export function MediaListPage() {
   const { view } = useParams<{ view: string }>();
-  const kind = VIEWS[view as keyof typeof VIEWS];
-  if (!kind) notFound();
-  return <MediaView view={{ kind }} />;
+  // 無い一覧の URL を直接開いたときは「見つかりません」
+  if (!Object.hasOwn(VIEWS, view)) notFound();
+  return null;
 }
 
 export function LibraryPage() {
-  const { libId } = useParams<{ libId: string }>();
-  return <MediaView view={{ kind: "lib", id: libId }} />;
+  return null;
 }

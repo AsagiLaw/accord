@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { MenuItem, Popover, usePopover } from "@/components/ui/Popover";
+import { MediaLink, useMediaRouter } from "./MediaLink";
 
 export type Crumb = { key: string; label: string; href: string };
 
@@ -29,7 +28,7 @@ export function Breadcrumbs({
   /** 場所を押したとき（画像の拡大を閉じるなど） */
   onNavigate?: () => void;
 }) {
-  const router = useRouter();
+  const router = useMediaRouter();
   const more = usePopover();
   const box = useRef<HTMLDivElement>(null);
   const measure = useRef<HTMLDivElement>(null);
@@ -124,13 +123,13 @@ export function Breadcrumbs({
       {shown.map((c, i) => (
         <span key={c.key} className="flex shrink-0 items-center gap-1">
           {(i > 0 || hidden > 0) && sep}
-          <Link
+          <MediaLink
             href={c.href}
             onClick={onNavigate}
             className="whitespace-nowrap text-muted hover:text-ink"
           >
             {c.label}
-          </Link>
+          </MediaLink>
         </span>
       ))}
       {/* 今開いているもの：すべてしまっても入りきらないときだけ省略する */}

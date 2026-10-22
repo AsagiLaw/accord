@@ -55,7 +55,17 @@ export function DragOriginal({
   multiSelected?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
-  const src = useOriginalUrl(hovered ? m : undefined);
+  // 元の画像を調べる仕組みは、カーソルを乗せた画像だけで動かす（何百枚もある一覧を、すぐ出し・すぐ閉じられるように）
+  if (!hovered)
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- ブラウザ内の画像なので next/image は使えない
+      <img alt="" aria-hidden data-drag-original onPointerEnter={() => setHovered(true)} className="absolute inset-0 h-full w-full opacity-0" />
+    );
+  return <HoveredOriginal m={m} multiSelected={multiSelected} />;
+}
+
+function HoveredOriginal({ m, multiSelected }: { m: Media; multiSelected: boolean }) {
+  const src = useOriginalUrl(m);
   return (
     // eslint-disable-next-line @next/next/no-img-element -- ブラウザ内の画像なので next/image は使えない
     <img
@@ -63,7 +73,6 @@ export function DragOriginal({
       alt=""
       aria-hidden
       data-drag-original
-      onPointerEnter={() => setHovered(true)}
       onDragStart={(e) => {
         if (
           startMediaDrag(e, m, e.currentTarget.parentElement) &&

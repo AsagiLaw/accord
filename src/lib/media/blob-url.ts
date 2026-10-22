@@ -8,6 +8,8 @@ import { loadShownBlob, MISSING } from "./remote";
 // 一度作った表示用 URL は使い回す。画像を編集して中身が変わったら refreshBlobUrls で作り直す
 const urls = new Map<string, string>();
 const pending = new Map<string, Promise<void>>();
+/** 取りに行ったが取れなかった画像（R2 にまだ無い・つながらなかった）。取り直し始めたら外す */
+const failed = new Set<string>();
 /** 取れなかった画像を取り直した回数 */
 const retries = new Map<string, number>();
 
@@ -72,12 +74,17 @@ function load(id: string, kind: Kind): Promise<void> {
   const key = `${kind}:${id}`;
   let p = pending.get(key);
   if (!p) {
-    // ブラウザの中に無ければ、その種類だけを R2 から取ってくる（Supabase 版）
-    p = loadShownBlob(id, kind).then((got) => {
+    failed.delete(key);
+    // ブラウザの中に無ければ、その種類だけを R2 から取ってくる（Supabase 版）。
+    // 途中で失敗したときも、取れなかったものとして扱う（読み込み中の印が出たままにならないように）
+    p = loadShownBlob(id, kind).catch(() => undefined).then((got) => {
       const blob = got instanceof Blob ? got : undefined;
       const old = urls.get(key);
       if (blob) urls.set(key, URL.createObjectURL(blob));
-      else urls.delete(key);
+      else {
+        urls.delete(key);
+        failed.add(key);
+      }
       // ほかの人が入れたばかりで、R2 にまだ置き終わっていないことがある。間をあけながら取り直す
       const tries = retries.get(key) ?? 0;
       if (blob) retries.delete(key);
@@ -102,6 +109,7 @@ export function forgetBlobUrls(ids: string[]) {
       urls.delete(key);
       pending.delete(key);
       stale.delete(key);
+      failed.delete(key);
     }
   }
 }
@@ -119,6 +127,11 @@ export function refreshBlobUrls(ids: string[]) {
 }
 
 export function useBlobUrl(id: string | undefined, kind: Kind = "thumb") {
+  return useBlobState(id, kind).url;
+}
+
+/** 表示用の URL と、まだ取りに行っている途中か（取れなかったときは途中ではない。間をあけて取り直す） */
+export function useBlobState(id: string | undefined, kind: Kind = "thumb") {
   const [, rerender] = useReducer((x: number) => x + 1, 0);
   const gen = useSyncExternalStore(subscribe, () => generation, () => 0);
   const key = id ? `${kind}:${id}` : "";
@@ -130,7 +143,8 @@ export function useBlobUrl(id: string | undefined, kind: Kind = "thumb") {
       alive = false;
     };
   }, [id, kind, key, gen]);
-  return key ? urls.get(key) : undefined;
+  const url = key ? urls.get(key) : undefined;
+  return { url, loading: !!key && !url && !failed.has(key) };
 }
 
 // ほかの人が画像を編集して中身が変わったら（rev が上がったら）、表示している所を新しい画像に替える

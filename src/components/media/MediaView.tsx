@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import {
@@ -47,6 +46,7 @@ import { CoverCard } from "./LibraryCard";
 import { ThumbImage } from "./Thumb";
 import { useMediaState } from "./MediaContext";
 import { MediaGrid, isPointerFine, useTileSize } from "./MediaGrid";
+import { MediaLink, useMediaRouter } from "./MediaLink";
 import { MediaSearch } from "./MediaSearch";
 import { PreviewPanel, usePreviewWidth } from "./PreviewPanel";
 import { SortMenu } from "./SortMenu";
@@ -77,7 +77,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
   // 画像とカードの左の四角の大きさ：選んだ大きさを、画面の幅に合わせて少し広げたもの
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
   const cardSize = useTileSize(contentEl, THUMB_SIZES[prefs.level - 1]);
-  const router = useRouter();
+  const router = useMediaRouter();
   const pathname = usePathname();
   const { base } = s;
   const [selectMode, setSelectMode] = useState(false);
@@ -242,9 +242,9 @@ export function MediaView({ view }: { view: MediaViewKind }) {
     return (
       <p className="text-muted">
         ライブラリーが見つかりません。
-        <Link href={base} className="underline">
+        <MediaLink href={base} className="underline">
           メディアのホームへ
-        </Link>
+        </MediaLink>
       </p>
     );
   }
@@ -795,7 +795,7 @@ function MediaHome({
               ] as const
             ).map(([path, name, icon, n]) => (
               <li key={path}>
-                <Link
+                <MediaLink
                   href={`${base}/${path}`}
                   className="flex h-6 items-center gap-2 rounded-[4px] pr-3 pl-[26px] hover:bg-tint"
                 >
@@ -804,7 +804,7 @@ function MediaHome({
                   <span className="w-12 shrink-0 text-right text-muted">
                     {n}枚
                   </span>
-                </Link>
+                </MediaLink>
               </li>
             ))}
           </ul>
@@ -1030,7 +1030,7 @@ const LIST_OPEN_KEY = "irai-note:media-list-open";
  */
 function LibraryList({ parentId }: { parentId: string | null }) {
   const { media, libs, base } = useMediaState();
-  const router = useRouter();
+  const router = useMediaRouter();
   const [openIds, setOpenIds] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem(LIST_OPEN_KEY) ?? "[]");

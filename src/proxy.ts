@@ -28,6 +28,13 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // 画像やスクリプトなどのファイル（ホーム画面のアイコン apple-icon・マニフェストも）には使わない
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|apple-icon|manifest.webmanifest|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico|js)$).*)"],
+  matcher: [
+    {
+      // 画像やスクリプトなどのファイル（ホーム画面のアイコン apple-icon・マニフェストも）には使わない
+      source: "/((?!_next/static|_next/image|favicon.ico|apple-icon|manifest.webmanifest|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico|js)$).*)",
+      // アプリの中の画面の切り替え（と先読み）にも使わない。ログインの確認を待たずに、押したらすぐ移れるように。
+      // ログインの期限は、ページを開き直したときと、ブラウザの側（Supabase のクライアント）で延びる
+      missing: [{ type: "header", key: "rsc" }],
+    },
+  ],
 };

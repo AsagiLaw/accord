@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import type { Media } from "@/lib/local/db";
 import { ThumbImage } from "./Thumb";
+import { MediaLink, useMediaRouter } from "./MediaLink";
 
 /** 表紙に画像3枚を並べたカード（ライブラリー・すべて・お気に入りなど） */
 export function CoverCard({
@@ -29,7 +28,7 @@ export function CoverCard({
   /** ダブルクリックで開く（ライブラリー）。1回のクリックでは選んだ印だけ付ける（Windows のフォルダと同じ） */
   openOnDoubleClick?: boolean;
 }) {
-  const router = useRouter();
+  const router = useMediaRouter();
   const body = (
     <>
       <div
@@ -84,9 +83,9 @@ export function CoverCard({
           {body}
         </div>
       ) : href ? (
-        <Link href={href} className={cls}>
+        <MediaLink href={href} className={cls}>
           {body}
-        </Link>
+        </MediaLink>
       ) : (
         <button type="button" onClick={onClick} className={cls}>
           {body}

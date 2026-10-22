@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Icon, type IconName } from "@/components/Icon";
 import type { Library } from "@/lib/local/db";
@@ -16,6 +15,7 @@ import {
   newLibraryFlow,
   uploadFlow,
 } from "./flows";
+import { MediaLink, useMediaRouter } from "./MediaLink";
 import {
   MenuDivider,
   MenuItem,
@@ -50,7 +50,7 @@ export function MediaNav({
   canEdit: boolean;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
+  const router = useMediaRouter();
   const media = useMedia(boxId) ?? [];
   const libs = useLibraries(boxId) ?? [];
   const [toggled, setToggled] = useState<Record<string, boolean>>({});
@@ -231,13 +231,13 @@ export function MediaNav({
         style={{ paddingLeft: 4 + depth * 14 }}
       >
         <span className="grid w-7 shrink-0 place-items-center">{toggle}</span>
-        <Link
+        <MediaLink
           href={href}
           draggable={false}
           className="min-w-0 flex-1 truncate py-1.5"
         >
           {label}
-        </Link>
+        </MediaLink>
         {extra}
       </div>
     );

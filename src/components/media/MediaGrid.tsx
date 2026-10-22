@@ -1,7 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useLayoutEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import type { Library, Media } from "@/lib/local/db";
 import { renameMedia, setFav } from "@/lib/local/media";
@@ -21,6 +20,7 @@ import {
 import { useMediaPrefs } from "@/lib/media/prefs";
 import { setRepresentative } from "@/lib/local/media";
 import { useMediaState } from "./MediaContext";
+import { useMediaRouter } from "./MediaLink";
 import { libraryPaths } from "./PreviewPanel";
 import { rememberOpenedFrom } from "./Lightbox";
 import { DragOriginal, NameField, Thumb, ThumbImage, UploadGauge } from "./Thumb";
@@ -66,7 +66,7 @@ export function MediaGrid({
     if (name) void renameMedia(id, name);
   };
   const prefs = useMediaPrefs();
-  const router = useRouter();
+  const router = useMediaRouter();
   // リスト表示で開いている子ライブラリー（ホームのライブラリーのリストと同じ覚え方）
   const [openLibs, setOpenLibs] = useState<string[]>(() => {
     try {
@@ -90,6 +90,15 @@ export function MediaGrid({
   };
   const anchor = useRef<string | null>(null);
   const ids = list.map((m) => m.id);
+  // 最初は画面に入るぶんだけ描く（リスト表示は1行 24px、並べる表示は1枚の大きさから数える）
+  const shown = useShownCount(
+    list.length,
+    typeof window === "undefined"
+      ? 60
+      : prefs.imageView === "list"
+        ? Math.ceil(window.innerHeight / 24) + 10
+        : Math.floor((window.innerWidth + GAP) / (size + GAP)) * (Math.ceil(window.innerHeight / (size + GAP)) + 1),
+  );
   const childReps = lib
     ? libs
         .filter((l) => l.parentId === lib.id)
@@ -404,7 +413,7 @@ export function MediaGrid({
           </div>
           {asFolders &&
             childReps.filter((c) => !c.rep).map((c) => folderRow(c.lib))}
-          {list.map((m) => {
+          {list.slice(0, shown).map((m) => {
             const reps = childReps.filter((c) => c.rep === m.id);
             if (asFolders && reps.length)
               return reps.map((c) => folderRow(c.lib));
@@ -426,7 +435,7 @@ export function MediaGrid({
         if (e.target === e.currentTarget && isPointerFine()) setSelected([]);
       }}
     >
-      {list.map((m) => {
+      {list.slice(0, shown).map((m) => {
         const usedBy = folderMark(m);
         return (
           <Thumb
@@ -489,6 +498,22 @@ export function MediaGrid({
 }
 
 const GAP = 10; // 画像の間（gap-2.5）
+
+/**
+ * 最初は画面に入るぶんの画像だけを描き、残りは画面を出したあとで、裏で描く。
+ * 何百枚もある場所でも、押したらすぐ切り替わる（残りを描いている間も操作できる）
+ */
+function useShownCount(total: number, perScreen: number) {
+  const [all, setAll] = useState(false);
+  const rest = !all && total > perScreen;
+  useEffect(() => {
+    if (!rest) return;
+    // 一度画面に出してから残りを描く（裏で少しずつ描くので、その間に画面が出る）
+    const timer = setTimeout(() => startTransition(() => setAll(true)));
+    return () => clearTimeout(timer);
+  }, [rest]);
+  return rest ? perScreen : total;
+}
 
 /**
  * 画像1枚の一辺を、並べる場所の幅に合わせて決める。選んだ大きさで入るだけ並べ、余った幅は少しずつ広げて埋める。

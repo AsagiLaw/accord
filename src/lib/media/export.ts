@@ -4,7 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useState } from "react";
 import { db, type Media } from "@/lib/local/db";
 import { supa } from "@/lib/local/sync";
-import { useBlobUrl } from "./blob-url";
+import { useBlobState } from "./blob-url";
 import { PSD_MIME } from "./psd";
 import { makeZip } from "./zip";
 import { loadBlobRow } from "@/lib/media/remote";
@@ -66,10 +66,19 @@ function useLocalOriginal(m: Media | undefined) {
     const row = await db.mediaBlobs.get(id);
     return !!row && (row.remoteRev === undefined || row.remoteRev === rev);
   }, [id, rev]);
+  // 取りに行き終わった画像（取れなかったときは、ここに入っても ready にならない）
+  const [tried, setTried] = useState<string | null>(null);
   useEffect(() => {
-    if (id && ready === false) void loadBlobRow(id);
+    if (!id || ready !== false) return;
+    let alive = true;
+    void loadBlobRow(id)
+      .catch(() => undefined)
+      .then(() => alive && setTried(`${id}:${rev}`));
+    return () => {
+      alive = false;
+    };
   }, [id, rev, ready]);
-  return ready === true;
+  return { ready: ready === true, loading: !!id && ready !== true && tried !== `${id}:${rev}` };
 }
 
 /**
@@ -77,17 +86,22 @@ function useLocalOriginal(m: Media | undefined) {
  * この名前のファイルになるようにする。その仕組みが使えないときは、ブラウザ内の URL
  */
 export function useOriginalUrl(m: Media | undefined) {
+  return useOriginalState(m).url;
+}
+
+/** 元の画像の URL と、まだ取りに行っている途中か（拡大表示で、読み込み中のくるくるを出すため） */
+export function useOriginalState(m: Media | undefined): { url: string | undefined; loading: boolean } {
   const named = useFileServer();
-  const blob = useBlobUrl(m && !named ? m.id : undefined, "original");
+  const blob = useBlobState(m && !named ? m.id : undefined, "original");
   const local = useLocalOriginal(named ? m : undefined);
-  if (!m) return undefined;
+  if (!m) return { url: undefined, loading: false };
   // 「/media-file/」はブラウザの中の画像を読んで返すので、ほかの人の画像は R2 から取ってくるまで待つ（Supabase 版）
-  if (named && !local) return undefined;
+  if (named && !local.ready) return { url: undefined, loading: local.loading };
   // 編集して中身が変わったら、別の URL にする（ブラウザが前の画像を使い回さないように）。ファイル名は最後の部分なので変わらない
   const rev = m.rev ? `${m.rev}/` : "";
   // PSD は表示用の PNG を出すので、名前も .png にする（ドラッグして渡すのも PNG になる）
   const name = m.mime === PSD_MIME ? safeFileName(m.name) + ".png" : exportFileName(m);
-  return named ? `/media-file/${m.id}/${rev}${encodeURIComponent(name)}` : blob;
+  return named ? { url: `/media-file/${m.id}/${rev}${encodeURIComponent(name)}`, loading: false } : blob;
 }
 
 /**
