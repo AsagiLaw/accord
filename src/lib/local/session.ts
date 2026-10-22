@@ -148,9 +148,10 @@ export function useCurrentUserId(): string | null | undefined {
 /** 今ログインしている人のプロフィール。読み込み中は undefined、ログインしていなければ null */
 export function useCurrentUser() {
   const id = useCurrentUserId();
-  const found = useLiveQuery(async () => (id ? ((await db.profiles.get(id)) ?? null) : null), [id]);
+  // ID が替わっても、新しい結果が届くまでは前の結果（ID が分かる前の null など）が返るので、どの人の結果かを付けておく
+  const found = useLiveQuery(async () => (id ? { id, profile: (await db.profiles.get(id)) ?? null } : null), [id]);
   if (id === undefined) return undefined;
   if (id === null) return null;
-  // 前の人の結果が残っている間は、読み込み中として扱う
-  return found && found.id !== id ? undefined : found;
+  // 今の人の結果が届くまでは、読み込み中として扱う
+  return found?.id === id ? found.profile : undefined;
 }
