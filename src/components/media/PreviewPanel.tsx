@@ -6,7 +6,7 @@ import { db, type Library, type Media } from "@/lib/local/db";
 import { renameMedia, setMadeAt } from "@/lib/local/media";
 import { splitDate } from "@/lib/media/autoname";
 import { aspectRatio, formatSize, readImageMeta, type ImageMeta } from "@/lib/media/image";
-import { chain, descendants, PREVIEW_FIELDS, shownName, typeName, type PreviewField } from "@/lib/media/logic";
+import { chain, descendants, editableName, PREVIEW_FIELDS, shownName, typeName, type PreviewField } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
 import { useMediaState } from "./MediaContext";
 import { DragOriginal, ThumbImage } from "./Thumb";
@@ -90,6 +90,46 @@ function TitleInput({ m }: { m: Media }) {
       onKeyDown={commitKeys(() => setDraft(m.title ?? ""))}
       className={INLINE_INPUT}
     />
+  );
+}
+
+/**
+ * 詳細の一番上の名前（全部の名前）。上部バーの名前と同じく、ダブルクリックでその場で入力欄になる
+ * （Enter か外を押すと保存、Esc でやめる。空にしたら元のまま）。自動で名前を付けた画像は、タイトルだけを書き換える
+ */
+function NameInput({ m, showExt }: { m: Media; showExt: boolean }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const editing = draft !== null;
+  // 入力欄になったら、そこに入力の場所を移して全部選ぶ（そのまま打てば書き換わる）
+  useEffect(() => {
+    if (!editing) return;
+    input.current?.focus();
+    input.current?.select();
+  }, [editing]);
+  const save = () => {
+    const v = draft?.trim() ?? "";
+    setDraft(null);
+    if (v && v !== editableName(m)) void renameMedia(m.id, v);
+  };
+  return editing ? (
+    <input
+      ref={input}
+      value={draft}
+      aria-label={m.title === undefined ? "名前" : "タイトル"}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={save}
+      onKeyDown={commitKeys(() => setDraft(null))}
+      className="mb-2 -ml-1 w-[calc(100%+0.25rem)] min-w-0 rounded-[6px] border border-accent bg-card px-1 font-bold outline-none"
+    />
+  ) : (
+    <p
+      title="ダブルクリックで名前を変える"
+      onDoubleClick={() => setDraft(editableName(m))}
+      className="mb-2 -ml-1 cursor-default rounded-[6px] border border-transparent px-1 font-bold break-all hover:bg-tint"
+    >
+      {shownName(m, showExt)}
+    </p>
   );
 }
 
@@ -257,7 +297,7 @@ function PreviewBody() {
       {m && (
         // 横にはスクロールさせない（名前の文字を選んでドラッグしたときに、横や縦のスクロールバーが出ないように）
         <div data-name="プレビューの詳細" className="min-h-0 flex-1 basis-0 overflow-x-hidden overflow-y-auto border-t border-line p-4 pt-3">
-          <p className="mb-2 font-bold break-all">{shownName(m, showExt)}</p>
+          {canEdit ? <NameInput key={m.id} m={m} showExt={showExt} /> : <p className="mb-2 font-bold break-all">{shownName(m, showExt)}</p>}
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
             {rows.map(([k, v]) => (
               <div key={k} className="contents">
