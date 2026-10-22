@@ -18,7 +18,7 @@ import { sb, supa } from "./sync";
 // 表を足すときは、TABLES・scopeOf・belongs と、synced_rows の tbl の決まり（SQL）に足す
 
 const TABLES = ["categories", "chats", "messages", "chatReads", "imageUsers", "databases", "dbPages", "dbViews", "events", "todos", "notes", "windows", "media", "libraries"] as const;
-type Tbl = (typeof TABLES)[number];
+export type Tbl = (typeof TABLES)[number];
 
 type Scope = { room_id: string; dm: null; box_id: null } | { room_id: null; dm: string[]; box_id: null } | { room_id: null; dm: null; box_id: string };
 type ServerRow = { tbl: Tbl; id: string; room_id: string | null; dm: string[] | null; box_id: string | null; data: Record<string, unknown>; deleted: boolean; updated_at: string };
@@ -107,6 +107,62 @@ function settle(k: string) {
   if (outbox.has(k) || !(k in unsent)) return;
   delete unsent[k];
   saveUnsent();
+  notifySend();
+}
+
+// ---- 送っている途中か（自分の発言に「送信中」「送れませんでした」を出す） ----
+
+/** 決まりで断られた行（「表:ID」）。送り直しても届かないので、画面で知らせる。開き直しても出せるよう、ブラウザにも覚えておく */
+let failed = new Set<string>();
+/** つながらなくて、しばらくしてから送り直す行 */
+const offline = new Set<string>();
+const failedKey = () => `accord:failed:${me}`;
+
+function loadFailed() {
+  try {
+    failed = new Set(JSON.parse(localStorage.getItem(failedKey()) ?? "[]") as string[]);
+  } catch {
+    failed = new Set();
+  }
+}
+function setFailed(k: string, on: boolean) {
+  if (failed.has(k) === on) return;
+  if (on) failed.add(k);
+  else failed.delete(k);
+  try {
+    if (failed.size) localStorage.setItem(failedKey(), JSON.stringify([...failed]));
+    else localStorage.removeItem(failedKey());
+  } catch {
+    // 覚えられなくても、開いている間は出せる
+  }
+}
+
+const sendListeners = new Set<() => void>();
+function notifySend() {
+  sendListeners.forEach((f) => f());
+}
+export function subscribeSendState(f: () => void) {
+  sendListeners.add(f);
+  return () => void sendListeners.delete(f);
+}
+
+/** 書いた行が Supabase に届いたか。sending：送っている途中／offline：つながらないので待っている／failed：断られた／undefined：届いた（Supabase 版でないときも） */
+export type SendState = "sending" | "offline" | "failed" | undefined;
+export function sendStateOf(tbl: Tbl, id: string): SendState {
+  const k = `${tbl}:${id}`;
+  if (failed.has(k)) return "failed";
+  if (offline.has(k)) return "offline";
+  return k in unsent ? "sending" : undefined;
+}
+
+/** 断られた行を、今のブラウザの中の形で送り直す */
+export async function resendRows(rows: { tbl: Tbl; id: string }[]) {
+  for (const { tbl, id } of rows) {
+    const row = await tableOf(tbl).get(keyOf(tbl, id) as never);
+    if (row) enqueue(tbl, id, row);
+    else setFailed(`${tbl}:${id}`, false);
+  }
+  notifySend();
 }
 
 /** 前に開いていたときに送りそこねた行を、今のブラウザの中の形で送り直す */
@@ -131,10 +187,13 @@ async function resendUnsent() {
 function enqueue(tbl: Tbl, id: string, row: Row | null) {
   const k = `${tbl}:${id}`;
   outbox.set(k, { tbl, id, row });
+  // 書き直した行は、また送ってみる
+  setFailed(k, false);
   if (unsent[k] !== !row) {
     unsent[k] = !row;
     saveUnsent();
   }
+  notifySend();
   if (flushTimer) clearTimeout(flushTimer);
   flushTimer = setTimeout(() => void flush(), 200);
 }
@@ -149,6 +208,7 @@ function pushMine(rows: { tbl: Tbl; data: Row }[]) {
 }
 
 function retryLater(tbl: Tbl, id: string, row: Row) {
+  offline.add(`${tbl}:${id}`);
   outbox.set(`${tbl}:${id}`, { tbl, id, row });
   if (!flushTimer) flushTimer = setTimeout(() => void flush(), 10_000);
 }
@@ -188,7 +248,10 @@ async function flush() {
         const batch = rows.slice(i, i + 200);
         const { error } = await sb().from("synced_rows").upsert(batch, { onConflict: "tbl,id" });
         if (!error) {
-          for (const row of batch) settle(`${row.tbl}:${row.id}`);
+          for (const row of batch) {
+            offline.delete(`${row.tbl}:${row.id}`);
+            settle(`${row.tbl}:${row.id}`);
+          }
           pushMine(batch);
           continue;
         }
@@ -198,10 +261,13 @@ async function flush() {
           const one = await sb().from("synced_rows").upsert(row, { onConflict: "tbl,id" });
           if (one.error) {
             console.warn("Supabase に送れませんでした", row.tbl, row.id, one.error.message);
-            // つながらなかった（エラーの番号が無い）ときは、しばらくしてから送り直す。決まりで断られたものは送り直さない
+            // つながらなかった（エラーの番号が無い）ときは、しばらくしてから送り直す。決まりで断られたものは送り直さず、画面で知らせる
             if (!one.error.code && !outbox.has(k)) retryLater(row.tbl, row.id, row.data);
+            else if (one.error.code && !outbox.has(k)) setFailed(k, true);
+          } else {
+            offline.delete(k);
+            pushMine([row]);
           }
-          else pushMine([row]);
           settle(k);
         }
       }
@@ -419,9 +485,16 @@ export async function startRowSync(userId: string | null) {
   if (!supa || userId === me) return;
   if (me) await flush();
   me = userId;
-  // 送りそこねた行の覚えも、その人のものに替える
-  if (userId) loadUnsent();
-  else unsent = {};
+  // 送りそこねた・断られた行の覚えも、その人のものに替える
+  offline.clear();
+  if (userId) {
+    loadUnsent();
+    loadFailed();
+  } else {
+    unsent = {};
+    failed = new Set();
+  }
+  notifySend();
   if (channel) void sb().removeChannel(channel);
   channel = null;
   if (timer) clearInterval(timer);

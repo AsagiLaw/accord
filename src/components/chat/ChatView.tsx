@@ -17,6 +17,8 @@ import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { isImageFile } from "@/lib/media/image";
 import { useAllProfiles, type MemberWithProfile } from "@/lib/local/rooms";
 import { InviteCard } from "./InviteCard";
+import { SendStatus, useSendState } from "./SendStatus";
+import { UploadGauge } from "@/components/media/Thumb";
 import { copyText, LongText } from "./LongText";
 import { jumpToMessage, useMessageWindow } from "./useMessageWindow";
 import { useAutoGrow } from "./useAutoGrow";
@@ -286,6 +288,9 @@ function MessageItem({
   const [draft, setDraft] = useState(m.text);
   const images = m.mediaIds.filter((id) => media.has(id));
   const missing = m.mediaIds.length - images.length;
+  // 自分の発言が届くまでは薄く出す（Discord と同じ）
+  const send = useSendState(m, m.authorId === meId);
+  const pending = send === "sending" || send === "offline";
 
   const save = async () => {
     if (!draft.trim() && !m.mediaIds.length) return;
@@ -341,19 +346,20 @@ function MessageItem({
         ) : null}
         <div className="flex max-w-full min-w-0 items-end gap-1">
           {mine && <Actions canEdit={canEdit} onReply={onReply} onEdit={m.inviteId ? undefined : () => setEditing(true)} invite={!!m.inviteId} id={m.id} text={m.text} />}
-          {readMark}
+          {!send && readMark}
           {/* ルームへの招待は、吹き出しの代わりにカードで出す */}
           {m.inviteId ? (
             <InviteCard inviteId={m.inviteId} meId={meId} mine={mine} />
           ) : (
             // 画像は吹き出しに入れず、そのまま並べる（LINE と同じ）。文字や編集中の欄があるときだけ、その下に吹き出しを出す
             // 狭いブロックの中では、画像も吹き出しも幅に合わせて縮む
-            <div className={`flex min-w-0 flex-col gap-1 ${mine ? "items-end" : "items-start"}`}>
+            <div className={`flex min-w-0 flex-col gap-1 transition-opacity ${mine ? "items-end" : "items-start"} ${pending ? "opacity-60" : ""}`}>
               {images.length > 0 && (
                 <div className={`grid max-w-full gap-1 ${images.length > 1 ? "w-[324px] grid-cols-2 sm:w-[388px]" : "w-40 sm:w-48"}`}>
                   {images.map((id, i) => (
-                    <button key={id} onClick={() => onOpen(i)} className="block aspect-square w-full overflow-hidden rounded-[10px]" aria-label={`画像を開く：${media.get(id)?.name}`}>
+                    <button key={id} onClick={() => onOpen(i)} className="relative block aspect-square w-full overflow-hidden rounded-[10px]" aria-label={`画像を開く：${media.get(id)?.name}`}>
                       <ThumbImage id={id} alt={media.get(id)?.name ?? ""} />
+                      <UploadGauge id={id} className="absolute right-2 bottom-2 left-2 h-1.5 rounded-full bg-black/50 shadow-[0_0_4px_#0008]" />
                     </button>
                   ))}
                 </div>
@@ -405,6 +411,7 @@ function MessageItem({
           )}
           {!mine && <Actions canEdit={canEdit} onReply={onReply} onEdit={m.inviteId ? undefined : () => setEditing(true)} invite={!!m.inviteId} id={m.id} text={m.text} />}
         </div>
+        <SendStatus m={m} state={send} />
       </div>
     </div>
   );

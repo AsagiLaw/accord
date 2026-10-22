@@ -13,6 +13,8 @@ import { deleteImageUser, deleteMessage, editMessage, changeSpeaker, saveImageUs
 import type { Chat, ImageUser, Media, Message, Profile } from "@/lib/local/db";
 import { useMediaByIds } from "@/lib/local/media";
 import { copyText, LongText } from "./LongText";
+import { SendStatus, useSendState } from "./SendStatus";
+import { UploadGauge } from "@/components/media/Thumb";
 import { NewBelowButton, UnreadLine } from "./ChatView";
 import { useMessageWindow } from "./useMessageWindow";
 import { useAutoGrow } from "./useAutoGrow";
@@ -140,6 +142,7 @@ export function ImageChatView({
               grouped={grouped}
               media={byId}
               canEdit={!readOnlyNotice}
+              mine={m.authorId === me.id}
               onOpen={(idx) => {
                 const items = m.mediaIds.map((id) => byId.get(id)).filter((x): x is Media => !!x);
                 if (items.length) setViewer({ items, start: idx });
@@ -169,6 +172,7 @@ function ImageMessage({
   grouped,
   media,
   canEdit,
+  mine,
   onOpen,
 }: {
   m: Message;
@@ -178,6 +182,8 @@ function ImageMessage({
   grouped: boolean;
   media: Map<string, Media>;
   canEdit: boolean;
+  /** 自分が書いた発言（届くまで「送信中…」を出す） */
+  mine: boolean;
   onOpen: (i: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -185,6 +191,9 @@ function ImageMessage({
   const menu = usePopover();
   const images = m.mediaIds.filter((id) => media.has(id));
   const name = user?.name ?? "削除されたユーザー";
+  // 自分の発言が届くまでは薄く出す（Discord と同じ）
+  const send = useSendState(m, mine);
+  const dim = send === "sending" || send === "offline" ? " opacity-60" : "";
 
   return (
     <div data-name={`発言（${name}）`} className={`group flex items-end gap-2 ${right ? "flex-row-reverse" : ""} ${grouped ? "-mt-1" : ""}`}>
@@ -195,17 +204,18 @@ function ImageMessage({
         {!grouped && <span className="mb-0.5 max-w-full truncate px-1 text-xs font-bold text-muted">{name}</span>}
         {/* 画像は吹き出しに入れず、そのまま並べる（LINE と同じ）。文字や編集中の欄があるときだけ、その下に吹き出しを出す。狭いブロックでは幅に合わせて縮む */}
         {images.length > 0 && (
-          <div className={`grid max-w-full gap-1 ${images.length > 1 ? "w-[324px] grid-cols-2" : "w-40"}`}>
+          <div className={`grid max-w-full gap-1 transition-opacity ${images.length > 1 ? "w-[324px] grid-cols-2" : "w-40"}${dim}`}>
             {images.map((id, i) => (
-              <button key={id} onClick={() => onOpen(i)} className="block aspect-square w-full overflow-hidden rounded-[12px]" aria-label="画像を開く">
+              <button key={id} onClick={() => onOpen(i)} className="relative block aspect-square w-full overflow-hidden rounded-[12px]" aria-label="画像を開く">
                 <ThumbImage id={id} alt="" />
+                <UploadGauge id={id} className="absolute right-2 bottom-2 left-2 h-1.5 rounded-full bg-black/50 shadow-[0_0_4px_#0008]" />
               </button>
             ))}
           </div>
         )}
         {(editing || !!m.text) && (
           <div
-            className={`${images.length > 0 ? "mt-1 " : ""}max-w-full rounded-[18px] px-3 py-2 ${right ? "rounded-br-[6px] bg-accent text-accent-ink" : "rounded-bl-[6px] border border-line bg-card"}`}
+            className={`${images.length > 0 ? "mt-1 " : ""}max-w-full rounded-[18px] px-3 py-2 transition-opacity ${right ? "rounded-br-[6px] bg-accent text-accent-ink" : "rounded-bl-[6px] border border-line bg-card"}${dim}`}
           >
             {editing ? (
               <div className="space-y-1">
@@ -237,6 +247,7 @@ function ImageMessage({
             )}
           </div>
         )}
+        <SendStatus m={m} state={send} />
       </div>
       {(canEdit || !!m.text) && (
         <button

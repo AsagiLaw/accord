@@ -165,8 +165,23 @@ export function useUploadSummary() {
   );
 }
 
+/** 10回試しても置けなかった画像（次に開いたときか、「再送信」でまた置く） */
+const gaveUp = new Set<string>();
+
+/** その画像を R2 に置いているか。uploading：置いている途中・順番待ち／failed：あきらめた／undefined：置き終わった（このブラウザで置くものでないときも） */
+export function uploadStateOf(id: string): "uploading" | "failed" | undefined {
+  return items.has(id) ? "uploading" : gaveUp.has(id) ? "failed" : undefined;
+}
+export const subscribeUploads = subscribeProgress;
+
+/** あきらめた画像を、また置いてみる */
+export function retryUpload(id: string) {
+  if (gaveUp.has(id)) queueUpload(id);
+}
+
 function queueUpload(id: string, tries = 0) {
   if (!supa || !me) return;
+  gaveUp.delete(id);
   waiting.set(id, tries);
   track(id);
   if (!timer) timer = setTimeout(() => void flushUploads(), tries ? Math.min(30_000, 3000 * tries) : 1500);
@@ -181,7 +196,10 @@ async function flushUploads() {
     // 画像の情報がまだ Supabase に届いていない・つながらなかったときは、しばらくして置き直す（10回まで）
     if (!ok && tries < 10) queueUpload(id, tries + 1);
     // 置けた・あきらめたときは、ゲージから外す
-    else if (!waiting.has(id)) untrack(id, ok);
+    else if (!waiting.has(id)) {
+      if (!ok) gaveUp.add(id);
+      untrack(id, ok);
+    }
   }
 }
 
