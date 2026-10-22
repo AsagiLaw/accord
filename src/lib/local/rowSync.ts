@@ -76,6 +76,31 @@ const outbox = new Map<string, { tbl: Tbl; id: string; row: Row | null }>();
 const sending = new Set<string>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
+/**
+ * 行ごとの、知っているいちばん新しい形の時刻（送って Supabase に届いた形・届いて書いた形）。
+ * Realtime の知らせは遅れて届くことがあり、名前を変えた直後に、その前の整理などの古い形が届くと名前が戻ってしまうので、これより古い形は書かない
+ */
+const known = new Map<string, number>();
+
+/** 時刻をマイクロ秒の数にする（Realtime と読み直しで書き方が違うことがあるので、文字のままでは比べない）。読めなければ null */
+function microsOf(at: string | undefined): number | null {
+  const m = at?.match(/^(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d(?::?\d\d)?)?$/);
+  if (!m) return null;
+  const zone = !m[4] || m[4] === "Z" ? "Z" : m[4].length === 3 ? `${m[4]}:00` : m[4].replace(/^([+-]\d\d)(\d\d)$/, "$1:$2");
+  const ms = Date.parse(`${m[1]}T${m[2]}${zone}`);
+  if (Number.isNaN(ms)) return null;
+  return ms * 1000 + Number((m[3] ?? "").padEnd(6, "0").slice(0, 6));
+}
+
+function remember(rows: { tbl: Tbl; id: string; updated_at: string }[] | null) {
+  for (const r of rows ?? []) {
+    const at = microsOf(r.updated_at);
+    if (at === null) continue;
+    const k = `${r.tbl}:${r.id}`;
+    if ((known.get(k) ?? -1) < at) known.set(k, at);
+  }
+}
+
 /** Supabase から届いた行を書いている途中の印（その書き込みは送り返さない） */
 const REMOTE = Symbol("remote");
 const isRemote = (trans: Transaction) => !!(trans as unknown as Record<symbol, boolean>)[REMOTE];
@@ -224,7 +249,8 @@ async function flush() {
     const gone = new Map<Tbl, string[]>();
     for (const [, it] of items) if (!it.row) gone.set(it.tbl, [...(gone.get(it.tbl) ?? []), it.id]);
     for (const [tbl, ids] of gone) {
-      const { error } = await sb().from("synced_rows").update({ deleted: true }).eq("tbl", tbl).in("id", ids);
+      const { data, error } = await sb().from("synced_rows").update({ deleted: true }).eq("tbl", tbl).in("id", ids).select("tbl,id,updated_at").returns<ServerRow[]>();
+      remember(data);
       if (error) console.warn("Supabase で消せませんでした", tbl, error.message);
       // 完全に削除した画像は、R2 のファイルも消す（消したことが Supabase に伝わってから。入れた本人の画像だけが消える）
       else if (tbl === "media") void removeDeletedFiles(ids);
@@ -246,7 +272,8 @@ async function flush() {
     for (const rows of groups.values()) {
       for (let i = 0; i < rows.length; i += 200) {
         const batch = rows.slice(i, i + 200);
-        const { error } = await sb().from("synced_rows").upsert(batch, { onConflict: "tbl,id" });
+        const { data, error } = await sb().from("synced_rows").upsert(batch, { onConflict: "tbl,id" }).select("tbl,id,updated_at").returns<ServerRow[]>();
+        remember(data);
         if (!error) {
           for (const row of batch) {
             offline.delete(`${row.tbl}:${row.id}`);
@@ -258,7 +285,8 @@ async function flush() {
         // まとめて送れなかったら1行ずつ送り直す（送れない1行のせいで、ほかの行まで止めないため）
         for (const row of batch) {
           const k = `${row.tbl}:${row.id}`;
-          const one = await sb().from("synced_rows").upsert(row, { onConflict: "tbl,id" });
+          const one = await sb().from("synced_rows").upsert(row, { onConflict: "tbl,id" }).select("tbl,id,updated_at").returns<ServerRow[]>();
+          remember(one.data);
           if (one.error) {
             console.warn("Supabase に送れませんでした", row.tbl, row.id, one.error.message);
             // つながらなかった（エラーの番号が無い）ときは、しばらくしてから送り直す。決まりで断られたものは送り直さず、画面で知らせる
@@ -354,7 +382,11 @@ async function belongs(r: ServerRow): Promise<boolean> {
 async function applyRows(rows: ServerRow[]) {
   const usable: ServerRow[] = [];
   for (const r of rows) {
-    if (!(TABLES as readonly string[]).includes(r.tbl) || outbox.has(`${r.tbl}:${r.id}`) || sending.has(`${r.tbl}:${r.id}`)) continue;
+    const k = `${r.tbl}:${r.id}`;
+    if (!(TABLES as readonly string[]).includes(r.tbl) || outbox.has(k) || sending.has(k)) continue;
+    // 知っている形より古い（遅れて届いた知らせ）。updated_at の無い行（引いた画像の情報など）は書く
+    const at = microsOf(r.updated_at);
+    if (at !== null && at < (known.get(k) ?? -1)) continue;
     if (await belongs(r)) usable.push(r);
     else console.warn("置き場所と合わない行を書きませんでした", r.tbl, r.id);
   }
@@ -367,6 +399,7 @@ async function applyRows(rows: ServerRow[]) {
       else await table.put(r.data);
     }
   });
+  remember(usable.filter((r) => r.updated_at));
 }
 
 // ---- 読み直し ----
@@ -374,12 +407,15 @@ async function applyRows(rows: ServerRow[]) {
 let me: string | null = null;
 /** どこまで読んだか（ルームの ID か "dm" → いちばん新しい行の時刻） */
 let cursors: Record<string, string> = {};
-// v2：読み直しが同じ時刻の行の500件で止まっていた（2026-10-21 に直した）。それまでの印では取りこぼした行があるので、一度だけ最初から読み直す
-const cursorKey = () => `accord:rows:v2:${me}`;
+// v2：読み直しが同じ時刻の行の500件で止まっていた（2026-10-21 に直した）。
+// v3：Realtime で届いた行の時刻まで読んだことにしていたので、届かなかった行（まとめて整理した画像など）を読み直さなかった（2026-10-22 に直した）。
+// それまでの印では取りこぼした行があるので、一度だけ最初から読み直す
+const cursorKey = () => `accord:rows:v3:${me}`;
 
 function loadCursors() {
   try {
     localStorage.removeItem(`accord:rows:${me}`);
+    localStorage.removeItem(`accord:rows:v2:${me}`);
     localStorage.removeItem("accord:rows:null");
     cursors = JSON.parse(localStorage.getItem(cursorKey()) ?? "{}") ?? {};
   } catch {
@@ -446,16 +482,16 @@ async function pullScope(scope: string) {
 
 let pulling: Promise<void> | null = null;
 
-/** 参加しているルームと DM の、前に読んだあとに変わった行を読む。onlyNew：まだ一度も読んでいないルームだけ */
-export function pullRows(onlyNew = false): Promise<void> {
+/** 参加しているルームと DM の、前に読んだあとに変わった行を読む。onlyNew：まだ一度も読んでいないルームだけ。only：この置き場所だけ */
+export function pullRows(onlyNew = false, only?: string[]): Promise<void> {
   if (!supa || !me) return Promise.resolve();
-  if (pulling) return pulling.then(() => pullRows(onlyNew));
+  if (pulling) return pulling.then(() => pullRows(onlyNew, only));
   pulling = (async () => {
     try {
       const rooms = (await db.rooms.toCollection().primaryKeys()) as string[];
       const boxes = ((await db.mediaBoxes.toCollection().primaryKeys()) as string[]).map((id) => `box:${id}`);
       const all = ["dm", ...rooms, ...boxes];
-      const scopes = all.filter((s) => !onlyNew || !cursors[s]);
+      const scopes = all.filter((s) => (!onlyNew || !cursors[s]) && (!only || only.includes(s)));
       // 抜けた・消えたルームとボックスは、どこまで読んだかを忘れる（また入ったら最初から読む）
       for (const s of Object.keys(cursors)) if (!all.includes(s)) delete cursors[s];
       for (const s of scopes) await pullScope(s);
@@ -469,6 +505,24 @@ export function pullRows(onlyNew = false): Promise<void> {
 
 let channel: RealtimeChannel | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Realtime で行が届いた置き場所を、少しあとに読み直す。
+ * Realtime は、まとめて書かれた行（何百枚もの整理など）の知らせを落とすことがあるので、届いた行の時刻まで読んだことにはしない。
+ * どこまで読んだかは、読み直しで順番に読んだ所までにする（落ちた行も、ここで読む）
+ */
+const touched = new Set<string>();
+let touchTimer: ReturnType<typeof setTimeout> | null = null;
+function pullSoon(scope: string) {
+  touched.add(scope);
+  if (touchTimer) clearTimeout(touchTimer);
+  touchTimer = setTimeout(() => {
+    touchTimer = null;
+    const only = [...touched];
+    touched.clear();
+    void pullRows(false, only);
+  }, 2000);
+}
 
 const onVisible = () => {
   if (document.visibilityState === "visible") void pullRows();
@@ -487,6 +541,7 @@ export async function startRowSync(userId: string | null) {
   me = userId;
   // 送りそこねた・断られた行の覚えも、その人のものに替える
   offline.clear();
+  known.clear();
   if (userId) {
     loadUnsent();
     loadFailed();
@@ -515,10 +570,7 @@ export async function startRowSync(userId: string | null) {
     .on("postgres_changes", { event: "*", schema: "public", table: "synced_rows" }, (payload) => {
       const row = payload.new as ServerRow | undefined;
       if (!row?.tbl) return;
-      void applyRows([row]).then(() => {
-        advance(scopeKey(row), row.updated_at);
-        saveCursors();
-      });
+      void applyRows([row]).then(() => pullSoon(scopeKey(row)));
     })
     .subscribe((status) => {
       // つながり直したら、切れていた間の分を読む
