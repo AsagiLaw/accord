@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import { ChatImagesButton } from "@/components/chat/ChatImages";
+import { ChatExpandButton, useChatExpand } from "@/components/chat/ChatExpand";
 import { ChatNotifyButton } from "@/components/chat/ChatNotify";
 import { ChatSearchButton } from "@/components/chat/ChatSearch";
 import { ChatView } from "@/components/chat/ChatView";
@@ -542,11 +543,15 @@ export function DbChatBlock({ kind, propId, onChange, fill }: { kind: "normal" |
   // そのページのチャット（送られた画像のボタンに使う）
   const chatValue = page && prop ? page.values[prop.id] : undefined;
   const chatId = typeof chatValue === "string" ? chatValue : "";
+  const { ref: bigRef, expanded: big, style: bigStyle, toggle: toggleBig } = useChatExpand();
 
   return (
     <div
-      className={`w-full overflow-hidden rounded-[14px] border border-line bg-card ${fill ? "flex h-full flex-col" : ""}`}
+      ref={bigRef}
+      style={bigStyle}
+      className={`w-full overflow-hidden border-line bg-card ${big ? "flex flex-col border-l" : `rounded-[14px] border ${fill ? "flex h-full flex-col" : ""}`}`}
       data-fill={fill ? "" : undefined}
+      data-chat-expanded={big ? "" : undefined}
       contentEditable={false}
       data-name={`${base}ブロック（データベースの項目）`}
     >
@@ -568,6 +573,7 @@ export function DbChatBlock({ kind, propId, onChange, fill }: { kind: "normal" |
           {chatId && <ChatSearchButton chatId={chatId} roomId={ctx.roomId} compact />}
           {chatId && <ChatImagesButton chatId={chatId} roomId={ctx.roomId} compact />}
           {chatId && <ChatNotifyButton chatId={chatId} compact />}
+          {chatId && <ChatExpandButton expanded={big} onClick={toggleBig} />}
           {!ctx.locked && database && (
             <SettingsButton label={`${label}の設定`}>
               <DbChatMenu
@@ -584,7 +590,7 @@ export function DbChatBlock({ kind, propId, onChange, fill }: { kind: "normal" |
           )}
         </span>
       </div>
-      <div className={fill ? "min-h-0 flex-1 p-3" : "h-[420px] p-3"}>
+      <div className={fill || big ? "min-h-0 flex-1 p-3" : "h-[420px] p-3"}>
         {page && database && prop ? (
           <PropChatView key={prop.id} database={database} page={page} prop={prop} />
         ) : (

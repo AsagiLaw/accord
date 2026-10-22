@@ -109,6 +109,9 @@ const PATHS = {
   formula: "M18 4H6v2l6.5 6L6 18v2h12v-3h-7l5-5-5-5h7z",
   // ゴミ箱から戻す（矢印つきの箱）
   trashRestore: "M19 4h-3.5l-1-1h-5l-1 1H5v2h14zM6 7v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7zm8 7v4h-4v-4H8l4-4 4 4z",
+  // 大きく表示（四隅が外向き）と、元の大きさに戻す（四隅が内向き）
+  fullscreen: "M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z",
+  fullscreenExit: "M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z",
 } as const;
 
 export type IconName = keyof typeof PATHS;

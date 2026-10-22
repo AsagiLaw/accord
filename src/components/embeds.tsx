@@ -4,6 +4,7 @@ import Link from "next/link";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { CalendarBlockView } from "@/components/calendar/CalendarBlock";
 import { ChatImagesButton } from "@/components/chat/ChatImages";
+import { ChatExpandButton, useChatExpand } from "@/components/chat/ChatExpand";
 import { ChatNotifyButton } from "@/components/chat/ChatNotify";
 import { ChatSearchButton } from "@/components/chat/ChatSearch";
 import { ChatView } from "@/components/chat/ChatView";
@@ -230,11 +231,15 @@ export function ChatBlockView({
   // 依頼者（ページの名前）と参加者（書き込める人、選んでいなければルームの全員）を、最初から話す人に入れる
   const fixedUsers: ImageUser[] = kind === "image" && seed === "page" ? seedUsers(roomId, page, members, allowed) : [];
   const label = kind === "image" ? "イメージチャットの設定" : "チャットの設定";
+  const { ref: bigRef, expanded: big, style: bigStyle, toggle: toggleBig } = useChatExpand();
 
   return (
     <div
-      className={`w-full overflow-hidden rounded-[14px] border border-line bg-card ${fill ? "flex h-full flex-col" : ""}`}
+      ref={bigRef}
+      style={bigStyle}
+      className={`w-full overflow-hidden border-line bg-card ${big ? "flex flex-col border-l" : `rounded-[14px] border ${fill ? "flex h-full flex-col" : ""}`}`}
       data-fill={fill ? "" : undefined}
+      data-chat-expanded={big ? "" : undefined}
       contentEditable={false}
       data-name={kind === "image" ? "イメージチャットブロック" : "チャットブロック"}
     >
@@ -257,6 +262,7 @@ export function ChatBlockView({
           {chat && <ChatSearchButton chatId={chat.id} roomId={roomId} compact />}
           {chat && <ChatImagesButton chatId={chat.id} roomId={roomId} compact />}
           {chat && <ChatNotifyButton chatId={chat.id} compact />}
+          {chat && <ChatExpandButton expanded={big} onClick={toggleBig} />}
           {!locked && (
             <SettingsButton label={label}>
               <ChatMenu title={label} kind={kind} chat={chat} seed={seed} onSeed={onSeed} />
@@ -264,7 +270,7 @@ export function ChatBlockView({
           )}
         </span>
       </div>
-      <div className={fill ? "min-h-0 flex-1 p-3" : "h-[420px] p-3"}>
+      <div className={fill || big ? "min-h-0 flex-1 p-3" : "h-[420px] p-3"}>
         {!chat ? (
           <p className="text-sm text-muted">{template ? "テンプレートを使う先（ページ・ウィンドウ・ノート）ごとに、ここにチャットができます" : "準備中…"}</p>
         ) : kind === "image" ? (

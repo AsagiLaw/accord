@@ -424,10 +424,10 @@ body {
   .col-tabs + .bn-block-column-list > .col-tab-off { display: none !important; }
   /* カード（チャット・ビューなど）は中に自分の余白（12px）を持つので、列をその分だけ左右に広げて、中身の左端を見出しとそろえる */
   .col-tabs + .bn-block-column-list > .bn-block-column { padding: 0 !important; margin-inline: -12px; overflow: hidden; }
-  /* 列の中のブロック：カードは自分の枠・角の丸み・上下の間・背景をなくす。カードでないもの（繋いだテキスト・ボタンなど）と文章は、左右にカードと同じ余白 */
+  /* 列の中のブロック：カードは自分の枠・角の丸み・上下の間・背景をなくす（大きく表示しているチャット data-chat-expanded は、下が透けないようにそのまま）。カードでないもの（繋いだテキスト・ボタンなど）と文章は、左右にカードと同じ余白 */
   .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content { padding: 0 !important; }
   .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content:not(:has(> [class~="border"])) { padding: 0 12px !important; }
-  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > * { border: 0 !important; border-radius: 0 !important; background: transparent !important; padding-top: 0 !important; padding-bottom: 0 !important; }
+  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > :not([data-chat-expanded]) { border: 0 !important; border-radius: 0 !important; background: transparent !important; padding-top: 0 !important; padding-bottom: 0 !important; }
   /* 列のいちばん上がチャットのとき：見出しの段の検索・画像・通知のボタンを、列の切り替えと同じ行の右に寄せて、段を1つ減らす。
      列を切り替えの行の高さ（32px）と線（1px）の分だけ上げ、見出しの段をその高さにそろえる。段の左は空けて、切り替えを押せるようにする */
   .col-tabs + .bn-block-column-list:has(> .bn-block-column:not(.col-tab-off) > .bn-block-outer:first-child > .bn-block > .react-renderer > .bn-block-content > * > [data-block-head][data-locked] [data-block-keep]) { margin-top: -33px; }
@@ -439,7 +439,7 @@ body {
   /* タブのブロック（読むだけのとき）：列と同じく、枠をなくして小さな切り替えだけを出す */
   .bn-block:has(> .react-renderer [data-tabs][data-compact]) { background: transparent; border: 0; border-radius: 0; }
   .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group { background: transparent; border-radius: 0; margin-inline: -12px !important; }
-  .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > * { background: transparent !important; }
+  .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > :not([data-chat-expanded]) { background: transparent !important; }
   .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content:not(:has(> [class~="border"])) { padding: 0 12px !important; }
   .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group > .bn-block-outer > .bn-block > .bn-block-content { padding: 6px 12px; }
 
