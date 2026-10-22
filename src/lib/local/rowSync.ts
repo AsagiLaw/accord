@@ -212,6 +212,15 @@ async function resendUnsent() {
 
 function enqueue(tbl: Tbl, id: string, row: Row | null) {
   const k = `${tbl}:${id}`;
+  // ほかの人の既読は送らない（自分の分しか書けないので、いつも断られる）。前に覚えた分も忘れる
+  if (tbl === "chatReads" && id.slice(id.indexOf("|") + 1) !== me) {
+    setFailed(k, false);
+    if (k in unsent) {
+      delete unsent[k];
+      saveUnsent();
+    }
+    return;
+  }
   outbox.set(k, { tbl, id, row });
   // 書き直した行は、また送ってみる
   setFailed(k, false);
