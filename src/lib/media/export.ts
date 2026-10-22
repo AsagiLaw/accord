@@ -7,7 +7,7 @@ import { supa } from "@/lib/local/sync";
 import { useBlobState } from "./blob-url";
 import { PSD_MIME } from "./psd";
 import { makeZip } from "./zip";
-import { loadBlobRow } from "@/lib/media/remote";
+import { loadBlobRow, loadShownBlob } from "@/lib/media/remote";
 
 // メディアの画像を、元の画像のファイルとして外へ出す（他のアプリへのドラッグ・コピー・ダウンロード）。
 // デスクトップアプリ版にするときは、ここを差し替える（複数枚のドラッグもできるようになる）
@@ -55,23 +55,27 @@ function useFileServer() {
 }
 
 /**
- * その画像の元の画像が、ブラウザの中にあるか（ほかの人の画像は、R2 から取ってきて中身が今のものか）。
- * 無ければ取ってくる（Supabase 版。拡大したときなど、元の画像が要るときだけ取りに行く）
+ * その画像の、表示とドラッグに使う画像（PSD は表示用の PNG、ほかは元の画像。編集した画像は編集後のもの）が、ブラウザの中にあるか
+ * （ほかの人の画像は、R2 から取ってきて中身が今のものか）。
+ * 無ければ、その1つだけを取ってくる（Supabase 版。PSD 本体や編集前の画像は、ダウンロードや編集で要るときに取る）
  */
 function useLocalOriginal(m: Media | undefined) {
   const id = m?.id;
   const rev = m?.rev ?? 0;
+  const shown = m?.mime === PSD_MIME ? "view" : "original";
   const ready = useLiveQuery(async () => {
     if (!id || !supa) return true;
     const row = await db.mediaBlobs.get(id);
-    return !!row && (row.remoteRev === undefined || row.remoteRev === rev);
-  }, [id, rev]);
+    if (row && (row.remoteRev === undefined || row.remoteRev === rev)) return true;
+    // 表示に使う分だけを取ってきたもの（loadShownBlob が blobCache に残す）
+    return !!(await db.blobCache.get(`${id}:${rev}:${shown}`));
+  }, [id, rev, shown]);
   // 取りに行き終わった画像（取れなかったときは、ここに入っても ready にならない）
   const [tried, setTried] = useState<string | null>(null);
   useEffect(() => {
     if (!id || ready !== false) return;
     let alive = true;
-    void loadBlobRow(id)
+    void loadShownBlob(id, "original")
       .catch(() => undefined)
       .then(() => alive && setTried(`${id}:${rev}`));
     return () => {
@@ -95,7 +99,8 @@ export function useOriginalState(m: Media | undefined): { url: string | undefine
   const blob = useBlobState(m && !named ? m.id : undefined, "original");
   const local = useLocalOriginal(named ? m : undefined);
   if (!m) return { url: undefined, loading: false };
-  // 「/media-file/」はブラウザの中の画像を読んで返すので、ほかの人の画像は R2 から取ってくるまで待つ（Supabase 版）
+  // 「/media-file/」はブラウザの中の画像（public/media-sw.js が mediaBlobs か blobCache から読む）を返すので、
+  // ほかの人の画像は R2 から取ってくるまで待つ（Supabase 版）
   if (named && !local.ready) return { url: undefined, loading: local.loading };
   // 編集して中身が変わったら、別の URL にする（ブラウザが前の画像を使い回さないように）。ファイル名は最後の部分なので変わらない
   const rev = m.rev ? `${m.rev}/` : "";

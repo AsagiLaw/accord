@@ -37,7 +37,9 @@ function useImageMeta(id: string | undefined, rev = 0): ImageMeta | undefined {
     let alive = true;
     db.mediaBlobs
       .get(id)
-      .then((row) => (row ? readImageMeta(row.original) : null))
+      // 一式が無ければ、表示用に元の画像だけを取ってきたもの（PSD は表示用の PNG しか無いので読まない）
+      .then(async (row) => row?.original ?? (await db.blobCache.get(`${id}:${rev}:original`))?.blob)
+      .then((file) => (file ? readImageMeta(file) : null))
       .then((meta) => {
         if (!meta) return;
         metaCache.set(key, meta);
@@ -47,7 +49,7 @@ function useImageMeta(id: string | undefined, rev = 0): ImageMeta | undefined {
     return () => {
       alive = false;
     };
-  }, [id, key]);
+  }, [id, rev, key]);
   if (!id) return undefined;
   return metaCache.get(key) ?? (loaded?.key === key ? loaded.meta : undefined);
 }

@@ -11,9 +11,12 @@ self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (url.origin !== self.location.origin || !url.pathname.startsWith("/media-file/")) return;
-  const id = decodeURIComponent(url.pathname.split("/")[2] ?? "");
+  const parts = url.pathname.split("/");
+  const id = decodeURIComponent(parts[2] ?? "");
+  // 編集した画像は、ID とファイル名の間に編集の回数が入る
+  const rev = parts.length > 4 ? Number(parts[3]) || 0 : 0;
   e.respondWith(
-    readOriginal(id).then((blob) =>
+    readOriginal(id, rev).then((blob) =>
       blob
         ? new Response(blob, { headers: { "Content-Type": blob.type || "application/octet-stream" } })
         : new Response("not found", { status: 404 }),
@@ -21,7 +24,11 @@ self.addEventListener("fetch", (e) => {
   );
 });
 
-function readOriginal(id) {
+/**
+ * ブラウザの中の画像を読む。画像のファイル一式（mediaBlobs）が今のものならそこから。
+ * 無ければ、表示とドラッグに使う分だけを取ってきたもの（blobCache の「ID:rev:view」（PSD の表示用の PNG）か「ID:rev:original」）
+ */
+function readOriginal(id, rev) {
   return new Promise((resolve) => {
     const req = indexedDB.open("irai-note");
     // まだデータベースが無いときに、空のものを作ってしまわないようにする
@@ -33,13 +40,23 @@ function readOriginal(id) {
         db.close();
         resolve(v);
       };
-      try {
-        const get = db.transaction("mediaBlobs").objectStore("mediaBlobs").get(id);
-        get.onsuccess = () => done(get.result?.view ?? get.result?.original ?? null);
-        get.onerror = () => done(null);
-      } catch {
-        done(null);
-      }
+      const get = (store, key) =>
+        new Promise((ok) => {
+          try {
+            const r = db.transaction(store).objectStore(store).get(key);
+            r.onsuccess = () => ok(r.result);
+            r.onerror = () => ok(undefined);
+          } catch {
+            ok(undefined);
+          }
+        });
+      (async () => {
+        const row = await get("mediaBlobs", id);
+        // 自分の画像（remoteRev が無い）か、ほかの人の画像で中身が今のもの
+        if (row && (row.remoteRev === undefined || row.remoteRev === rev)) return row.view ?? row.original;
+        const cached = (await get("blobCache", `${id}:${rev}:view`)) ?? (await get("blobCache", `${id}:${rev}:original`));
+        return cached?.blob ?? row?.view ?? row?.original ?? null;
+      })().then(done, () => done(null));
     };
   });
 }
