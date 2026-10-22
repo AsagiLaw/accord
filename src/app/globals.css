@@ -416,8 +416,10 @@ body {
    スマホでは枠で囲まず、列の並びどうしは上下の間と細い線1本で分ける（枠が重なって窮屈に見えないように） */
 .col-tabs { display: none; }
 @media (max-width: 767.98px) {
-  .col-tabs { display: block; margin-top: 4px; }
-  .bn-block-group > .col-tabs:not(:first-child) { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+  /* 切り替えの行は、下のチャットの見出しの段が重なっても押せるように前に出す（ボタン以外は、押すと下に通す） */
+  .col-tabs { display: block; margin-top: 4px; position: relative; z-index: 2; pointer-events: none; }
+  .col-tabs [data-tab-switch] > button { pointer-events: auto; }
+  .bn-block-group > .col-tabs:not(:first-child) { margin-top: 8px; padding-top: 4px; border-top: 1px solid var(--line); }
   .col-tabs + .bn-block-column-list { margin-bottom: 4px; }
   .col-tabs + .bn-block-column-list > .col-tab-off { display: none !important; }
   /* カード（チャット・ビューなど）は中に自分の余白（12px）を持つので、列をその分だけ左右に広げて、中身の左端を見出しとそろえる */
@@ -425,7 +427,13 @@ body {
   /* 列の中のブロック：カードは自分の枠・角の丸み・上下の間・背景をなくす。カードでないもの（繋いだテキスト・ボタンなど）と文章は、左右にカードと同じ余白 */
   .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content { padding: 0 !important; }
   .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content:not(:has(> [class~="border"])) { padding: 0 12px !important; }
-  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > * { border: 0 !important; border-radius: 0 !important; background: transparent !important; }
+  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > * { border: 0 !important; border-radius: 0 !important; background: transparent !important; padding-top: 0 !important; padding-bottom: 0 !important; }
+  /* 列のいちばん上がチャットのとき：見出しの段の検索・画像・通知のボタンを、列の切り替えと同じ行の右に寄せて、段を1つ減らす。
+     列を切り替えの行の高さ（32px）と線（1px）の分だけ上げ、見出しの段をその高さにそろえる。段の左は空けて、切り替えを押せるようにする */
+  .col-tabs + .bn-block-column-list:has(> .bn-block-column:not(.col-tab-off) > .bn-block-outer:first-child > .bn-block > .react-renderer > .bn-block-content > * > [data-block-head][data-locked] [data-block-keep]) { margin-top: -33px; }
+  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer:first-child > .bn-block > .react-renderer > .bn-block-content > * > [data-block-head][data-locked]:has([data-block-keep]) { height: 33px; padding-block: 0; flex-wrap: nowrap; pointer-events: none; }
+  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer:first-child > .bn-block > .react-renderer > .bn-block-content > * > [data-block-head][data-locked] [data-block-sub] { display: none; }
+  .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer:first-child > .bn-block > .react-renderer > .bn-block-content > * > [data-block-head][data-locked] [data-block-keep] { pointer-events: auto; }
   .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .bn-block-content { padding: 6px 12px; }
 
   /* タブのブロック（読むだけのとき）：列と同じく、枠をなくして小さな切り替えだけを出す */

@@ -246,7 +246,8 @@ export function ChatBlockView({
         </span>
         {/* 書き込める人を選んでいるときだけ、誰が書き込めるかを出す（選ぶのは歯車の設定から） */}
         {allowed?.length ? (
-          <span className="flex min-w-0 items-center gap-1 text-xs text-muted" title="書き込める人">
+          // data-block-sub：スマホの列の中では、ボタンを列の切り替えの行に寄せるので出さない（globals.css）
+          <span className="flex min-w-0 items-center gap-1 text-xs text-muted" title="書き込める人" data-block-sub="">
             <Icon name="person" size={14} className="shrink-0" />
             <span className="truncate">{writersText(members, allowed)}</span>
           </span>

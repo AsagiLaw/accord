@@ -101,7 +101,7 @@ function TitleInput({ value, onSave, suffix, placeholder }: { value: string; onS
         onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (e.target as HTMLInputElement).blur()}
         aria-label="名前"
         placeholder={placeholder}
-        wrapClassName="min-w-[4em] text-[1.8em] font-bold"
+        wrapClassName="min-w-[1em] text-[1.8em] font-bold"
         className="rounded-[8px] bg-transparent outline-none hover:bg-tint focus:bg-tint"
       />
       {suffix && <span className="shrink-0 font-bold text-muted">{suffix}</span>}
@@ -555,9 +555,10 @@ export function DbChatBlock({ kind, propId, onChange, fill }: { kind: "normal" |
           <Icon name={kind === "image" ? "ppl" : "chat"} size={16} className="text-muted" />
           <b>{label}</b>
         </span>
-        {database && prop && <span className="text-xs text-muted">「{database.name}」の項目</span>}
+        {/* data-block-sub：スマホの列の中では、ボタンを列の切り替えの行に寄せるので出さない（globals.css） */}
+        {database && prop && <span className="text-xs text-muted" data-block-sub="">「{database.name}」の項目</span>}
         {prop?.allowed?.length ? (
-          <span className="flex min-w-0 items-center gap-1 text-xs text-muted" title="書き込める人">
+          <span className="flex min-w-0 items-center gap-1 text-xs text-muted" title="書き込める人" data-block-sub="">
             <Icon name="person" size={14} className="shrink-0" />
             <span className="truncate">{writersText(ctx.members, prop.allowed)}</span>
           </span>
@@ -847,7 +848,8 @@ function FieldInput({ value, onSave, placeholder }: { value: string; onSave: (v:
       onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (e.target as HTMLInputElement).blur()}
       placeholder={placeholder}
       aria-label={placeholder}
-      wrapClassName="min-w-[3em]"
+      // 空のときは項目の名前（placeholder）の幅になるので、最小の幅は小さくてよい（名前が短いときに後ろの言葉が離れないように）
+      wrapClassName="min-w-[1em]"
       className="rounded-[6px] bg-transparent outline-none hover:bg-tint focus:bg-tint"
     />
   );
