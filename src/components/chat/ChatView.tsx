@@ -298,34 +298,34 @@ function MessageItem({
     setEditing(false);
   };
 
+  // アイコン（続けて送った発言では空けておく）。押すとプロフィールのカード。ほかの人の発言は左、自分の発言は右に出す
+  const icon = author && (
+    <div className="w-9 shrink-0">
+      {!grouped && (
+        <UserCardButton userId={author.id} role={author.role} label={authorName} className="mt-0.5 block rounded-full hover:opacity-85">
+          <Avatar name={authorName} src={author.avatar} size={36} />
+        </UserCardButton>
+      )}
+    </div>
+  );
+
   return (
     <div data-name={`発言（${authorName}）`} className={`group flex gap-2 ${mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-3"}`}>
-      {/* ほかの人の発言は、左にアイコン（続けて送った発言では空けておく）。押すとプロフィールのカード */}
-      {!mine && author && (
-        <div className="w-9 shrink-0">
-          {!grouped && (
-            <UserCardButton userId={author.id} role={author.role} label={authorName} className="mt-0.5 block rounded-full hover:opacity-85">
-              <Avatar name={authorName} src={author.avatar} size={36} />
-            </UserCardButton>
-          )}
-        </div>
-      )}
+      {!mine && icon}
       <div className={`flex max-w-[min(560px,85%)] min-w-0 flex-col ${mine ? "items-end" : "items-start"}`}>
         {!grouped && (
-          <div className="mb-0.5 flex items-baseline gap-2 px-1 text-xs text-muted">
+          // 自分の発言は、名前をアイコンの側（右）に寄せる
+          <div className={`mb-0.5 flex items-baseline gap-2 px-1 text-xs text-muted ${mine ? "flex-row-reverse" : ""}`}>
             {onChangeSpeaker ? (
               <button className="font-bold text-ink underline decoration-dotted" title="押して話者を変える" onClick={onChangeSpeaker}>
                 {authorName}
               </button>
+            ) : author ? (
+              <UserCardButton userId={author.id} role={author.role} label={authorName} className="font-bold text-ink hover:underline">
+                {authorName}
+              </UserCardButton>
             ) : (
-              !mine &&
-              (author ? (
-                <UserCardButton userId={author.id} role={author.role} label={authorName} className="font-bold text-ink hover:underline">
-                  {authorName}
-                </UserCardButton>
-              ) : (
-                <b className="text-ink">{authorName}</b>
-              ))
+              <b className="text-ink">{authorName}</b>
             )}
             <span>{timeLabel(m.createdAt)}</span>
           </div>
@@ -413,6 +413,7 @@ function MessageItem({
         </div>
         <SendStatus m={m} state={send} />
       </div>
+      {mine && icon}
     </div>
   );
 }
