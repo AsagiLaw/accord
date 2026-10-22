@@ -10,7 +10,6 @@ import type { ImportFile } from "@/lib/media/folders";
 import { decodeImage, isImageFile, makeThumb, readImage, readRecordedDate } from "@/lib/media/image";
 import { PSD_MIME } from "@/lib/media/psd";
 import { childrenOf, descendants, withAncestors } from "@/lib/media/logic";
-import { mediaPrefs } from "@/lib/media/prefs";
 import { loadBlobRow } from "@/lib/media/remote";
 import { uploadBoxForRoom } from "./boxes";
 import { renumber, renumberBoxes } from "./renumber";
@@ -211,14 +210,15 @@ async function folderLibraries(boxId: string, paths: string[][]) {
 }
 
 /**
- * 画像を入れる。制作日はいつも記録し、メディアの設定で「名前を自動で付ける」がオンなら、名前を「20250101_誕生日」の形にする
+ * 画像を入れる。制作日はいつも記録し、ボックスの設定で「名前を自動で付ける」がオンなら、名前を「20250101_誕生日」の形にする
  * （同じ制作日・同じタイトルが2枚以上なら「_01」から番号を付ける）
  * （フォルダごと入れたらフォルダ名をタイトルにし、フォルダの中の名前の順に番号を振る）
  */
 export async function uploadFiles(boxId: string, userId: string, files: (File | ImportFile)[]) {
   const ids: string[] = [];
   let failed = 0;
-  const auto = mediaPrefs().autoName;
+  // 入れる人や端末に関係なく、入れる先のボックスの設定に従う
+  const auto = !!(await db.mediaBoxes.get(boxId))?.autoName;
   const text = (a: string, b: string) => a.localeCompare(b, "ja", { numeric: true });
   let items = files.map((f) => (f instanceof File ? { file: f } : f));
   if (auto) items = [...items].sort((a, b) => text((a.folders ?? []).join("/"), (b.folders ?? []).join("/")) || text(a.file.name, b.file.name));

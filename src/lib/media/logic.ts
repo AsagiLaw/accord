@@ -88,8 +88,6 @@ export type MediaPrefs = {
   previewRatio: "original" | "square";
   /** プレビュー欄の詳細に出す項目（並べた順） */
   previewFields: PreviewField[];
-  /** 入れた画像の名前を「20250101_タイトル」の形に自動で付ける（同じものが2枚以上なら _01 から番号付き） */
-  autoName: boolean;
   /** 保存した設定の版。項目が増えたときに、前からの設定へ足すのに使う */
   v?: number;
 };
@@ -104,7 +102,6 @@ export const DEFAULT_PREFS: MediaPrefs = {
   showExt: false,
   previewRatio: "original",
   previewFields: PREVIEW_FIELDS.map((f) => f.id),
-  autoName: false,
   v: 2,
 };
 

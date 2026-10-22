@@ -42,7 +42,7 @@ type Stamp = { id: string; updated_at: string };
 type MemberRow = { room_id: string; user_id: string; role: RoomMember["role"]; joined_at: string };
 type FriendshipRow = { id: string; from_id: string; to_id: string; status: Friendship["status"]; created_at: string; responded_at: string | null };
 type InviteRow = { id: string; room_id: string; from_id: string; to_id: string; created_at: string; expires_at: string; accepted_at: string | null };
-type BoxRow = { id: string; owner_id: string; name: string; kind: MediaBox["kind"]; created_at: string };
+type BoxRow = { id: string; owner_id: string; name: string; kind: MediaBox["kind"]; created_at: string; auto_name?: boolean };
 type ShareRow = { id: string; box_id: string; user_id: string | null; room_id: string | null; can_edit: boolean; created_at: string };
 
 function toProfile(r: ProfileRow): Profile {
@@ -83,7 +83,7 @@ const toFriendship = (r: FriendshipRow): Friendship => ({
   ...(r.responded_at ? { respondedAt: ms(r.responded_at) } : {}),
 });
 
-const toBox = (r: BoxRow): MediaBox => ({ id: r.id, ownerId: r.owner_id, name: r.name, kind: r.kind, createdAt: ms(r.created_at) ?? 0 });
+const toBox = (r: BoxRow): MediaBox => ({ id: r.id, ownerId: r.owner_id, name: r.name, kind: r.kind, createdAt: ms(r.created_at) ?? 0, ...(r.auto_name && { autoName: true }) });
 
 const toShare = (r: ShareRow): BoxShare => ({
   id: r.id,

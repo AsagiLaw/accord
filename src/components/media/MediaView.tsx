@@ -10,6 +10,7 @@ import {
   Popover,
   usePopover,
 } from "@/components/ui/Popover";
+import { useBox } from "@/lib/local/boxes";
 import type { Library, Media } from "@/lib/local/db";
 import { renameLibrary, renameMedia, setFav } from "@/lib/local/media";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
@@ -73,6 +74,8 @@ export function MediaView({ view }: { view: MediaViewKind }) {
   const s = useMediaState();
   const { media, libs, selected, setSelected, boxId, me, canEdit } = s;
   const prefs = useMediaPrefs();
+  // 「名前を自動で付ける」はボックスごとの設定
+  const autoName = !!useBox(boxId)?.autoName;
   // カードの左の四角は、画像一覧の画像と同じ大きさ
   // 画像とカードの左の四角の大きさ：選んだ大きさを、画面の幅に合わせて少し広げたもの
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
@@ -315,7 +318,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
           >
             名前を変更
           </MenuItem>
-          {prefs.autoName && viewingMedia.title === undefined && !viewingMedia.trashed && (
+          {autoName && viewingMedia.title === undefined && !viewingMedia.trashed && (
             <MenuItem
               icon={<Icon name="title" size={16} />}
               onClick={run(() => autoNameFlow([viewingMedia]))}
@@ -434,7 +437,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
           </MenuItem>
         )}
         {/* 名前を自動で付ける設定のとき：複数の画像のタイトルをまとめて変える・今ある画像に自動の名前を付ける */}
-        {n > 1 && prefs.autoName && (
+        {n > 1 && autoName && (
           <MenuItem
             icon={<Icon name="edit" size={16} />}
             onClick={run(() => retitleFlow(selectedMedia).then(done))}
@@ -442,7 +445,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
             タイトルをまとめて変更
           </MenuItem>
         )}
-        {prefs.autoName && selectedMedia.some((m) => m.title === undefined) && (
+        {autoName && selectedMedia.some((m) => m.title === undefined) && (
           <MenuItem
             icon={<Icon name="title" size={16} />}
             onClick={run(() => autoNameFlow(selectedMedia).then(done))}

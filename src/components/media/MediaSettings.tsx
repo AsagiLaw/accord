@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Icon, type IconName } from "@/components/Icon";
 import { PropVisibilityScreen } from "@/components/blockSettings";
 import { MenuTitle, NavRow, OptionRow, SectionHead, ToggleRow } from "@/components/ui/SettingsMenu";
+import { setBoxAutoName, useBox } from "@/lib/local/boxes";
 import { PREVIEW_FIELDS, type PreviewField } from "@/lib/media/logic";
 import { updatePrefs, useMediaPrefs } from "@/lib/media/prefs";
 
@@ -27,10 +28,22 @@ const FIELD_ICON: Record<PreviewField, IconName> = {
 
 /**
  * メディアの設定（サイドバーのメディアのボタンを右クリック →「メディアの設定」）。
- * 入れた画像の名前を自動で付けるか、プレビュー欄の画像の枠（元の縦横比／1:1）と、詳細に出す項目・順番を変える。端末ごとに覚える
+ * 入れた画像の名前を自動で付けるか（今のボックスの設定。入れる人・端末に関係なく効く）と、
+ * プレビュー欄の画像の枠（元の縦横比／1:1）・詳細に出す項目と順番（こちらは端末ごとに覚える）を変える
  */
-export function MediaSettingsDialog({ onClose }: { onClose: () => void }) {
+export function MediaSettingsDialog({
+  boxId,
+  canEdit,
+  onClose,
+}: {
+  /** 今開いているボックス（無ければ、名前の設定は出さない） */
+  boxId?: string;
+  /** そのボックスに画像を入れられるか（入れられなければ、名前の設定は見るだけ） */
+  canEdit: boolean;
+  onClose: () => void;
+}) {
   const prefs = useMediaPrefs();
+  const box = useBox(boxId);
   // 「詳細の表示/非表示」の画面に進んでいる（ほかの設定と同じく、中の画面に切り替わる）
   const [screen, setScreen] = useState<"top" | "fields">("top");
   const shown = prefs.previewFields
@@ -77,14 +90,19 @@ export function MediaSettingsDialog({ onClose }: { onClose: () => void }) {
                 <Icon name="x" size={16} />
               </button>
             </div>
-            <SectionHead label="画像の名前" />
-            <ToggleRow
-              icon="title"
-              label="名前を自動で付ける"
-              note="入れた画像の名前を「20250101_タイトル」の形にします。同じ制作日・同じタイトルが2枚以上なら「_01」から番号を付けます。フォルダごと入れたらフォルダ名がタイトルになり、名前の中の日付は前に回します"
-              on={prefs.autoName}
-              onChange={(autoName) => updatePrefs({ autoName })}
-            />
+            {box && (
+              <>
+                <SectionHead label={`画像の名前（${box.name}）`} />
+                <ToggleRow
+                  icon="title"
+                  label="名前を自動で付ける"
+                  note={`「${box.name}」に入れた画像の名前を「20250101_タイトル」の形にします。入れる人や端末に関係なく、このボックスに入れた画像すべてに効きます。同じ制作日・同じタイトルが2枚以上なら「_01」から番号を付けます。フォルダごと入れたらフォルダ名がタイトルになり、名前の中の日付は前に回します${canEdit ? "" : "（見るだけのボックスなので、変えられません）"}`}
+                  on={!!box.autoName}
+                  disabled={!canEdit}
+                  onChange={(on) => void setBoxAutoName(box.id, on)}
+                />
+              </>
+            )}
             <SectionHead label="プレビュー欄の画像" />
             <OptionRow
               icon="img"

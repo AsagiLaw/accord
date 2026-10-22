@@ -105,7 +105,7 @@ export function DmSidebar({ rooms, me }: { rooms: Room[]; me: Profile }) {
               メディアの設定
             </MenuItem>
           </Popover>
-          {mediaSettings && <MediaSettingsDialog onClose={() => setMediaSettings(false)} />}
+          {mediaSettings && <MediaSettingsDialog boxId={box?.id} canEdit={!!access && access !== "view"} onClose={() => setMediaSettings(false)} />}
         </div>
 
         {boxId ? (

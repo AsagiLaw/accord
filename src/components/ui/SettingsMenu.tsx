@@ -96,9 +96,9 @@ export function OptionRow({
 }
 
 /** オン・オフを切り替える行（右にスイッチ） */
-export function ToggleRow({ icon, label, note, on, onChange }: { icon?: IconName; label: string; note?: string; on: boolean; onChange: (on: boolean) => void }) {
+export function ToggleRow({ icon, label, note, on, onChange, disabled }: { icon?: IconName; label: string; note?: string; on: boolean; onChange: (on: boolean) => void; disabled?: boolean }) {
   return (
-    <button role="menuitemcheckbox" aria-checked={on} onClick={() => onChange(!on)} title={note} className="flex min-h-[34px] w-full items-center gap-2 rounded-[8px] px-2 py-1 text-left hover:bg-tint">
+    <button role="menuitemcheckbox" aria-checked={on} disabled={disabled} onClick={() => onChange(!on)} title={note} className="flex min-h-[34px] w-full items-center gap-2 rounded-[8px] px-2 py-1 text-left enabled:hover:bg-tint disabled:opacity-50">
       <Lead icon={icon} />
       <span className="min-w-0 flex-1">
         <span className="block">{label}</span>

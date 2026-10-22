@@ -318,6 +318,15 @@ export async function createBox(ownerId: string, name: string) {
   return box;
 }
 
+/** 「名前を自動で付ける」を切り替える（ボックスごと。変えられるのは画像を入れられる人：0019） */
+export async function setBoxAutoName(boxId: string, autoName: boolean) {
+  if (supa) {
+    const { error } = await sb().rpc("set_box_auto_name", { target: boxId, auto: autoName });
+    if (error) throw new SaveError(`設定を変えられませんでした（${error.message}）`);
+  }
+  await db.mediaBoxes.update(boxId, { autoName });
+}
+
 export async function renameBox(boxId: string, name: string) {
   if (supa) {
     const { error } = await sb().from("media_boxes").update({ name }).eq("id", boxId);

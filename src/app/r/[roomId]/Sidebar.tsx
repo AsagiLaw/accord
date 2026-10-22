@@ -150,7 +150,11 @@ export function Sidebar({
               </MenuItem>
             </Popover>
             {mediaSettings && (
-              <MediaSettingsDialog onClose={() => setMediaSettings(false)} />
+              <MediaSettingsDialog
+                boxId={roomBox?.box.id}
+                canEdit={roomBoxAccess === "owner" || roomBoxAccess === "edit"}
+                onClose={() => setMediaSettings(false)}
+              />
             )}
             </>
           )}
