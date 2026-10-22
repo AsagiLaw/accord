@@ -108,7 +108,13 @@ let supaStarted = false;
 
 async function setSupaUser(user: User | null) {
   // Supabase の内容（自分のプロフィール・ルーム・フレンドなど）をブラウザの中に写してから、画面に出す。
-  // 読めなかったときだけ、登録のときの名前でブラウザの中にプロフィールを用意する
+  // 読めなかったときだけ、登録のときの名前でブラウザの中にプロフィールを用意する。
+  // 人が替わったとき（ログインした直後など）は、写し終わるまで「確かめ中」にする。
+  // 前の「ログインしていない」のままだと、ログインしてもログインの画面へ戻されてしまう
+  if (supaUser !== undefined && (supaUser?.id ?? null) !== (user?.id ?? null)) {
+    supaUser = undefined;
+    notify();
+  }
   await startSync(user?.id ?? null);
   if (user) await ensureLocalProfile(user);
   supaUser = user;

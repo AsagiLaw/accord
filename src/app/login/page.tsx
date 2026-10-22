@@ -57,8 +57,9 @@ function LoginForm() {
           e.preventDefault();
           setBusy(true);
           const r = await signIn(email, password, captcha.token);
-          setBusy(false);
+          // うまくいったら、次の画面に移るまでボタンは押せないまま
           if (r.ok) return done();
+          setBusy(false);
           setError(r.error);
           // token は1回しか使えないので、出し直す
           captcha.reset();
