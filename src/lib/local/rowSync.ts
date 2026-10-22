@@ -238,6 +238,30 @@ function retryLater(tbl: Tbl, id: string, row: Row) {
   if (!flushTimer) flushTimer = setTimeout(() => void flush(), 10_000);
 }
 
+/**
+ * ほかの人の名前の行か（ほかの人が入れた画像・ほかの人の発言・ほかの人の既読）。
+ * upsert は「作る」ときの決まり（自分の名前の行しか作れない）も必ず見るので、もうある行を直すだけでも断られてしまう。こういう行は updateRow で送る
+ */
+function othersRow(row: Omit<ServerRow, "updated_at">) {
+  const owner = row.tbl === "media" ? row.data.uploadedBy : row.tbl === "messages" ? row.data.authorId : row.tbl === "chatReads" ? row.data.userId : undefined;
+  return owner !== undefined && owner !== me;
+}
+
+/** もうある行を直す（作らない）。直せる行が無かった（まだ無い・直せない）ときは、決まりで断られたのと同じに扱う */
+async function updateRow(row: Omit<ServerRow, "updated_at">): Promise<{ code?: string; message: string } | null> {
+  const { data, error } = await sb()
+    .from("synced_rows")
+    // 画像はボックスの間を動かせるので、ボックスも送る
+    .update({ data: row.data, deleted: false, ...(row.box_id && { box_id: row.box_id }) })
+    .eq("tbl", row.tbl)
+    .eq("id", row.id)
+    .select("tbl,id,updated_at")
+    .returns<ServerRow[]>();
+  remember(data);
+  if (error) return error;
+  return data.length ? null : { code: "42501", message: "直せる行がありません" };
+}
+
 async function flush() {
   flushTimer = null;
   if (!me || !outbox.size) return;
@@ -269,7 +293,24 @@ async function flush() {
       const key = scope.room_id ?? scope.box_id ?? (scope.dm ?? []).join(",");
       groups.set(key, [...(groups.get(key) ?? []), { tbl: it.tbl, id: it.id, ...scope, data: it.row, deleted: false }]);
     }
-    for (const rows of groups.values()) {
+    /** 1行ずつ送った結果を残す */
+    const result = (row: Omit<ServerRow, "updated_at">, error: { code?: string; message: string } | null) => {
+      const k = `${row.tbl}:${row.id}`;
+      if (error) {
+        console.warn("Supabase に送れませんでした", row.tbl, row.id, error.message);
+        // つながらなかった（エラーの番号が無い）ときは、しばらくしてから送り直す。決まりで断られたものは送り直さず、画面で知らせる
+        if (!error.code && !outbox.has(k)) retryLater(row.tbl, row.id, row.data);
+        else if (error.code && !outbox.has(k)) setFailed(k, true);
+      } else {
+        offline.delete(k);
+        pushMine([row]);
+      }
+      settle(k);
+    };
+    for (const all of groups.values()) {
+      // ほかの人の行（ほかの人が入れた画像など）は、直すだけで送る
+      for (const row of all.filter(othersRow)) result(row, await updateRow(row));
+      const rows = all.filter((r) => !othersRow(r));
       for (let i = 0; i < rows.length; i += 200) {
         const batch = rows.slice(i, i + 200);
         const { data, error } = await sb().from("synced_rows").upsert(batch, { onConflict: "tbl,id" }).select("tbl,id,updated_at").returns<ServerRow[]>();
@@ -284,19 +325,10 @@ async function flush() {
         }
         // まとめて送れなかったら1行ずつ送り直す（送れない1行のせいで、ほかの行まで止めないため）
         for (const row of batch) {
-          const k = `${row.tbl}:${row.id}`;
           const one = await sb().from("synced_rows").upsert(row, { onConflict: "tbl,id" }).select("tbl,id,updated_at").returns<ServerRow[]>();
           remember(one.data);
-          if (one.error) {
-            console.warn("Supabase に送れませんでした", row.tbl, row.id, one.error.message);
-            // つながらなかった（エラーの番号が無い）ときは、しばらくしてから送り直す。決まりで断られたものは送り直さず、画面で知らせる
-            if (!one.error.code && !outbox.has(k)) retryLater(row.tbl, row.id, row.data);
-            else if (one.error.code && !outbox.has(k)) setFailed(k, true);
-          } else {
-            offline.delete(k);
-            pushMine([row]);
-          }
-          settle(k);
+          // 決まりで断られた（42501）：もうある行なら、直すだけなら通ることがある
+          result(row, one.error?.code === "42501" ? await updateRow(row) : one.error);
         }
       }
     }
@@ -560,6 +592,13 @@ export async function startRowSync(userId: string | null) {
   await forgetLocalOnlyDms(userId);
   // 読み直す前に送りそこねた行を並べる（並んでいる行は、Supabase の古い形で上書きしない）
   await resendUnsent();
+  // 前に断られた行も送り直す（ほかの人が入れた画像を直すと、いつも断られていた：2026-10-22 に直した）
+  await resendRows(
+    [...failed].map((k) => {
+      const at = k.indexOf(":");
+      return { tbl: k.slice(0, at) as Tbl, id: k.slice(at + 1) };
+    }).filter((r) => (TABLES as readonly string[]).includes(r.tbl)),
+  );
   loadCursors();
   await pullRows();
   // Supabase から届いた分にも、決まった ID でない DM があれば片づける
