@@ -223,7 +223,8 @@ async function uploadOne(id: string) {
   if (!row || !media || row.remoteRev !== undefined) return true;
   const rev = revOf(media);
   if (isDone(id, rev)) return true;
-  const parts: [Kind, Blob][] = [["thumb", row.thumb], ["original", row.original]];
+  // 小さい画像だけ残した画像（gone）は、小さい画像だけ置く
+  const parts: [Kind, Blob][] = media.gone ? [["thumb", row.thumb]] : [["thumb", row.thumb], ["original", row.original]];
   if (row.view) parts.push(["view", row.view]);
   if (row.source) parts.push(["source", row.source]);
   if (row.sourceInfo || row.edit) parts.push(["meta", new Blob([JSON.stringify({ sourceInfo: row.sourceInfo, edit: row.edit })], { type: "application/json" })]);
@@ -257,11 +258,17 @@ async function uploadOne(id: string) {
 }
 
 /** R2 からファイルを消してもらう（/api/media/delete が、消してよいかを Supabase で確かめる） */
-async function removeFiles(body: { deleted?: string[]; prune?: { id: string; rev: number }[] }) {
+async function removeFiles(body: { deleted?: string[]; shrunk?: string[]; prune?: { id: string; rev: number }[] }) {
   await fetch("/api/media/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
 }
 
-/** 完全に削除した画像のファイルを、R2 からも消す（Supabase に消したことが伝わってから呼ぶ。入れた本人の画像だけが消える） */
+/** 小さい画像だけ残した画像（gone）の、今の小さい画像のほかのファイルを R2 から消す（Supabase に gone が伝わってから呼ぶ。消せるのはボックスを編集できる人） */
+export async function removeShrunkFiles(ids: string[]) {
+  if (!supa) return;
+  for (let i = 0; i < ids.length; i += 100) await removeFiles({ shrunk: ids.slice(i, i + 100) });
+}
+
+/** 完全に削除した画像のファイルを、R2 からも消す（Supabase に消したことが伝わってから呼ぶ。消せるのはボックスを編集できる人） */
 export async function removeDeletedFiles(ids: string[]) {
   if (!supa) return;
   for (let i = 0; i < ids.length; i += 100) await removeFiles({ deleted: ids.slice(i, i + 100) });
@@ -345,11 +352,12 @@ export async function loadBlobRow(id: string): Promise<MediaBlob | undefined> {
   if (row && (row.remoteRev === undefined || row.remoteRev === rev || !media)) return row;
   if (!media) return row;
   const isPsd = media.mime === PSD_MIME;
-  const kinds: Kind[] = ["thumb", "original", ...(isPsd ? (["view"] as const) : []), ...(media.edited ? (["source", "meta"] as const) : [])];
+  // 小さい画像だけ残した画像（gone）は、小さい画像を元の画像の代わりにする
+  const kinds: Kind[] = media.gone ? ["thumb"] : ["thumb", "original", ...(isPsd ? (["view"] as const) : []), ...(media.edited ? (["source", "meta"] as const) : [])];
   const blobs = await fetchKinds(id, rev, kinds);
   const got = new Map(kinds.map((k, i) => [k, blobs[i] instanceof Blob ? blobs[i] : null]));
   const thumb = got.get("thumb");
-  const original = got.get("original");
+  const original = media.gone ? thumb : got.get("original");
   if (!thumb || !original) return row;
   const meta = got.get("meta") ? ((await got.get("meta")!.text().then(JSON.parse).catch(() => null)) as Pick<MediaBlob, "sourceInfo" | "edit"> | null) : null;
   const fresh: MediaBlob = {
@@ -378,9 +386,10 @@ export async function loadShownBlob(id: string, kind: "thumb" | "original"): Pro
   const row = await db.mediaBlobs.get(id);
   const media = supa ? await db.media.get(id) : undefined;
   const rev = revOf(media);
-  if (row && (row.remoteRev === undefined || row.remoteRev === rev)) return kind === "original" ? (row.view ?? row.original) : row.thumb;
+  // 小さい画像だけ残した画像（gone）は、前に取ってきた元の画像が残っていても小さい画像を出す
+  if (row && (row.remoteRev === undefined || row.remoteRev === rev)) return kind === "original" && !media?.gone ? (row.view ?? row.original) : row.thumb;
   if (!supa || !media) return row ? (kind === "original" ? (row.view ?? row.original) : row.thumb) : undefined;
-  const want: Kind = kind === "thumb" ? "thumb" : media.mime === PSD_MIME ? "view" : "original";
+  const want: Kind = kind === "thumb" || media.gone ? "thumb" : media.mime === PSD_MIME ? "view" : "original";
   const key = `${id}:${rev}:${want}`;
   const cached = await db.blobCache.get(key);
   if (cached) return cached.blob;

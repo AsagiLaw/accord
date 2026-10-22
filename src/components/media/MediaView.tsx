@@ -419,7 +419,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
             danger
             icon={<Icon name="del" size={16} />}
             onClick={run(() =>
-              deleteForeverFlow(selected, media, me.id).then(done),
+              deleteForeverFlow(selected, me.id).then(done),
             )}
           >
             完全に削除

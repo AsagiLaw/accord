@@ -203,21 +203,19 @@ export async function restoreFlow(ids: string[]) {
   toast(`${ids.length}枚を元に戻しました`);
 }
 
-export async function deleteForeverFlow(ids: string[], media: Media[], userId: string) {
-  const mine = ids.filter((id) => media.find((m) => m.id === id)?.uploadedBy === userId).length;
-  if (!mine) {
-    toast("完全に削除できるのは、アップロードした人だけです");
-    return;
-  }
-  const others = ids.length - mine;
+export async function deleteForeverFlow(ids: string[], userId: string) {
   const ok = await confirmAction(
-    `${mine}枚を完全に削除します`,
+    `${ids.length}枚を完全に削除します`,
     "完全に削除",
-    `元に戻せません。${others ? `他の人がアップロードした${others}枚は、その人だけが削除できるため残ります。` : ""}`,
+    "元に戻せません。チャットやデータベースで使っている画像は、そこで見られるよう小さい画像だけ残ります。",
   );
   if (!ok) return;
   const r = await deleteForever(ids, userId);
-  toast(`${r.deleted}枚を完全に削除しました`);
+  if (!r.deleted) {
+    toast("完全に削除できるのは、ボックスの持ち主と、編集もできる共有の人だけです");
+    return;
+  }
+  toast(`${r.deleted}枚を完全に削除しました${r.kept ? `（使われている${r.kept}枚は小さい画像だけ残しました）` : ""}`);
 }
 
 export async function removeFromLibraryFlow(boxId: string, lib: Library, ids: string[]) {

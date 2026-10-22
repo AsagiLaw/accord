@@ -76,16 +76,19 @@ export function useBox(boxId: string | undefined) {
 
 /** ボックスへの自分の権限。使えなければ null、読み込み中は undefined */
 export function useBoxAccess(boxId: string, userId: string | undefined) {
-  return useLiveQuery(async (): Promise<BoxAccess | null> => {
-    if (!userId) return null;
-    const box = await db.mediaBoxes.get(boxId);
-    if (!box) return null;
-    if (box.ownerId === userId) return "owner";
-    const roomIds = new Set(await myRoomIds(userId));
-    const mine = (await db.boxShares.where("boxId").equals(boxId).toArray()).filter((s) => s.userId === userId || (s.roomId && roomIds.has(s.roomId)));
-    if (!mine.length) return null;
-    return mine.some((s) => s.canEdit) ? "edit" : "view";
-  }, [boxId, userId]);
+  return useLiveQuery(() => boxAccess(boxId, userId), [boxId, userId]);
+}
+
+/** ボックスをどう使えるか（持ち主・編集もできる・見るだけ）。使えなければ null */
+export async function boxAccess(boxId: string, userId: string | undefined): Promise<BoxAccess | null> {
+  if (!userId) return null;
+  const box = await db.mediaBoxes.get(boxId);
+  if (!box) return null;
+  if (box.ownerId === userId) return "owner";
+  const roomIds = new Set(await myRoomIds(userId));
+  const mine = (await db.boxShares.where("boxId").equals(boxId).toArray()).filter((s) => s.userId === userId || (s.roomId && roomIds.has(s.roomId)));
+  if (!mine.length) return null;
+  return mine.some((s) => s.canEdit) ? "edit" : "view";
 }
 
 /** ボックスを使える人（持ち主・共有したフレンド・紐づけたルームのメンバー）。画像を入れた人の名前を出すのに使う */

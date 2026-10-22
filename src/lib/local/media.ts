@@ -10,8 +10,8 @@ import type { ImportFile } from "@/lib/media/folders";
 import { decodeImage, isImageFile, makeThumb, readImage, readRecordedDate } from "@/lib/media/image";
 import { PSD_MIME } from "@/lib/media/psd";
 import { childrenOf, descendants, withAncestors } from "@/lib/media/logic";
-import { loadBlobRow } from "@/lib/media/remote";
-import { uploadBoxForRoom } from "./boxes";
+import { loadBlobRow, loadShownBlob } from "@/lib/media/remote";
+import { boxAccess, uploadBoxForRoom } from "./boxes";
 import { renumber, renumberBoxes } from "./renumber";
 import { fetchReferencedMedia } from "./rowSync";
 import { db, newId, type Library, type Media, type MediaBlob } from "./db";
@@ -25,8 +25,9 @@ function ownCopy(row: MediaBlob, id: string): MediaBlob {
   return { ...rest, id };
 }
 
+/** ボックスの画像。完全に削除して小さい画像だけ残したもの（gone）は入れない */
 export function useMedia(boxId: string) {
-  return useLiveQuery(() => db.media.where("boxId").equals(boxId).sortBy("createdAt"), [boxId]);
+  return useLiveQuery(async () => (await db.media.where("boxId").equals(boxId).sortBy("createdAt")).filter((m) => !m.gone), [boxId]);
 }
 
 /** ボックスごとの画像の数と、表紙に使う新しい画像3枚（ゴミ箱の画像は除く） */
@@ -366,19 +367,62 @@ export async function restoreFromTrash(ids: string[]) {
   await renumberBoxes(await db.media.bulkGet(ids));
 }
 
-/** 完全に削除。アップロードした本人の画像だけ消し、他の人の画像は残す */
+/**
+ * 完全に削除。消せるのは、画像が入っているボックスの持ち主と、編集もできる共有の人（見るだけの人の分は残す）。
+ * チャットやデータベース・ノートで使われている画像は、元の画像を消して一覧用の小さい画像（WebP）だけ残す（gone）。
+ * メディアの一覧からは消えるが、チャットなどでは見られて、拡大もできる
+ */
 export async function deleteForever(ids: string[], userId: string) {
-  const rows = await db.media.bulkGet(ids);
-  const mine = rows.filter((m): m is Media => !!m && m.uploadedBy === userId).map((m) => m.id);
+  const rows = (await db.media.bulkGet(ids)).filter((m): m is Media => !!m);
+  const access = new Map<string, boolean>();
+  for (const boxId of new Set(rows.map((m) => m.boxId))) access.set(boxId, ["owner", "edit"].includes((await boxAccess(boxId, userId)) ?? ""));
+  const allowed = rows.filter((m) => access.get(m.boxId));
+  const ok = allowed.map((m) => m.id);
+  const used = await usedElsewhere(ok);
+  const thumbs = new Map<string, Blob>();
+  for (const id of used) {
+    const thumb = (await db.mediaBlobs.get(id))?.thumb ?? (await loadShownBlob(id, "thumb"));
+    if (thumb instanceof Blob) thumbs.set(id, thumb);
+  }
+  const gone = ok.filter((id) => !thumbs.has(id));
   await db.transaction("rw", db.media, db.mediaBlobs, db.libraries, async () => {
-    await db.media.bulkDelete(mine);
-    await db.mediaBlobs.bulkDelete(mine);
+    await db.media.bulkDelete(gone);
+    await db.mediaBlobs.bulkDelete(gone);
+    for (const m of allowed) {
+      const thumb = thumbs.get(m.id);
+      if (!thumb) continue;
+      // 小さい画像がそのまま「元の画像」になる。名前の番号からも外れるよう、ゴミ箱に入った扱いにしておく。
+      // rev は変えない（R2 には今の rev の小さい画像がもうあるので、置き直さずにそれだけ残す）
+      await db.media.update(m.id, { gone: true, trashed: true, fav: false, libIds: [], edited: false, mime: thumb.type || "image/webp", size: thumb.size });
+      // ほかの人が入れた画像は、R2 から取ってきたものと同じ扱いにする（自分のブラウザから R2 に置き直さない）
+      await db.mediaBlobs.put({ id: m.id, original: thumb, thumb, ...(m.uploadedBy !== userId && { remoteRev: m.rev ?? 0 }) });
+    }
     await db.libraries
-      .filter((l) => l.repMediaId !== null && mine.includes(l.repMediaId))
+      .filter((l) => l.repMediaId !== null && ok.includes(l.repMediaId))
       .modify({ repMediaId: null });
   });
-  forgetBlobUrls(mine);
-  return { deleted: mine.length, skipped: ids.length - mine.length };
+  forgetBlobUrls(gone);
+  refreshBlobUrls([...thumbs.keys()]);
+  return { deleted: ok.length, skipped: ids.length - ok.length, kept: thumbs.size };
+}
+
+/** チャットの発言・データベースのページ（項目・アイコン）・ノート・ウィンドウ・イメージユーザーのどれかで使われている画像 */
+async function usedElsewhere(ids: string[]): Promise<Set<string>> {
+  const used = new Set<string>();
+  if (!ids.length) return used;
+  const want = new Set(ids);
+  await db.messages.each((msg) => {
+    for (const id of msg.mediaIds) if (want.has(id)) used.add(id);
+  });
+  // 画像の ID は重ならないので、行を文字にして探す（ブロックの中など、どこに入っていても見つかる）
+  const tables = [db.dbPages, db.databases, db.notes, db.windows, db.imageUsers] as Dexie.Table<unknown>[];
+  for (const table of tables) {
+    await table.each((row) => {
+      const text = JSON.stringify(row);
+      for (const id of ids) if (!used.has(id) && text.includes(id)) used.add(id);
+    });
+  }
+  return used;
 }
 
 // ---- 編集（元の画像は source に残しておき、いつでも戻せる） ----

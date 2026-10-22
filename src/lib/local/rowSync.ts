@@ -6,7 +6,8 @@ import { db, type Message } from "./db";
 import { noticeOf } from "./chatNotify";
 import { pushMessage } from "@/lib/push";
 import { toast } from "@/components/ui/overlay";
-import { removeDeletedFiles } from "@/lib/media/remote";
+import { forgetBlobUrls } from "@/lib/media/blob-url";
+import { removeDeletedFiles, removeShrunkFiles } from "@/lib/media/remote";
 import { dmChatId } from "./dm";
 import { sb, supa } from "./sync";
 
@@ -223,6 +224,42 @@ function enqueue(tbl: Tbl, id: string, row: Row | null) {
   flushTimer = setTimeout(() => void flush(), 200);
 }
 
+/** 行が Supabase に届いたあと：自分の発言は通知を届けてもらい、小さい画像だけ残した画像（gone）は R2 のほかのファイルを消す */
+function afterSent(rows: { tbl: Tbl; data: Row }[]) {
+  pushMine(rows);
+  const shrunk = rows.flatMap(({ tbl, data }) => (tbl === "media" && data.gone ? [String(data.id)] : []));
+  if (shrunk.length) void removeShrunkFiles(shrunk);
+}
+
+// ---- 小さい画像だけ残した画像（gone）の片付け ----
+
+let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
+function cleanupSoon() {
+  if (cleanupTimer) clearTimeout(cleanupTimer);
+  cleanupTimer = setTimeout(() => void cleanupGoneMedia(), 3000);
+}
+
+/**
+ * 小さい画像だけ残した画像で、どこからも使われなくなったものを消す。
+ * 使われているかは Supabase がすべての行で確かめる（自分に見えない行で使われている画像は消さない）。
+ * 消せるのは自分が編集できるボックスの画像だけなので、ほかの画像は、編集できる人が開いたときに片付く
+ */
+async function cleanupGoneMedia() {
+  cleanupTimer = null;
+  if (!me) return;
+  const { data, error } = await sb().rpc("cleanup_gone_media");
+  if (error) return console.warn("使われなくなった画像を片付けられませんでした", error.message);
+  const ids = (data ?? []) as string[];
+  if (!ids.length) return;
+  await db.transaction("rw", db.media, db.mediaBlobs, async (tx) => {
+    (tx as unknown as Record<symbol, boolean>)[REMOTE] = true;
+    await db.media.bulkDelete(ids);
+    await db.mediaBlobs.bulkDelete(ids);
+  });
+  forgetBlobUrls(ids);
+  await removeDeletedFiles(ids);
+}
+
 /** 自分の発言が Supabase に届いたら、アプリを閉じている人にも通知を届けてもらう */
 function pushMine(rows: { tbl: Tbl; data: Row }[]) {
   for (const { tbl, data } of rows) {
@@ -276,8 +313,10 @@ async function flush() {
       const { data, error } = await sb().from("synced_rows").update({ deleted: true }).eq("tbl", tbl).in("id", ids).select("tbl,id,updated_at").returns<ServerRow[]>();
       remember(data);
       if (error) console.warn("Supabase で消せませんでした", tbl, error.message);
-      // 完全に削除した画像は、R2 のファイルも消す（消したことが Supabase に伝わってから。入れた本人の画像だけが消える）
+      // 完全に削除した画像は、R2 のファイルも消す（消したことが Supabase に伝わってから。消せるのはボックスを編集できる人）
       else if (tbl === "media") void removeDeletedFiles(ids);
+      // 発言やページなどを消したら、それで使われなくなった、小さい画像だけ残した画像を片付ける
+      else cleanupSoon();
       // つながらなかったときは覚えたままにして、次に開いたときに消し直す
       if (!error || error.code) for (const id of ids) settle(`${tbl}:${id}`);
     }
@@ -303,7 +342,7 @@ async function flush() {
         else if (error.code && !outbox.has(k)) setFailed(k, true);
       } else {
         offline.delete(k);
-        pushMine([row]);
+        afterSent([row]);
       }
       settle(k);
     };
@@ -320,7 +359,7 @@ async function flush() {
             offline.delete(`${row.tbl}:${row.id}`);
             settle(`${row.tbl}:${row.id}`);
           }
-          pushMine(batch);
+          afterSent(batch);
           continue;
         }
         // まとめて送れなかったら1行ずつ送り直す（送れない1行のせいで、ほかの行まで止めないため）
@@ -605,6 +644,7 @@ export async function startRowSync(userId: string | null) {
   await forgetLocalOnlyDms(userId);
   await backfillHostedRooms(userId);
   await sendMissingMedia(userId);
+  void cleanupGoneMedia();
   channel = freshChannel(`rows:${userId}`)
     .on("postgres_changes", { event: "*", schema: "public", table: "synced_rows" }, (payload) => {
       const row = payload.new as ServerRow | undefined;
