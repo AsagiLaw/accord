@@ -15,6 +15,7 @@ import { useMediaByIds } from "@/lib/local/media";
 import { copyText, LongText } from "./LongText";
 import { NewBelowButton, UnreadLine } from "./ChatView";
 import { useMessageWindow } from "./useMessageWindow";
+import { useAutoGrow } from "./useAutoGrow";
 import { useReadProgress } from "./useReadProgress";
 import { ChatSkeleton } from "@/components/Skeleton";
 
@@ -303,6 +304,8 @@ function ImageComposer({
   onSent: () => void;
 }) {
   const [text, setText] = useState("");
+  const input = useRef<HTMLTextAreaElement>(null);
+  useAutoGrow(input, text);
   const [attached, setAttached] = useState<string[]>([]);
   const [picking, setPicking] = useState(false);
   const [editingUser, setEditingUser] = useState<ImageUser | "new" | null>(null);
@@ -373,6 +376,7 @@ function ImageComposer({
           <Icon name="img" />
         </button>
         <textarea
+          ref={input}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -381,7 +385,7 @@ function ImageComposer({
               void send();
             }
           }}
-          rows={Math.min(5, text.split("\n").length)}
+          rows={1}
           // ふつうのチャットと同じ文字。話す人は上の並びで分かる。話す人がまだいないときの案内は、カーソルを合わせたときに出す
           placeholder="メッセージを入力"
           title={speaker ? "Enterで送信・Shift＋Enterで改行" : "上の「＋イメージユーザー」で話す人を作ると書けます"}

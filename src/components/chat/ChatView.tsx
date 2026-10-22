@@ -19,6 +19,7 @@ import { useAllProfiles, type MemberWithProfile } from "@/lib/local/rooms";
 import { InviteCard } from "./InviteCard";
 import { copyText, LongText } from "./LongText";
 import { jumpToMessage, useMessageWindow } from "./useMessageWindow";
+import { useAutoGrow } from "./useAutoGrow";
 import { useReadProgress } from "./useReadProgress";
 import { ChatSkeleton } from "@/components/Skeleton";
 
@@ -513,6 +514,7 @@ function Composer({
   const [uploading, setUploading] = useState(false);
   const [speaker, setSpeaker] = useState(speakers?.[0] ?? "");
   const input = useRef<HTMLTextAreaElement>(null);
+  useAutoGrow(input, text);
   const canSend = (text.trim() || attached.length) && !uploading;
 
   useEffect(() => {
@@ -634,7 +636,7 @@ function Composer({
               send();
             }
           }}
-          rows={Math.min(6, text.split("\n").length)}
+          rows={1}
           placeholder={speakers ? `${speaker || speakers[0]}の発言` : "メッセージを入力"}
           title="Enterで送信・Shift＋Enterで改行"
           aria-label="メッセージ"
