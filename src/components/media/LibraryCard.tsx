@@ -15,6 +15,7 @@ export function CoverCard({
   active,
   size,
   openOnDoubleClick,
+  libId,
 }: {
   href?: string;
   name: string;
@@ -27,6 +28,8 @@ export function CoverCard({
   size?: number;
   /** ダブルクリックで開く（ライブラリー）。1回のクリックでは選んだ印だけ付ける（Windows のフォルダと同じ） */
   openOnDoubleClick?: boolean;
+  /** ライブラリーのカードなら、その ID（右クリックで「画像を追加」を出す） */
+  libId?: string;
 }) {
   const router = useMediaRouter();
   const body = (
@@ -67,6 +70,7 @@ export function CoverCard({
   return (
     <div
       data-name={`カード「${name}」`}
+      data-lib-card={libId}
       className="relative"
       style={size ? { width: size * 1.5 + 2 } : undefined}
     >

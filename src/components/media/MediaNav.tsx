@@ -15,6 +15,7 @@ import {
   newLibraryFlow,
   uploadFlow,
 } from "./flows";
+import { requestAddTo } from "./MediaContext";
 import { MediaLink, useMediaRouter } from "./MediaLink";
 import {
   MenuDivider,
@@ -432,6 +433,16 @@ export function MediaNav({
           {menuLib && (
             <>
               <MenuLabel>{menuLib.name}</MenuLabel>
+              <MenuItem
+                icon={<Icon name="add" size={16} />}
+                onClick={() => {
+                  libMenu.close();
+                  requestAddTo(boxId, menuLib.id);
+                }}
+              >
+                「{menuLib.name}」に画像を追加
+              </MenuItem>
+              <MenuDivider />
               {LIBRARY_MENU.map((item, i) => (
                 <div key={item.label}>
                   {"danger" in item && <MenuDivider />}

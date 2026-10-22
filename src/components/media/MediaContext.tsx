@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { Library, Media, Profile } from "@/lib/local/db";
 import { useLibraries, useMedia } from "@/lib/local/media";
 import type { MemberWithProfile } from "@/lib/local/rooms";
@@ -47,6 +47,13 @@ export function useMediaState() {
   return v;
 }
 
+const ADD_TO_EVENT = "accord:media-add-to";
+
+/** メディア画面の外（サイドバーの右クリック）から、ライブラリーの「画像を追加」ダイアログを開く */
+export function requestAddTo(boxId: string, libId: string) {
+  window.dispatchEvent(new CustomEvent(ADD_TO_EVENT, { detail: { boxId, libId } }));
+}
+
 export function MediaProvider({
   boxId,
   base,
@@ -75,6 +82,15 @@ export function MediaProvider({
   const [addingTo, setAddingTo] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onAdd = (e: Event) => {
+      const d = (e as CustomEvent<{ boxId: string; libId: string }>).detail;
+      if (d.boxId === boxId && canEdit) setAddingTo(d.libId);
+    };
+    window.addEventListener(ADD_TO_EVENT, onAdd);
+    return () => window.removeEventListener(ADD_TO_EVENT, onAdd);
+  }, [boxId, canEdit]);
 
   const value = useMemo<MediaState | null>(() => {
     if (!media || !libs) return null;

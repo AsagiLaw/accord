@@ -124,9 +124,11 @@ export function MediaView({ view }: { view: MediaViewKind }) {
       // 覚えられなくても、このページの間は効く
     }
   };
-  const [ctxKind, setCtxKind] = useState<"media" | "viewing" | "empty">(
+  const [ctxKind, setCtxKind] = useState<"media" | "viewing" | "empty" | "card">(
     "media",
   );
+  // 右クリックしたライブラリーのカード
+  const [ctxCard, setCtxCard] = useState<Library | null>(null);
 
   const lib =
     view.kind === "lib" ? libs.find((l) => l.id === view.id) : undefined;
@@ -225,8 +227,14 @@ export function MediaView({ view }: { view: MediaViewKind }) {
   useEffect(() => {
     const onCtx = (e: MouseEvent) => {
       const t = e.target as Element;
+      const card = t.closest<HTMLElement>("[data-lib-card]")?.dataset.libCard;
       if (viewingMedia && t.closest('[data-name="画像の大きな表示"]')) {
         setCtxKind("viewing");
+      } else if (card && canEdit) {
+        const l = libs.find((x) => x.id === card);
+        if (!l) return;
+        setCtxCard(l);
+        setCtxKind("card");
       } else if (t.closest('[data-name="画像一覧"] [data-media]')) {
         const id = t.closest<HTMLElement>("[data-media]")!.dataset.media!;
         // 選んでいない画像を右クリックしたら、その画像だけを選ぶ
@@ -239,7 +247,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
     };
     window.addEventListener("contextmenu", onCtx);
     return () => window.removeEventListener("contextmenu", onCtx);
-  }, [viewingMedia, selected, setSelected, lib, openCtx]);
+  }, [viewingMedia, selected, setSelected, lib, openCtx, canEdit, libs]);
 
   if (view.kind === "lib" && !lib) {
     return (
@@ -285,6 +293,16 @@ export function MediaView({ view }: { view: MediaViewKind }) {
         )}
       </>
     );
+    if (ctxKind === "card" && ctxCard) {
+      return (
+        <MenuItem
+          icon={<Icon name="add" size={16} />}
+          onClick={run(() => s.setAddingTo(ctxCard.id))}
+        >
+          「{ctxCard.name}」に画像を追加
+        </MenuItem>
+      );
+    }
     // 見るだけのボックス：中身を変えない操作（コピー・ダウンロード）だけ
     if (!canEdit) {
       const items = ctxKind === "viewing" && viewingMedia ? [viewingMedia] : ctxKind === "media" ? selected.flatMap((id) => s.byId.get(id) ?? []) : [];
@@ -701,6 +719,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
                               key={k.id}
                               href={`${base}/lib/${k.id}`}
                               openOnDoubleClick
+                              libId={k.id}
                               name={k.name}
                               covers={coverOf(media, k)}
                             />
@@ -905,6 +924,7 @@ function LibraryRows({ size }: { size: number }) {
           size={size}
           href={`${base}/lib/${l.id}`}
           openOnDoubleClick
+          libId={l.id}
           name={l.name}
           covers={coverOf(media, l)}
         >
