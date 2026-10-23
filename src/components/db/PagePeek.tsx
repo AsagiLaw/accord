@@ -9,6 +9,7 @@ import { ButtonPagePeek } from "./ButtonPagePeek";
 import { InnerPeekContext, PeekContext, SubPeekContext, type InnerPageTarget, type PeekMode, type SubPageTarget } from "./PageLink";
 import { SubPagePeek } from "./SubPagePeek";
 import { PageName } from "./views/common";
+import { isBackdropClick } from "@/components/ui/backdrop";
 
 /** ルームの中に置く。開いているページは、ページを移ったら閉じる */
 export function PagePeekProvider({ children }: { children: React.ReactNode }) {
@@ -98,7 +99,7 @@ function PagePeek({ roomId, dbId, pageId, mode, onClose }: { roomId: string; dbI
   return (
     <div
       className="fixed inset-0 z-[45] flex animate-[fade_.15s] items-center justify-center bg-black/40 p-[clamp(8px,4vw,48px)]"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => isBackdropClick(e) && onClose()}
       data-name="ページのポップアップ"
     >
       <div role="dialog" aria-modal="true" aria-label="ページ" className="flex h-full max-h-[92dvh] w-full max-w-5xl flex-col overflow-hidden rounded-[14px] border border-line bg-bg shadow-2xl">

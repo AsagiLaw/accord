@@ -10,6 +10,7 @@ import { useMembers } from "@/lib/local/rooms";
 import { DatabaseView } from "./DatabaseView";
 import { PagePeekProvider } from "./PagePeek";
 import { DatabaseSkeleton } from "@/components/Skeleton";
+import { isBackdropClick } from "@/components/ui/backdrop";
 
 /**
  * データベースの画面を、画面の真ん中に重ねて出す（サイドバーのデータベースカテゴリーの「編集」から）。
@@ -50,7 +51,7 @@ export function DatabasePopup({ roomId, dbId, userId, onClose }: { roomId: strin
     <div
       ref={root}
       className="fixed inset-0 z-[46] flex animate-[fade_.15s] items-center justify-center bg-black/40 p-[clamp(8px,4vw,48px)]"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => isBackdropClick(e) && onClose()}
       data-name="データベースのポップアップ"
     >
       <div role="dialog" aria-modal="true" aria-label={database ? `データベース「${database.name}」` : "データベース"} data-db-popup="" className="flex h-full max-h-[92dvh] w-full max-w-7xl flex-col overflow-hidden rounded-[14px] border border-line bg-bg shadow-2xl">

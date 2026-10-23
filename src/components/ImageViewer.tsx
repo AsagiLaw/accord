@@ -10,6 +10,7 @@ import { ensureInBox } from "@/lib/local/media";
 import { useCurrentUser } from "@/lib/local/session";
 import { useBlobUrl } from "@/lib/media/blob-url";
 import { downloadOriginals } from "@/lib/media/export";
+import { isBackdropClick } from "@/components/ui/backdrop";
 
 /** 拡大の上限（画面に合わせた大きさの何倍まで） */
 const MAX_ZOOM = 8;
@@ -128,7 +129,7 @@ export function ImageViewer({ items, start, roomId, onClose }: { items: Media[];
       <div
         ref={area}
         className="relative min-h-0 flex-1 overflow-hidden"
-        onClick={(e) => e.target === e.currentTarget && view.zoom === 1 && onClose()}
+        onClick={(e) => isBackdropClick(e) && view.zoom === 1 && onClose()}
         onWheel={(e) => zoomTo(view.zoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2), e.clientX, e.clientY)}
       >
         {url && (

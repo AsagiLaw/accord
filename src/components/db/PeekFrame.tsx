@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { Icon } from "@/components/Icon";
+import { isBackdropClick } from "@/components/ui/backdrop";
 
 /**
  * 画面の真ん中に重ねるポップアップの枠（別ページ・ノート・ウィンドウのポップアップで使う。ページのポップアップの上にも重なる）。
@@ -24,7 +25,7 @@ export function PeekFrame({ name, label, head, onClose, children }: { name: stri
   return (
     <div
       className="fixed inset-0 z-[47] flex animate-[fade_.15s] items-center justify-center bg-black/40 p-[clamp(8px,4vw,48px)]"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => isBackdropClick(e) && onClose()}
       data-name={name}
     >
       <div role="dialog" aria-modal="true" aria-label={label} className="flex h-full max-h-[92dvh] w-full max-w-5xl flex-col overflow-hidden rounded-[14px] border border-line bg-bg shadow-2xl">

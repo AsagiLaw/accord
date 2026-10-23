@@ -20,6 +20,7 @@ import { useMessageWindow } from "./useMessageWindow";
 import { useAutoGrow } from "./useAutoGrow";
 import { useReadProgress } from "./useReadProgress";
 import { ChatSkeleton } from "@/components/Skeleton";
+import { isBackdropClick } from "@/components/ui/backdrop";
 
 /** イメージユーザーのアイコン（絵文字かメディアの画像。無ければ名前の1文字目） */
 export function ImageUserIcon({ user, size = 32 }: { user: ImageUser | undefined; size?: number }) {
@@ -461,7 +462,7 @@ function ImageUserDialog({ roomId, scope, userId, user, onClose }: { roomId: str
   const preview: ImageUser = { id: "", roomId, name: name || "？", icon, mediaId, createdAt: 0 };
 
   return (
-    <div className="sheet-backdrop fixed inset-0 z-[57] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="sheet-backdrop fixed inset-0 z-[57] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => isBackdropClick(e) && onClose()}>
       <form
         role="dialog"
         aria-modal="true"

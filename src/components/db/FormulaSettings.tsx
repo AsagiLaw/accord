@@ -8,6 +8,7 @@ import { updateProperty, useDatabase, usePages } from "@/lib/local/requests";
 import { FUNCTIONS, evalFormula, formulaToSimple, simpleToFormula, type SimpleFormula, type SimpleOp } from "@/lib/requests/formula";
 import { formatValue } from "@/lib/requests/logic";
 import { PropIcon } from "./meta";
+import { isBackdropClick } from "@/components/ui/backdrop";
 
 /*
  * 数式の項目の設定。「かんたん」は項目と計算を選んで作り、「式」は式を書く（項目や関数は押して入れられる）。
@@ -108,7 +109,7 @@ function FormulaEditor({ database, prop }: { database: Database; prop: Property 
   };
 
   return (
-    <div className="sheet-backdrop fixed inset-0 z-[56] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => e.target === e.currentTarget && close()} data-overlay="">
+    <div className="sheet-backdrop fixed inset-0 z-[56] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => isBackdropClick(e) && close()} data-overlay="">
       <div role="dialog" aria-modal="true" aria-label="数式の設定" data-name="数式の設定ダイアログ" className="flex max-h-[92dvh] w-full max-w-xl flex-col rounded-t-[20px] border border-line bg-card sm:rounded-[14px]">
         <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
           <h3 className="font-bold">数式の設定（{prop.name}）</h3>

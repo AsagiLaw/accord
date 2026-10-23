@@ -7,6 +7,7 @@ import { notifyPermission, setDueNotify, useDueNotify } from "@/lib/local/dueNot
 import { updateDatabase } from "@/lib/local/requests";
 import { useCurrentUser } from "@/lib/local/session";
 import { canBeDue, dueDaysOf, dueProp } from "@/lib/requests/due";
+import { isBackdropClick } from "@/components/ui/backdrop";
 
 /** 納期のお知らせの設定：どの日付を納期にするか・何日前から近いとするか（データベースごと）と、この端末でブラウザの通知を出すか */
 export function DueSettings({ database, onClose }: { database: Database; onClose: () => void }) {
@@ -26,7 +27,7 @@ export function DueSettings({ database, onClose }: { database: Database; onClose
   };
 
   return (
-    <div className="sheet-backdrop fixed inset-0 z-[56] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => e.target === e.currentTarget && onClose()} data-overlay="">
+    <div className="sheet-backdrop fixed inset-0 z-[56] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => isBackdropClick(e) && onClose()} data-overlay="">
       <div role="dialog" aria-modal="true" aria-label="納期のお知らせ" data-name="納期のお知らせの設定" className="flex max-h-[92dvh] w-full max-w-md flex-col rounded-t-[20px] border border-line bg-card sm:rounded-[14px]">
         <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
           <h3 className="font-bold">納期のお知らせ</h3>

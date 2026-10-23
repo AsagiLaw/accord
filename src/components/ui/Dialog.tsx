@@ -2,6 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { Icon } from "@/components/Icon";
+import { isBackdropClick } from "./backdrop";
 
 /**
  * 見るためのポップアップ（オールビューの「すべて見る」、カレンダーのその日の予定など）。
@@ -11,7 +12,7 @@ import { Icon } from "@/components/Icon";
 export function PopupDialog({ title, onClose, children, width = "max-w-5xl", note }: { title: string; onClose: () => void; children: React.ReactNode; width?: string; note?: string }) {
   if (typeof document === "undefined") return null;
   return createPortal(
-    <div className="sheet-backdrop fixed inset-0 z-[56] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => e.target === e.currentTarget && onClose()} data-overlay="">
+    <div className="sheet-backdrop fixed inset-0 z-[56] flex items-end justify-center bg-black/50 sm:items-center" onClick={(e) => isBackdropClick(e) && onClose()} data-overlay="">
       <div role="dialog" aria-modal="true" aria-label={title} className={`flex max-h-[92dvh] w-full ${width} flex-col rounded-t-[20px] border border-line bg-card sm:rounded-[14px]`}>
         <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
           <h3 className="font-bold" title={note}>

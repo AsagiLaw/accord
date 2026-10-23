@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
+import { isBackdropClick } from "@/components/ui/backdrop";
 
 /** 切り抜く枠の大きさ（画面の上の px） */
 const STAGE = 280;
@@ -67,7 +68,7 @@ export function AvatarCropper({ source, onCancel, onDone }: { source: Blob; onCa
     <div
       data-overlay=""
       className="sheet-backdrop fixed inset-0 z-[57] flex items-end justify-center bg-black/50 sm:items-center"
-      onClick={(e) => e.target === e.currentTarget && onCancel()}
+      onClick={(e) => isBackdropClick(e) && onCancel()}
     >
       <div role="dialog" aria-modal="true" aria-label="アイコンの切り抜き" data-name="アイコンの切り抜き" className="w-full max-w-sm rounded-t-[20px] border border-line bg-card sm:rounded-[14px]">
         <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">

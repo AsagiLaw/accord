@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { isBackdropClick } from "./backdrop";
 
 // 画面のどこからでも呼べる、お知らせ（元に戻す付き）・選択ダイアログ・名前入力
 
@@ -115,7 +116,7 @@ export function OverlayHost() {
       {top && (
         <div
           className="sheet-backdrop fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center"
-          onClick={(e) => e.target === e.currentTarget && close(top, null)}
+          onClick={(e) => isBackdropClick(e) && close(top, null)}
         >
           <div role="dialog" aria-modal="true" data-overlay aria-label={top.title} data-name={`${top.kind === "prompt" ? "入力" : "確認"}ダイアログ「${top.title}」`} className="w-full max-w-md rounded-t-[20px] border border-line bg-card p-5 sm:rounded-[14px]">
             <h3 className="mb-2 font-bold">{top.title}</h3>

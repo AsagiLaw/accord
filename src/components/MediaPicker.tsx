@@ -15,6 +15,7 @@ import { useMediaPrefs } from "@/lib/media/prefs";
 import { ThumbImage } from "@/components/ThumbImage";
 import { CoverCard } from "@/components/media/LibraryCard";
 import { SortMenu } from "@/components/media/SortMenu";
+import { isBackdropClick } from "@/components/ui/backdrop";
 
 /** 左のサイドバーで選んでいる場所（メディアの画面と同じ並び） */
 type Place = "home" | "unsorted" | "fav" | `lib:${string}`;
@@ -168,7 +169,7 @@ export function MediaPicker({
   const placeName = place === "home" ? "ホーム" : place === "unsorted" ? "未整理" : place === "fav" ? "お気に入り" : (lib?.name ?? "");
 
   return (
-    <div className="sheet-backdrop fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="sheet-backdrop fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={(e) => isBackdropClick(e) && onClose()}>
       <div
         role="dialog"
         aria-modal="true"

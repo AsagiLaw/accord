@@ -8,6 +8,7 @@ import { MenuTitle, NavRow, OptionRow, SectionHead, ToggleRow } from "@/componen
 import { setBoxAutoName, useBox } from "@/lib/local/boxes";
 import { PREVIEW_FIELDS, type PreviewField } from "@/lib/media/logic";
 import { updatePrefs, useMediaPrefs } from "@/lib/media/prefs";
+import { isBackdropClick } from "@/components/ui/backdrop";
 
 const FIELD_ICON: Record<PreviewField, IconName> = {
   title: "title",
@@ -60,7 +61,7 @@ export function MediaSettingsDialog({
   return createPortal(
     <div
       className="sheet-backdrop fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => isBackdropClick(e) && onClose()}
     >
       <div
         role="dialog"

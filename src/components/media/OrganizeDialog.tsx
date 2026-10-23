@@ -12,6 +12,7 @@ import { newLibraryFlow } from "./flows";
 import { CoverCard } from "./LibraryCard";
 import { useMediaState } from "./MediaContext";
 import { ThumbImage } from "./Thumb";
+import { isBackdropClick } from "@/components/ui/backdrop";
 
 /**
  * 「整理」：選んだ画像を入れるライブラリーを選ぶ（複数可）。
@@ -228,7 +229,7 @@ export function OrganizeDialog({ ids }: { ids: string[] }) {
   return (
     <div
       className="sheet-backdrop fixed inset-0 z-[55] flex items-end justify-center bg-black/50 sm:items-center"
-      onClick={(e) => e.target === e.currentTarget && close()}
+      onClick={(e) => isBackdropClick(e) && close()}
     >
       <div
         role="dialog"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePeek } from "@/components/db/PageLink";
 import { TAG_COLORS } from "@/components/db/meta";
 import { tintOf } from "@/components/db/views/groups";
@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { DateInput, TimeInput } from "@/components/ui/DateInput";
 import { PopupDialog } from "@/components/ui/Dialog";
 import { confirmAction } from "@/components/ui/overlay";
-import { MenuDivider } from "@/components/ui/Popover";
+import { MenuDivider, MenuItem, Popover, usePopover } from "@/components/ui/Popover";
 import { Segmented } from "@/components/ui/Segmented";
 import { BackHead, EmptyNote, MenuTitle, NavRow, OptionRow, SectionHead, ToggleRow } from "@/components/ui/SettingsMenu";
 import { newId, type CalEvent, type Database, type DbPage, type TagColor } from "@/lib/local/db";
@@ -63,7 +63,22 @@ const addMonths = (ymd: string, n: number) => {
   return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 10);
 };
 
-export const parseDbs = (s: string): DbSource[] => {
+/** コピー・カットした予定（ほかのカレンダーブロックにも貼れる）。cut のときは、貼ると元の予定を動かす */
+type Clip = { events: CalEvent[]; cut: boolean };
+let clip: Clip | null = null;
+const clipListeners = new Set<() => void>();
+const setClip = (c: Clip | null) => {
+  clip = c;
+  clipListeners.forEach((f) => f());
+};
+const useClip = () =>
+  useSyncExternalStore(
+    (f) => (clipListeners.add(f), () => clipListeners.delete(f)),
+    () => clip,
+    () => null,
+  );
+
+export const parseDbs =(s: string): DbSource[] => {
   try {
     const v: unknown = JSON.parse(s || "[]");
     return Array.isArray(v) ? v.filter((x): x is DbSource => !!x && typeof x.dbId === "string" && typeof x.propId === "string") : [];
@@ -188,6 +203,149 @@ export function CalendarBlockView({ props, onChange, fill }: { props: CalendarPr
     if (it.event) setEditing({ event: it.event, date: it.event.date });
   };
 
+  // ---- 選ぶ・コピー・カット・貼り付け ----
+  // 予定を押すと選ぶ（Ctrl で足す・外す、Shift で前に選んだものからそこまで）。何も無いところを押すと、その日を選ぶ。
+  // ダブルクリックで開く（何も無いところは、その日に予定を足す）。Ctrl+C・Ctrl+X で選んだ予定を、Ctrl+V で選んだ日に貼る
+  const root = useRef<HTMLDivElement>(null);
+  const cb = useClip();
+  /** 選んだ予定（このカレンダー・ルームの予定は予定の id、データベースのページは CalItem の key） */
+  const [sel, setSel] = useState<string[]>([]);
+  const [selDay, setSelDay] = useState<string | null>(null);
+  /** Shift で選ぶときの起点と、その予定を押した日（日を選んでいないときは、この日に貼る） */
+  const anchor = useRef<{ id: string; day: string } | null>(null);
+  const idOf = (it: Item) => it.event?.id ?? it.key;
+  const focusRoot = () => root.current?.focus({ preventScroll: true });
+  /** いま出している予定の、上から（日付の）順の id */
+  const order = () => [...new Set((range === "list" ? listDays.flatMap((x) => x.list) : days.flatMap((d) => dayList(d))).map(idOf))];
+  const selectItem = (it: Item, day: string, e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => {
+    const id = idOf(it);
+    const add = e.ctrlKey || e.metaKey;
+    const ids = order();
+    const a = anchor.current ? ids.indexOf(anchor.current.id) : -1;
+    const b = ids.indexOf(id);
+    if (e.shiftKey && a >= 0 && b >= 0) {
+      const between = ids.slice(Math.min(a, b), Math.max(a, b) + 1);
+      setSel(add ? [...new Set([...sel, ...between])] : between);
+    } else {
+      setSel(add ? (sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]) : [id]);
+      anchor.current = { id, day };
+    }
+    setSelDay(null);
+    focusRoot();
+  };
+  const selectDay = (d: string) => {
+    setSel([]);
+    setSelDay(d);
+    anchor.current = null;
+    focusRoot();
+  };
+  const clearSel = () => {
+    setSel([]);
+    setSelDay(null);
+    anchor.current = null;
+  };
+  // カレンダーの外を押したら、選んだものを外す（右クリックのメニューの中は除く）
+  const hasSel = sel.length > 0 || !!selDay;
+  useEffect(() => {
+    if (!hasSel) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element;
+      if (root.current?.contains(t) || t.closest?.("[role=menu]")) return;
+      setSel([]);
+      setSelDay(null);
+      anchor.current = null;
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [hasSel]);
+
+  /** 選んだもののうち、このカレンダー・ルームの予定（データベースのページはコピーしない） */
+  const selEvents = () => events.filter((e) => sel.includes(e.id));
+  const copy = (cut: boolean) => {
+    const list = selEvents();
+    if (!list.length || (cut && ctx.template)) return false;
+    setClip({ events: list, cut });
+    return true;
+  };
+  /** 貼る日：選んだ日か、選んだ予定を押した日 */
+  const pasteDay = () => selDay ?? (sel.length ? anchor.current?.day : null) ?? null;
+  /** day に貼る。いくつかのときは、いちばん早い予定がその日になるように、間の日数はそのままでずらす */
+  const paste = async (day: string | null) => {
+    const c = clip;
+    if (!c || !day || !canAdd) return false;
+    const n = daysBetween(c.events.reduce((m, e) => (e.date < m ? e.date : m), c.events[0].date), day);
+    // 貼る先：このカレンダー・ルームの予定のどちらかで出しているものはそのまま、ほかはこのカレンダー（出していなければルームの予定）
+    const keep = (e: CalEvent) => e.roomId === ctx.roomId && (e.calendarId ? own && e.calendarId === props.calendarId : room);
+    for (const e of c.events) {
+      const fields = {
+        date: addDays(e.date, n),
+        end: e.end ? addDays(e.end, n) : undefined,
+        text: e.text,
+        time: e.time,
+        endTime: e.endTime,
+        color: e.color,
+        memo: e.memo,
+        done: e.done,
+        calendarId: keep(e) ? e.calendarId : own && props.calendarId ? props.calendarId : undefined,
+      };
+      if (c.cut && e.roomId === ctx.roomId) await saveCalEvent(ctx.roomId, e.id, fields);
+      else {
+        await saveCalEvent(ctx.roomId, null, fields);
+        if (c.cut) await deleteEvent(e.id);
+      }
+    }
+    // カットしたものは1回だけ貼る
+    if (c.cut) {
+      setClip(null);
+      setSel(c.events.filter((e) => e.roomId === ctx.roomId).map((e) => e.id));
+      setSelDay(null);
+    }
+    return true;
+  };
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const t = e.target as HTMLElement;
+    // 中のポップアップ（予定の画面など）から来たキーや、文字を打つところでは何もしない
+    if (!root.current?.contains(t) || t.closest("input, textarea, [contenteditable=true]")) return;
+    if (e.key === "Escape" && hasSel) {
+      e.stopPropagation();
+      return clearSel();
+    }
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+    const k = e.key.toLowerCase();
+    const done = k === "c" ? copy(false) : k === "x" ? copy(true) : k === "v" ? !!clip && !!pasteDay() && canAdd : false;
+    if (k === "v" && done) void paste(pasteDay());
+    if (done) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  // 右クリックのメニュー（予定の上：開く・コピー・カット・貼り付け。日のマス：貼り付け・予定を追加）
+  const menu = usePopover();
+  const [menuAt, setMenuAt] = useState<{ day: string; item?: Item } | null>(null);
+  const onItemMenu = (e: React.MouseEvent, it: Item, day: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // 選んでいないものを右クリックしたら、それだけを選ぶ
+    if (!sel.includes(idOf(it))) selectItem(it, day, { shiftKey: false, ctrlKey: false, metaKey: false });
+    else anchor.current = { id: idOf(it), day };
+    setMenuAt({ day, item: it });
+    menu.openAt(e);
+  };
+  const onDayMenu = (e: React.MouseEvent, d: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    selectDay(d);
+    if (!canAdd) return;
+    setMenuAt({ day: d });
+    menu.openAt(e);
+  };
+  const closeMenu = () => {
+    menu.close();
+    setMenuAt(null);
+  };
+  const menuSelEvents = menuAt?.item ? selEvents() : [];
+
   /** マウスの下の日（帯が上に重なっていても、その下の日のマス） */
   const dayAt = (x: number, y: number) => document.elementsFromPoint(x, y).find((el) => el instanceof HTMLElement && el.dataset.day)?.getAttribute("data-day") ?? null;
 
@@ -260,10 +418,16 @@ export function CalendarBlockView({ props, onChange, fill }: { props: CalendarPr
         onPointerDown={movable ? (e) => startDrag(e, ev, "move") : undefined}
         onClick={(e) => {
           e.stopPropagation();
+          selectItem(it, d, e);
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
           openItem(it);
         }}
+        onContextMenu={(e) => onItemMenu(e, it, d)}
+        aria-pressed={sel.includes(idOf(it))}
         title={`${it.time ? `${it.time} ` : ""}${it.text}${ev && end > ev.date ? `（${md(ev.date)}〜${md(end)}）` : ""}${ev?.memo ? `\n${ev.memo}` : ""}`}
-        className={`group/chip relative flex min-w-0 shrink-0 gap-1 px-1 py-px text-left text-[11px] leading-4 ${fromLeft ? "ml-0 rounded-l-none" : "ml-1 rounded-l-[5px]"} ${toRight ? "mr-0 rounded-r-none" : "mr-1 rounded-r-[5px]"} ${wrap ? "items-start" : "items-center"} ${it.done ? "text-muted line-through" : ""} ${movable ? "cursor-grab touch-none" : ""} ${drag?.id === ev?.id ? "ring-1 ring-accent" : ""}`}
+        className={`group/chip relative flex min-w-0 shrink-0 gap-1 px-1 py-px text-left text-[11px] leading-4 ${fromLeft ? "ml-0 rounded-l-none" : "ml-1 rounded-l-[5px]"} ${toRight ? "mr-0 rounded-r-none" : "mr-1 rounded-r-[5px]"} ${wrap ? "items-start" : "items-center"} ${it.done ? "text-muted line-through" : ""} ${movable ? "cursor-grab touch-none" : ""} ${drag?.id === ev?.id || sel.includes(idOf(it)) ? "z-[1] outline-2 -outline-offset-1 outline-accent" : ""} ${cb?.cut && ev && cb.events.some((x) => x.id === ev.id) ? "opacity-50" : ""}`}
         style={{ background: tintOf(it.hue, it.page ? 14 : 24), boxShadow: fromLeft ? undefined : `inset 2px 0 0 ${it.hue}` }}
         data-name="カレンダーの予定"
       >
@@ -320,7 +484,10 @@ export function CalendarBlockView({ props, onChange, fill }: { props: CalendarPr
 
   return (
     <div
-      className={`w-full overflow-hidden rounded-[14px] border border-line bg-card ${fill ? "flex h-full flex-col" : ""}`}
+      ref={root}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
+      className={`w-full overflow-hidden rounded-[14px] border border-line bg-card outline-none ${fill ? "flex h-full flex-col" : ""}`}
       data-fill={fill ? "" : undefined}
       contentEditable={false}
       data-name="カレンダーブロック"
@@ -358,13 +525,13 @@ export function CalendarBlockView({ props, onChange, fill }: { props: CalendarPr
         // リスト：日付の見出しと、その日の予定（押すと直す・ページを開く。日付を押すと、その日に予定を足す）
         <div className={`divide-y divide-line ${fill ? "min-h-0 flex-1 overflow-y-auto" : ""}`} data-name="カレンダーのリスト">
           {listDays.map(({ date: d, list }) => (
-            <div key={d} className="flex gap-3 px-3 py-2">
+            <div key={d} className="flex gap-3 px-3 py-2" onContextMenu={(e) => onDayMenu(e, d)}>
               <button
                 type="button"
-                onClick={() => openNew(d)}
-                disabled={!canAdd}
-                title={canAdd ? "この日に予定を追加" : undefined}
-                className={`w-16 shrink-0 self-start rounded-[6px] px-1 text-left text-sm enabled:hover:bg-tint ${d === now ? "font-bold text-accent" : dayOfWeek(d) === 0 ? "text-warn" : dayOfWeek(d) === 6 ? "text-accent" : ""}`}
+                onClick={() => selectDay(d)}
+                onDoubleClick={() => openNew(d)}
+                title={canAdd ? "ダブルクリックでこの日に予定を追加" : undefined}
+                className={`w-16 shrink-0 self-start rounded-[6px] px-1 text-left text-sm hover:bg-tint ${selDay === d ? "outline-2 -outline-offset-1 outline-accent" : ""} ${d === now ? "font-bold text-accent" : dayOfWeek(d) === 0 ? "text-warn" : dayOfWeek(d) === 6 ? "text-accent" : ""}`}
               >
                 {md(d)}
                 <span className="ml-0.5 text-xs text-muted">（{WEEK[dayOfWeek(d)]}）</span>
@@ -375,8 +542,11 @@ export function CalendarBlockView({ props, onChange, fill }: { props: CalendarPr
                   <button
                     key={it.key}
                     type="button"
-                    onClick={() => openItem(it)}
-                    className={`flex w-full min-w-0 items-start gap-2 rounded-[8px] py-1 pr-2 pl-3 text-left text-sm hover:bg-tint ${it.done ? "text-muted line-through" : ""}`}
+                    onClick={(e) => selectItem(it, d, e)}
+                    onDoubleClick={() => openItem(it)}
+                    onContextMenu={(e) => onItemMenu(e, it, d)}
+                    aria-pressed={sel.includes(idOf(it))}
+                    className={`flex w-full min-w-0 items-start gap-2 rounded-[8px] py-1 pr-2 pl-3 text-left text-sm hover:bg-tint ${sel.includes(idOf(it)) ? "bg-tint outline-2 -outline-offset-1 outline-accent" : ""} ${cb?.cut && it.event && cb.events.some((x) => x.id === it.event?.id) ? "opacity-50" : ""} ${it.done ? "text-muted line-through" : ""}`}
                     style={{ boxShadow: `inset 3px 0 0 ${it.hue}` }}
                     data-name="カレンダーの予定（リスト）"
                   >
@@ -410,8 +580,12 @@ export function CalendarBlockView({ props, onChange, fill }: { props: CalendarPr
           return (
             <div
               key={d}
-              onClick={() => openNew(d)}
-              className={`group flex min-w-0 flex-col gap-0.5 py-1 ${fill ? "min-h-0 overflow-x-hidden overflow-y-auto" : cellMin} ${outside ? "bg-bg/60" : "bg-card"} ${canAdd ? "cursor-pointer" : ""}`}
+              onClick={() => selectDay(d)}
+              onDoubleClick={() => openNew(d)}
+              onContextMenu={(e) => onDayMenu(e, d)}
+              data-selected={selDay === d ? "" : undefined}
+              title={canAdd ? "ダブルクリックで予定を追加" : undefined}
+              className={`group flex min-w-0 flex-col gap-0.5 py-1 ${fill ? "min-h-0 overflow-x-hidden overflow-y-auto" : cellMin} ${outside ? "bg-bg/60" : "bg-card"} ${selDay === d ? "outline-2 -outline-offset-2 outline-accent" : ""}`}
               data-name={`${md(d)}のマス`}
               data-day={d}
             >
@@ -422,6 +596,7 @@ export function CalendarBlockView({ props, onChange, fill }: { props: CalendarPr
                     e.stopPropagation();
                     setDayOpen(d);
                   }}
+                  onDoubleClick={(e) => e.stopPropagation()}
                   title="この日の予定を見る"
                   className={`grid h-5 min-w-5 place-items-center rounded-full px-1 text-xs ${d === now ? "bg-accent font-bold text-accent-ink" : `hover:bg-tint ${outside ? "text-muted/60" : dw === 0 ? "text-warn" : dw === 6 ? "text-accent" : "text-muted"}`}`}
                 >
@@ -473,6 +648,57 @@ export function CalendarBlockView({ props, onChange, fill }: { props: CalendarPr
           )}
         </PopupDialog>
       )}
+      <Popover anchor={menu.anchor} onClose={closeMenu} width={220} label={menuAt?.item ? "予定のメニュー" : "日のメニュー"}>
+        {menuAt?.item && (
+          <MenuItem
+            icon={<Icon name="open" size={16} />}
+            onClick={() => {
+              const it = menuAt.item;
+              closeMenu();
+              if (it) openItem(it);
+            }}
+          >
+            開く
+          </MenuItem>
+        )}
+        {menuAt?.item && !!menuSelEvents.length && (
+          <>
+            <MenuItem icon={<Icon name="copy" size={16} />} right={<Kbd>Ctrl+C</Kbd>} onClick={() => (copy(false), closeMenu())}>
+              {menuSelEvents.length > 1 ? `${menuSelEvents.length}件をコピー` : "コピー"}
+            </MenuItem>
+            {!ctx.template && (
+              <MenuItem icon={<Icon name="cut" size={16} />} right={<Kbd>Ctrl+X</Kbd>} onClick={() => (copy(true), closeMenu())}>
+                {menuSelEvents.length > 1 ? `${menuSelEvents.length}件をカット` : "カット"}
+              </MenuItem>
+            )}
+          </>
+        )}
+        {canAdd && cb && (
+          <MenuItem
+            icon={<Icon name="paste" size={16} />}
+            right={<Kbd>Ctrl+V</Kbd>}
+            onClick={() => {
+              const d = menuAt?.day ?? null;
+              closeMenu();
+              void paste(d);
+            }}
+          >
+            {md(menuAt?.day ?? now)}に貼り付け{cb.events.length > 1 ? `（${cb.events.length}件）` : ""}
+          </MenuItem>
+        )}
+        {!menuAt?.item && canAdd && (
+          <MenuItem
+            icon={<Icon name="add" size={16} />}
+            onClick={() => {
+              const d = menuAt?.day;
+              closeMenu();
+              if (d) openNew(d);
+            }}
+          >
+            この日に予定を追加
+          </MenuItem>
+        )}
+      </Popover>
       {editing && (
         <EventDialog
           roomId={ctx.roomId}
@@ -485,6 +711,9 @@ export function CalendarBlockView({ props, onChange, fill }: { props: CalendarPr
     </div>
   );
 }
+
+/** メニューの右に出すショートカット */
+const Kbd = ({ children }: { children: string }) => <span className="shrink-0 text-xs text-muted">{children}</span>;
 
 // ---- 予定の画面：名前・日付（何日かにわたってもよい）・時刻（終日でもよい）・色・メモ ----
 

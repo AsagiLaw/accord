@@ -19,6 +19,7 @@ import { copyImageFlow } from "./flows";
 import { useMediaState } from "./MediaContext";
 import { useMediaRouter } from "./MediaLink";
 import { ThumbImage } from "./Thumb";
+import { isBackdropClick } from "@/components/ui/backdrop";
 
 /** 一覧のサムネイルを押した位置（拡大して出てくる動きの始まり） */
 const opened: { from: DOMRect | null } = { from: null };
@@ -223,7 +224,7 @@ export function Lightbox() {
       data-lightbox
       aria-label={m.name}
       data-name="画像の大きな表示"
-      onClick={(e) => e.target === e.currentTarget && close()}
+      onClick={(e) => isBackdropClick(e) && close()}
       className="fixed bottom-0 z-[22] flex animate-[fade_.3s] flex-col items-center gap-3.5 overflow-hidden px-5 pt-14"
       style={{
         left: box.left,
@@ -258,7 +259,7 @@ export function Lightbox() {
 
       <div
         className="relative flex min-h-0 w-full flex-1 touch-pan-y items-center justify-center px-14"
-        onClick={(e) => e.target === e.currentTarget && close()}
+        onClick={(e) => isBackdropClick(e) && close()}
         onPointerDown={(e) => (swipe.current = e.clientX)}
         onPointerUp={(e) => {
           if (swipe.current === null) return;
@@ -300,7 +301,7 @@ export function Lightbox() {
         data-name="フィルムストリップ"
         // 拡大画像の影（下に広がる）より手前に出す。影がサムネイルにかかって暗くならないように
         className="relative z-10 flex h-[72px] w-full shrink-0 items-center gap-2 overflow-hidden"
-        onClick={(e) => e.target === e.currentTarget && close()}
+        onClick={(e) => isBackdropClick(e) && close()}
       >
         <span className="w-[calc(50%-40px)] shrink-0" />
         {list.map((id) => (
