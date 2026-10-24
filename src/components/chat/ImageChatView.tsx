@@ -9,7 +9,7 @@ import { EmojiPicker } from "@/components/db/meta";
 import { IconMark } from "@/components/IconMark";
 import { MenuDivider, MenuItem, MenuLabel, Popover, usePopover } from "@/components/ui/Popover";
 import { confirmAction } from "@/components/ui/overlay";
-import { deleteImageUser, deleteMessage, editMessage, changeSpeaker, saveImageUser, sendMessage, useScopedImageUsers } from "@/lib/local/chat";
+import { deleteImageUser, deleteMessage, editMessage, changeSpeaker, saveImageUser, sendMessage, chatImageScope, useScopedImageUsers } from "@/lib/local/chat";
 import type { Chat, ImageUser, Media, Message, Profile } from "@/lib/local/db";
 import { useMediaByIds } from "@/lib/local/media";
 import { copyText, LongText } from "./LongText";
@@ -42,19 +42,16 @@ const isFixed = (u: ImageUser) => u.id.startsWith("@");
 export function ImageChatView({
   chat,
   me,
-  scope,
   readOnlyNotice,
   fixedUsers = [],
 }: {
   chat: Chat;
   me: Profile;
-  /** イメージユーザーの区切り（データベースの項目ごと・ブロックごと。ImageUser の scope） */
-  scope: string;
   readOnlyNotice?: string;
   fixedUsers?: ImageUser[];
 }) {
   // fixedUsers：最初から入っている話す人（依頼者・参加者など）。名前はページやメンバーから取るので、ここでは直せない
-  const roomUsers = useScopedImageUsers(chat.roomId, scope, chat.id);
+  const roomUsers = useScopedImageUsers(chat.roomId, chat.id);
   const users = [...fixedUsers, ...(roomUsers ?? [])];
   // 発言は新しい方から少しずつ読み込む（上の端まで戻ると、その前を足す）
   const win = useMessageWindow(chat.id, me.id);
@@ -158,7 +155,7 @@ export function ImageChatView({
       {readOnlyNotice ? (
         <p className="border-t border-line pt-2 text-center text-sm text-muted">{readOnlyNotice}</p>
       ) : (
-        <ImageComposer chat={chat} me={me} scope={scope} users={users} speaker={speaker} onSpeaker={setSpeaker} onSent={win.dismissUnread} />
+        <ImageComposer chat={chat} me={me} scope={chatImageScope(chat.id)} users={users} speaker={speaker} onSpeaker={setSpeaker} onSent={win.dismissUnread} />
       )}
       {viewer && <ImageViewer items={viewer.items} start={viewer.start} roomId={chat.roomId} onClose={() => setViewer(null)} />}
     </div>
@@ -430,7 +427,7 @@ function ImageComposer({
             danger
             onClick={async () => {
               userMenu.close();
-              if (await confirmAction(`イメージユーザー「${menuUser.name}」を削除します`, "削除", `このユーザーの発言は「削除されたユーザー」として残ります。${scope.startsWith("prop:") ? "この項目のほかのページからも使えなくなります。" : ""}`)) await deleteImageUser(menuUser.id);
+              if (await confirmAction(`イメージユーザー「${menuUser.name}」を削除します`, "削除", `このユーザーの発言は「削除されたユーザー」として残ります。`)) await deleteImageUser(menuUser.id);
             }}
           >
             削除
@@ -477,11 +474,7 @@ function ImageUserDialog({ roomId, scope, userId, user, onClose }: { roomId: str
       >
         {/* 見出しは、ほかのポップアップと同じ形（下に線、右上に「×」） */}
         <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
-          <h3 className="w-fit font-bold" title={
-              scope.startsWith("prop:")
-                ? "作ったイメージユーザーは、このデータベースの項目のイメージチャットで（どのページでも）使えます"
-                : "作ったイメージユーザーは、このブロックのイメージチャットだけで使えます"
-            }>
+          <h3 className="w-fit font-bold" title="作ったイメージユーザーは、このイメージチャットだけで使えます">
             {user ? "イメージユーザーを直す" : "イメージユーザーを作る"}
           </h3>
           <button type="button" className="grid h-8 w-8 place-items-center rounded-full hover:bg-tint" aria-label="閉じる" onClick={() => onClose()}>

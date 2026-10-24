@@ -19,7 +19,7 @@ import { MenuDivider, MenuItem, MenuLabel, Popover, usePopover } from "@/compone
 import { PopupDialog } from "@/components/ui/Dialog";
 import { TabStrip } from "@/components/ui/TabStrip";
 import { BackHead, MenuTitle, NavRow, SectionHead, ToggleRow } from "@/components/ui/SettingsMenu";
-import { blockImageScope, createBlockChat, setChatAllowed, useChat } from "@/lib/local/chat";
+import { createBlockChat, setChatAllowed, useChat } from "@/lib/local/chat";
 import type { Chat, Database, DbPage, DbView, ImageUser, Profile, Property, ViewType } from "@/lib/local/db";
 import { copyView, type BlockView } from "@/lib/local/windowLayout";
 import { dueLabel, valueOf } from "@/lib/requests/logic";
@@ -274,7 +274,7 @@ export function ChatBlockView({
         {!chat ? (
           <p className="text-sm text-muted">{template ? "テンプレートを使う先（ページ・ウィンドウ・ノート）ごとに、ここにチャットができます" : "準備中…"}</p>
         ) : kind === "image" ? (
-          <ImageChatView chat={chat} me={me} scope={blockImageScope(chat.id)} fixedUsers={fixedUsers} readOnlyNotice={canTalk ? undefined : "このイメージチャットに書き込めるのは、選ばれた人だけです"} />
+          <ImageChatView key={chat.id} chat={chat} me={me} fixedUsers={fixedUsers} readOnlyNotice={canTalk ? undefined : "このイメージチャットに書き込めるのは、選ばれた人だけです"} />
         ) : (
           <ChatView chat={chat} me={me} members={members} readOnlyNotice={canTalk ? undefined : "このチャットで話せるのは、選ばれた人だけです"} />
         )}

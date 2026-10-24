@@ -246,25 +246,25 @@ export function useImageUsers(roomId: string) {
   return useLiveQuery(async () => (await db.imageUsers.where("roomId").equals(roomId).toArray()).sort((a, b) => a.createdAt - b.createdAt), [roomId]);
 }
 
-/** イメージユーザーの区切り：データベースのチャットの項目ごと（どのページでも同じ）と、ブロックのチャットごと */
-export const propImageScope = (dbId: string, propId: string) => `prop:${dbId}:${propId}`;
-export const blockImageScope = (chatId: string) => `chat:${chatId}`;
+/** イメージユーザーの区切り：イメージチャットごと（データベースのページのチャットも、ページごとに別） */
+export const chatImageScope = (chatId: string) => `chat:${chatId}`;
 
-/** そのイメージチャットで選べるイメージユーザー：区切り（scope）のものと、前に作った区切りの無いもののうち、このチャットの発言に使ったもの */
-export function useScopedImageUsers(roomId: string, scope: string, chatId: string) {
+/** そのイメージチャットで選べるイメージユーザー：このチャットで作ったものと、ほかの区切り（区切りの無い前のもの・前の項目ごとのもの）のうち、このチャットの発言に使ったもの */
+export function useScopedImageUsers(roomId: string, chatId: string) {
   return useLiveQuery(async () => {
+    const scope = chatImageScope(chatId);
     const all = await db.imageUsers.where("roomId").equals(roomId).toArray();
-    const old = new Set(all.filter((u) => !u.scope).map((u) => u.id));
+    const others = new Set(all.filter((u) => u.scope !== scope).map((u) => u.id));
     const used = new Set<string>();
-    if (old.size)
+    if (others.size)
       await db.messages
         .where("[chatId+createdAt]")
         .between([chatId, Dexie.minKey], [chatId, Dexie.maxKey])
         .each((m) => {
-          if (m.speaker && old.has(m.speaker)) used.add(m.speaker);
+          if (m.speaker && others.has(m.speaker)) used.add(m.speaker);
         });
     return all.filter((u) => u.scope === scope || used.has(u.id)).sort((a, b) => a.createdAt - b.createdAt);
-  }, [roomId, scope, chatId]);
+  }, [roomId, chatId]);
 }
 
 export async function saveImageUser(user: Omit<ImageUser, "id" | "createdAt"> & { id?: string }) {

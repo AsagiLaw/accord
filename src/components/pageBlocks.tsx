@@ -19,7 +19,7 @@ import { IconPicker } from "@/components/IconPicker";
 import { MenuDivider, MenuItem, Popover, usePopover } from "@/components/ui/Popover";
 import { BackHead, ChoiceScreen, EmptyNote, MenuTitle, NavRow, OptionRow, SectionHead, TextField, ToggleRow } from "@/components/ui/SettingsMenu";
 import { choose } from "@/components/ui/overlay";
-import { propImageScope, useChat } from "@/lib/local/chat";
+import { useChat } from "@/lib/local/chat";
 import type { Database, DbPage, ImageUser, Profile, Property } from "@/lib/local/db";
 import { addProperty, ensurePropChat, setPageIcon, showPropInTables, updatePageTitle, updatePageValue, updateProperty, useDatabase, usePage } from "@/lib/local/requests";
 import type { MemberWithProfile } from "@/lib/local/rooms";
@@ -504,7 +504,7 @@ export function PropChatView({ database, page, prop }: { database: Database; pag
   const canTalk = !prop.allowed?.length || prop.allowed.includes(ctx.userId);
   const notice = canTalk ? undefined : `「${prop.name}」に書き込めるのは、選ばれた人だけです`;
   if (chat.kind === "image") {
-    return <ImageChatView key={chat.id} chat={chat} me={me} scope={propImageScope(database.id, prop.id)} readOnlyNotice={notice} fixedUsers={prop.seed === "page" ? seedUsers(page.roomId, page, ctx.members, prop.allowed) : []} />;
+    return <ImageChatView key={chat.id} chat={chat} me={me} readOnlyNotice={notice} fixedUsers={prop.seed === "page" ? seedUsers(page.roomId, page, ctx.members, prop.allowed) : []} />;
   }
   return <ChatView key={chat.id} chat={chat} me={me} members={ctx.members} readOnlyNotice={notice} />;
 }
