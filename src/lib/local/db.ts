@@ -640,12 +640,16 @@ export type WindowPage = {
   home?: boolean;
   /** 区画（チャット・オールビューなど、高さを分け合うブロック）の高さの割合。ブロックの ID ごと。無ければ 1 */
   heights?: Record<string, number>;
+  /** 文章のブロック（段落・見出し・箇条書きなど）の枠・固定。ブロックの ID ごと。固定した文章は、編集モードでないときに直せない */
+  textOptions?: Record<string, { frame?: boolean; lock?: boolean }>;
   /** ルームのテンプレート（ウィンドウ・ノートの「ソース」に選べる。サイドバーには出さない） */
   template?: boolean;
   /** ソースにしているテンプレート。あれば、テンプレートの中身を出す（自分の blocks は使わない） */
   sourceId?: string | null;
   /** テンプレートの中のチャットのブロック（ID）→ このチャンネル用のチャット。チャットは使う先ごとに別 */
   chatMap?: Record<string, string>;
+  /** テンプレートの中の文章のブロック（固定していないもの。ID）→ このウィンドウだけの中身。無いブロックはテンプレートのまま */
+  textMap?: Record<string, { type?: string; props?: Record<string, unknown>; content?: unknown }>;
 };
 
 export const db = new Dexie("irai-note") as Dexie & {

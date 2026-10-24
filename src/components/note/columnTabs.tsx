@@ -120,7 +120,7 @@ export const columnTabsExtension: ExtensionFactoryInstance = ({ editor }) => {
 const blank = (b: AnyBlock) => (b.type === "paragraph" || b.type === "heading") && !textOf(b);
 
 /** 1つの列の並びのタブ。名前は、列の中の最初のブロック（空の行は飛ばす）。何も無ければ「列 1」のように */
-function ColumnTabs({ editor, listId }: { editor: Editor; listId: string }) {
+function ColumnTabs({ editor, listId, textOnly }: { editor: Editor; listId: string; textOnly: boolean }) {
   const list = editor.getBlock(listId) as unknown as AnyBlock | undefined;
   const view = editor.prosemirrorView;
   if (!list || !view) return null;
@@ -139,10 +139,10 @@ function ColumnTabs({ editor, listId }: { editor: Editor; listId: string }) {
   // タブの名前に使うブロック（列の中の最初のブロック。空の行は飛ばす）
   const named = cols.map((c) => c.children.find((b) => !blank(b)));
   const ids = named.flatMap((b) => (b && /^[\w-]+$/.test(b.id) ? [b.id] : []));
-  // 読むだけのとき、中身がタブのブロックだけの列は、そのタブを列の一覧に並べる（切り替えが「列の中のタブ」の2段にならないように）
+  // 読むだけのとき（ふだんのウィンドウも）、中身がタブのブロックだけの列は、そのタブを列の一覧に並べる（切り替えが「列の中のタブ」の2段にならないように）
   const inner = cols.map((c) => {
     const rest = c.children.filter((b) => !blank(b));
-    return !editor.isEditable && rest.length === 1 && rest[0].type === "tabs" && rest[0].children.length > 0 ? rest[0] : undefined;
+    return (textOnly || !editor.isEditable) && rest.length === 1 && rest[0].type === "tabs" && rest[0].children.length > 0 ? rest[0] : undefined;
   });
   const innerIds = inner.flatMap((t) => (t && /^[\w-]+$/.test(t.id) ? [t.id] : []));
   const items = cols.flatMap((c, i) => {
@@ -177,12 +177,12 @@ function ColumnTabs({ editor, listId }: { editor: Editor; listId: string }) {
   );
 }
 
-/** エディタの中に、列の並びごとのタブを描く（EditorMenus の中に置く。ノートの文脈の中で描くため、ここから描く） */
-export function ColumnTabsHost({ editor }: { editor: Editor }) {
+/** エディタの中に、列の並びごとのタブを描く（EditorMenus の中に置く。ノートの文脈の中で描くため、ここから描く）。textOnly：ふだんのウィンドウ */
+export function ColumnTabsHost({ editor, textOnly = false }: { editor: Editor; textOnly?: boolean }) {
   const hosts = hostsOf.get(editor);
   useSyncExternalStore(hosts?.subscribe ?? noop, hosts?.getVersion ?? zero, zero);
   if (!hosts) return null;
-  return [...hosts.els].map(([listId, el]) => createPortal(<ColumnTabs editor={editor} listId={listId} />, el, listId));
+  return [...hosts.els].map(([listId, el]) => createPortal(<ColumnTabs editor={editor} listId={listId} textOnly={textOnly} />, el, listId));
 }
 
 const noop = () => () => {};

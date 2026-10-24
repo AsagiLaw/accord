@@ -6,6 +6,7 @@ import { ja } from "@blocknote/core/locales";
 import {
   BlockColorsItem,
   DragHandleMenu,
+  FormattingToolbarController,
   getDefaultReactSlashMenuItems,
   RemoveBlockItem,
   SideMenu,
@@ -30,6 +31,7 @@ import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { isImageFile } from "@/lib/media/image";
 import { noteSchema, type NoteEditor as Editor } from "./blocks";
 import { ColumnTabsHost, columnTabsExtension } from "./columnTabs";
+import { isFixedBlock, isSeparate, isTextOnly, TextOnlyToolbar, TextOptionItems, TextOptionsContext, textOptionsExtension, useTextOptions, type TextOptions } from "./textOptions";
 
 // ノート・ウィンドウ・ページの本文・テンプレートで共通に使う、エディタの作り方とメニュー
 
@@ -205,6 +207,7 @@ function DocDragHandleMenu() {
     <DragHandleMenu>
       <ConvertItem />
       <BlockColorsItem>カラー</BlockColorsItem>
+      <TextOptionItems />
       <DuplicateItem />
       <BindFieldItem />
       <TabsItems />
@@ -269,10 +272,12 @@ function blockUnder(dom: HTMLElement, x: number, y: number): HTMLElement | null 
  * - 出たあとは、大きい範囲にいる間は出し続ける。大きい範囲＝そのブロックの行（ボタンの左端から行の右端まで、ブロックと同じ高さ）と、ボタンの下の同じ幅の帯。
  *   この間は、ボタンが左の列のブロックにかぶっていても、そちらには切り替えない。
  * - 大きい範囲から出たら消す。もう一度出すには、またブロック本体に乗せる。
- * BlockNote のままだと、ブロックの近く・列では右に50pxずれた所でも出るので、BlockNote の判定のあとで、出すブロックを BlockNote に知らせ直す
+ * BlockNote のままだと、ブロックの近く・列では右に50pxずれた所でも出るので、BlockNote の判定のあとで、出すブロックを BlockNote に知らせ直す。
+ * on が false（ふだんのウィンドウ）のときは出さない
  */
-function useSideMenuOnHover(editor: Editor) {
+function useSideMenuOnHover(editor: Editor, on: boolean) {
   useEffect(() => {
+    if (!on) return;
     const ours = new WeakSet<Event>();
     let current: HTMLElement | null = null;
     const show = (dom: HTMLElement, block: HTMLElement, e: MouseEvent) => {
@@ -323,7 +328,7 @@ function useSideMenuOnHover(editor: Editor) {
     };
     window.addEventListener("mousemove", onMoveAfter);
     return () => window.removeEventListener("mousemove", onMoveAfter);
-  }, [editor]);
+  }, [editor, on]);
 }
 
 /**
@@ -359,6 +364,33 @@ function columnBackspace(editor: Editor, e: KeyboardEvent) {
     else if (editor.getBlock(list.id)) editor.insertBlocks([copy as never], list.id, "before");
     else if (anchor && editor.getBlock(anchor.id)) editor.insertBlocks([copy as never], anchor.id, "before");
   });
+}
+
+/**
+ * ふだんのウィンドウで、行の頭の Backspace・行の終わりの Delete。前（後ろ）がチャットや固定した文章などのとき・列の端のときは何もしない
+ * （つなげて書き換えたり、列を減らしたりしない）。入れ子の先頭の Backspace（外に出す）は、外が文章ならそのまま。
+ * 文章のブロックもそれぞれ別（separate）のときは、いつも何もしない。Enter は新しいブロックを作らず、同じブロックの中で改行する
+ */
+function textOnlyEdgeKey(editor: Editor, e: KeyboardEvent, separate: boolean) {
+  if (e.isComposing || e.keyCode === 229) return;
+  const sel = editor.prosemirrorState.selection;
+  if (separate && e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.altKey && !sel.$from.parent.type.spec.code) {
+    e.preventDefault();
+    e.stopPropagation();
+    const view = editor.prosemirrorView;
+    view?.dispatch(view.state.tr.replaceSelectionWith(view.state.schema.nodes.hardBreak.create()).scrollIntoView());
+    return;
+  }
+  if (e.key !== "Backspace" && e.key !== "Delete") return;
+  const back = e.key === "Backspace";
+  if (!sel.empty || sel.$from.parentOffset !== (back ? 0 : sel.$from.parent.content.size)) return;
+  if (!separate) {
+    const { prevBlock, nextBlock, parentBlock } = editor.getTextCursorPosition();
+    const side = back ? prevBlock : nextBlock;
+    if (side ? !isFixedBlock(editor, side) : back && parentBlock && !isFixedBlock(editor, parentBlock)) return;
+  }
+  e.preventDefault();
+  e.stopPropagation();
 }
 
 /** 列のまとまりの上端・下端の帯の高さ。ここに落とすと、列の中ではなく、列のまとまりの上・下（1列）に置く */
@@ -432,10 +464,28 @@ function useDropBesideColumns(editor: Editor) {
   }, [editor]);
 }
 
-/** BlockNoteView の中に置くメニュー：「/」（全角の「／」でも開く）と、左の「＋」「⋮⋮」 */
-export function EditorMenus({ editor }: { editor: Editor }) {
-  useSideMenuOnHover(editor);
+/**
+ * BlockNoteView の中に置くメニュー：「/」（全角の「／」でも開く）と、左の「＋」「⋮⋮」。
+ * textOptions：ウィンドウの文章のブロックの枠・固定（渡すと「⋮⋮」に「枠」「固定」が出る）。
+ * textOnly：ふだんのウィンドウ。固定していない文章だけ直せる（「＋」「⋮⋮」「/」は出さない）。
+ * separate：そのうえ、文章のブロックもそれぞれ別（足したり消したり、つなげたりしない）
+ */
+export function EditorMenus({
+  editor,
+  textOptions,
+  onTextOptions,
+  textOnly = false,
+  separate = false,
+}: {
+  editor: Editor;
+  textOptions?: TextOptions;
+  onTextOptions?: (options: TextOptions) => void;
+  textOnly?: boolean;
+  separate?: boolean;
+}) {
+  useSideMenuOnHover(editor, !textOnly);
   useDropBesideColumns(editor);
+  useTextOptions(editor, textOptions, textOnly, separate);
   // キーは ProseMirror より先に受け取る（capture）
   useEffect(() => {
     const dom = editor.domElement;
@@ -452,7 +502,8 @@ export function EditorMenus({ editor }: { editor: Editor }) {
         e.stopPropagation();
         return;
       }
-      columnBackspace(editor, e);
+      if (textOnly) textOnlyEdgeKey(editor, e, separate);
+      else columnBackspace(editor, e);
     };
     const onInput = (e: InputEvent) => {
       if (inField(e)) return;
@@ -467,8 +518,11 @@ export function EditorMenus({ editor }: { editor: Editor }) {
       dom.removeEventListener("keydown", onKey, true);
       dom.removeEventListener("beforeinput", onInput, true);
     };
-  }, [editor]);
-  return (
+  }, [editor, textOnly, separate]);
+  const menus = textOnly ? (
+    // ふだんのウィンドウ：文字を選んだときのツールバーだけ（固定した文章などにかかるときは出さない。BlockNoteView の標準のものは止めておく）
+    <FormattingToolbarController formattingToolbar={TextOnlyToolbar} />
+  ) : (
     <>
       <SuggestionMenuController triggerCharacter="/" getItems={async (query) => filterSuggestionItems(slashItems(editor), query)} />
       <SuggestionMenuController triggerCharacter="／" getItems={async (query) => filterSuggestionItems(slashItems(editor), query)} />
@@ -477,9 +531,14 @@ export function EditorMenus({ editor }: { editor: Editor }) {
         // 「＋」「⋮⋮」を、そのブロックの1行目の真ん中にそろえる（BlockNote の決まった値は、見出しの大きさが違うとずれるので、実際の文字から測る）
         floatingUIOptions={{ useFloatingOptions: { middleware: [offset(sideMenuOffset)] } }}
       />
-      {/* 左右に並んだブロック（列）を、スマホの幅ではタブにする */}
-      <ColumnTabsHost editor={editor} />
     </>
+  );
+  return (
+    <TextOptionsContext.Provider value={textOptions && onTextOptions ? { options: textOptions, onChange: onTextOptions } : null}>
+      {menus}
+      {/* 左右に並んだブロック（列）を、スマホの幅ではタブにする */}
+      <ColumnTabsHost editor={editor} textOnly={textOnly} />
+    </TextOptionsContext.Provider>
   );
 }
 
@@ -522,12 +581,20 @@ export function useBlockEditor(initial: unknown[], roomId: string, userId: strin
       // チャットなど文字の入らないブロックの間に、横線のカーソル（ギャップカーソル）を置かない。そこで文字を打って行ができることも無くす
       disableExtensions: ["gapCursor"],
       // 左右に並んだブロック（列）を、スマホの幅ではタブにして1列ずつ見せる
-      extensions: [columnTabsExtension],
+      // ウィンドウの文章のブロックの枠・固定
+      extensions: [columnTabsExtension, textOptionsExtension],
       initialContent: initial.length ? (initial as Blocks) : undefined,
-      // 画像を貼り付けたときは、まずメディアに入れてから「画像（メディアから）」ブロックにする
+      // 画像を貼り付けたときは、まずメディアに入れてから「画像（メディアから）」ブロックにする（ふだんのウィンドウでは、ブロックは足せないので貼らない）
       pasteHandler: ({ event, editor, defaultPasteHandler }) => {
         const files = [...(event.clipboardData?.files ?? [])].filter(isImageFile);
+        // 文章のブロックもそれぞれ別のときは、文字だけを今のブロックに貼る（行の区切りは改行にする）
+        if (isSeparate(editor)) {
+          const text = event.clipboardData?.getData("text/plain");
+          if (text) editor.insertInlineContent(text.replace(/\r\n?/g, "\n"));
+          return true;
+        }
         if (!files.length) return defaultPasteHandler();
+        if (isTextOnly(editor)) return true;
         void insertUploaded(editor, roomId, userId, files);
         return true;
       },

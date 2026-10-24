@@ -370,6 +370,16 @@ body {
 /* 読むだけのウィンドウでは、本文の最後の空の行（編集中に文字を足すための行）を出さない。下に隙間ができないように */
 .doc-window:not(.doc-editing) .ProseMirror > .bn-block-group > .bn-block-outer:last-child:has(> .bn-block > .bn-block-content[data-content-type="paragraph"] > .bn-inline-content > br.ProseMirror-trailingBreak:only-child) { display: none; }
 
+/* ---- ウィンドウの文章のブロックの「枠」「固定」（textOptions.tsx） ---- */
+/* 枠：Notion のような細い枠で、ブロックのまわりを囲む。上下に続けて枠を付けたブロックは、1つの枠にまとめる */
+.bn-editor .text-frame > .bn-block > .bn-block-content { border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; margin-block: 4px; }
+.bn-editor .text-frame:has(+ .text-frame) > .bn-block > .bn-block-content { border-bottom-width: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding-bottom: 2px; margin-bottom: 0; }
+.bn-editor .text-frame + .text-frame > .bn-block > .bn-block-content { border-top-width: 0; border-top-left-radius: 0; border-top-right-radius: 0; padding-top: 2px; margin-top: 0; }
+/* 固定（ふだんのウィンドウ）：チェックリストのチェックも変えられない */
+.bn-editor [data-text-lock] input { pointer-events: none; }
+/* ふだんのウィンドウでは、空の行に入力の案内（「/」でコマンドなど）を出さない */
+.doc-window:not(.doc-editing) .bn-block-content:has(.ProseMirror-trailingBreak:only-child)::after { content: none !important; }
+
 /* ---- ブロック（ノート・ウィンドウ共通）：文字の大きさと、ブロックのあいだの余白を詰める ---- */
 /* ブロックの中の文字だけ少し小さく（サイドバーなどはそのまま） */
 .bn-container .bn-default-styles { font-size: 14px; }

@@ -10,8 +10,8 @@ import { TopBarActions } from "@/components/TopBarSlot";
 import { AreaResizer } from "./AreaResizer";
 import { useMembers } from "@/lib/local/rooms";
 import { useCurrentUser } from "@/lib/local/session";
-import { saveWindowBlocks, saveWindowHeights, useWindowPage } from "@/lib/local/windows";
-import { setLinkedChat } from "@/lib/local/channelTemplates";
+import { saveWindowBlocks, saveWindowHeights, saveWindowTextMap, saveWindowTextOptions, useWindowPage } from "@/lib/local/windows";
+import { applyTextMap, setLinkedChat } from "@/lib/local/channelTemplates";
 import { DocSkeleton } from "@/components/Skeleton";
 
 // エディタはブラウザでしか動かないので、サーバーでは描画しない
@@ -27,11 +27,15 @@ const areaStyle = (grows: Record<string, number>) =>
     .map(([id, g]) => `.doc-window [data-id="${id}"]{--grow:${g}}`)
     .join("\n");
 
+/** 枠・固定を付けた文章が無いとき（毎回新しい空のものを渡して、エディタに知らせ直さないように） */
+const NO_TEXT_OPTIONS = {};
+
 /**
  * ウィンドウ：ノートと同じブロックを、画面の大きさに固定して並べるページ。
  * 高さは区画で決まる：文章などは中身の高さで、チャット・オールビューなど（区画）は、残りの高さを割合で分け合う。
- * ふだんは読むだけ（チャットで話す・ビューを見る・データを直すことはできる）。サイドバーの右クリック「編集」で開いたときだけ、
- * ノートと同じように「＋」「⋮⋮」で並べ方や文章を変えられる。
+ * ふだんは並べ方を変えられない（チャットで話す・ビューを見る・データを直す・「固定」していない文章を直すことはできる）。
+ * サイドバーの右クリック「編集」で開いたときだけ、ノートと同じように「＋」「⋮⋮」で並べ方を変えたり、文章に「枠」「固定」を付けたりできる。
+ * テンプレートと繋いでいるときも、固定していない文章はふだんの表示で直せる。直した文章はこのウィンドウだけのもの（テンプレートは変わらない）
  */
 export function WindowView({ roomId, windowId }: { roomId: string; windowId: string }) {
   const win = useWindowPage(windowId);
@@ -57,6 +61,8 @@ export function WindowView({ roomId, windowId }: { roomId: string; windowId: str
   const linked = !!win.sourceId && !!source;
   const content = linked && source ? source : win;
   const linkedChats = linked ? { get: (blockId: string) => win.chatMap?.[blockId], set: (blockId: string, chatId: string) => void setLinkedChat("window", win.id, blockId, chatId) } : undefined;
+  // テンプレートと繋いでいるときのふだんの表示：テンプレートの中身に、このウィンドウで直した文章を重ねて出す。直した文章はこのウィンドウにだけ保存する
+  const own = linked && !editing;
 
   return (
     <NoteContext.Provider value={{ roomId, userId: me.id, members, owner: `window:${win.id}`, locked: !editing, windowMode: true, template: win.template, linkedChats }}>
@@ -76,14 +82,21 @@ export function WindowView({ roomId, windowId }: { roomId: string; windowId: str
           <style>{areaStyle(dragGrows ?? content.heights ?? {})}</style>
           <div className="h-full">
             <BlockEditor
-              key={content.id}
-              id={content.id}
-              blocks={content.blocks ?? []}
+              // 編集（テンプレートそのもの）と、ふだん（このウィンドウの文章を重ねたもの）では中身が違うので、作り直す
+              key={own ? `${content.id}:own` : content.id}
+              id={own ? `${content.id}:own` : content.id}
+              blocks={own ? applyTextMap(content.blocks ?? [], win.textMap, content.textOptions) : (content.blocks ?? [])}
+              updatedAt={own ? Math.max(content.updatedAt, win.updatedAt) : content.updatedAt}
               roomId={roomId}
               userId={me.id}
               editable={editing}
+              // ふだんも、固定していない文章は直せる
+              textEditable
+              textOptions={content.textOptions ?? NO_TEXT_OPTIONS}
+              onTextOptions={(options) => void saveWindowTextOptions(content.id, options)}
               mode="window"
-              onSave={(blocks) => saveWindowBlocks(content.id, blocks)}
+              onSave={(blocks, at) => saveWindowBlocks(content.id, blocks, at)}
+              onSaveText={own ? (changed, at) => void saveWindowTextMap(win.id, changed, at) : undefined}
             />
           </div>
           {/* 編集中は、上下に並んだ区画のあいだに線を出す。つかんで動かすと高さの割合が変わる */}
