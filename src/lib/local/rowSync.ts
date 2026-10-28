@@ -308,7 +308,33 @@ async function updateRow(row: Omit<ServerRow, "updated_at">): Promise<{ code?: s
   return data.length ? null : { code: "42501", message: "直せる行がありません" };
 }
 
-async function flush() {
+let flushing: Promise<void> | null = null;
+let flushAgain = false;
+
+/**
+ * 送る前の行を送る。送っている途中に呼ばれたら、終わってからもう一度送る（同時には送らない）。
+ * 同時に送ると、遅れて届いた古い形で新しい形を上書きしたり、つながらなかった古い形を送り直して戻したりしてしまうため
+ */
+function flush(): Promise<void> {
+  if (flushing) {
+    flushAgain = true;
+    return flushing;
+  }
+  flushing = (async () => {
+    try {
+      do {
+        flushAgain = false;
+        await flushOnce();
+      } while (flushAgain && me && outbox.size);
+    } finally {
+      flushing = null;
+    }
+  })();
+  return flushing;
+}
+
+async function flushOnce() {
+  if (flushTimer) clearTimeout(flushTimer);
   flushTimer = null;
   if (!me || !outbox.size) return;
   const items = [...outbox.entries()];
@@ -622,6 +648,10 @@ export function freshChannel(name: string) {
 export async function startRowSync(userId: string | null) {
   if (!supa || userId === me) return;
   if (me) await flush();
+  // 前の人の、つながらずに送れていない行は、ほかの人として送らない（その人の覚え（unsent）に残るので、その人がまた開いたときに送る）
+  outbox.clear();
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = null;
   me = userId;
   // 送りそこねた・断られた行の覚えも、その人のものに替える
   offline.clear();
@@ -659,6 +689,8 @@ export async function startRowSync(userId: string | null) {
   await forgetLocalOnlyDms(userId);
   await backfillHostedRooms(userId);
   await sendMissingMedia(userId);
+  // 閉じている間に、ほかの人のボックスへ移った画像（共有をやめた・ルームを消した）を片づける
+  await forgetMovedMedia();
   void cleanupGoneMedia();
   channel = freshChannel(`rows:${userId}`)
     .on("postgres_changes", { event: "*", schema: "public", table: "synced_rows" }, (payload) => {
@@ -812,6 +844,45 @@ export async function forgetBoxes(boxIds: string[]) {
   });
   for (const id of boxIds) delete cursors[`box:${id}`];
   saveCursors();
+}
+
+/**
+ * ボックスから、ほかの人のマイメディアへ移った画像（共有をやめた・ルームを消した：0014・0022）の情報を、ブラウザの中から片づける。
+ * 移った先のボックスは見られないので、移ったという知らせは届かず、片づけないと元のボックスに出たままになる。
+ * Supabase のそのボックスに無くなった、ほかの人が入れた画像を消す（まだ送っていない・断られた行は残す）。boxIds が無ければ、使えるボックス全部
+ */
+export async function forgetMovedMedia(boxIds?: string[]) {
+  if (!supa || !me) return;
+  const user = me;
+  const boxes = boxIds ?? ((await db.mediaBoxes.toCollection().primaryKeys()) as string[]);
+  const gone: string[] = [];
+  for (const boxId of new Set(boxes)) {
+    const local = (await db.media.where("boxId").equals(boxId).filter((m) => m.uploadedBy !== user).primaryKeys()) as string[];
+    if (!local.length) continue;
+    // Supabase にあるもの（消した印の付いた行も。消した行は読み直しで消える）
+    const onServer = new Set<string>();
+    let ok = true;
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await sb().from("synced_rows").select("id").eq("tbl", "media").eq("box_id", boxId).range(from, from + 999).returns<{ id: string }[]>();
+      // 読めなければ、このボックスは次に開いたときに確かめる
+      if (error) {
+        ok = false;
+        break;
+      }
+      for (const r of data) onServer.add(r.id);
+      if (data.length < 1000) break;
+    }
+    if (!ok) continue;
+    for (const id of local) {
+      const k = `media:${id}`;
+      if (!onServer.has(id) && !outbox.has(k) && !sending.has(k) && !(k in unsent) && !failed.has(k)) gone.push(id);
+    }
+  }
+  if (me !== user || !gone.length) return;
+  await db.transaction("rw", db.media, async (tx) => {
+    (tx as unknown as Record<symbol, boolean>)[REMOTE] = true;
+    await db.media.bulkDelete(gone);
+  });
 }
 
 /**

@@ -246,6 +246,30 @@ export function useImageUsers(roomId: string) {
   return useLiveQuery(async () => (await db.imageUsers.where("roomId").equals(roomId).toArray()).sort((a, b) => a.createdAt - b.createdAt), [roomId]);
 }
 
+/** 依頼者（@page）として話すページ：チャットの項目ならその持ち主のページ、本文に置いたチャットなら、その本文のページ */
+async function pageOfChat(chat: Chat | undefined) {
+  const owner = chat?.pageId ?? "";
+  const at = owner.indexOf(":");
+  const [kind, id] = at < 0 ? ["page", owner] : [owner.slice(0, at), owner.slice(at + 1)];
+  if (!id) return undefined;
+  if (kind === "page") return db.dbPages.get(id);
+  if (kind !== "note") return undefined;
+  const note = await db.notes.get(id);
+  return note?.pageId ? db.dbPages.get(note.pageId) : undefined;
+}
+
+/**
+ * 発言の話者の名前（画面の発言一覧と同じ名前）。イメージチャットは、イメージユーザー・依頼者（@page：ページの名前）・参加者（@user:人の ID）。
+ * やり取り再現チャットは、話者の名前そのもの。話者の無い発言（ふつうのチャット）は undefined
+ */
+export async function speakerName(speaker: string | null, chat: Chat | undefined): Promise<string | undefined> {
+  if (!speaker) return undefined;
+  if (speaker === "@page") return (await pageOfChat(chat))?.title || "依頼者";
+  if (speaker.startsWith("@user:")) return (await db.profiles.get(speaker.slice(6)))?.displayName ?? "退出した人";
+  if (chat?.kind !== "image") return speaker;
+  return (await db.imageUsers.get(speaker))?.name ?? "削除されたユーザー";
+}
+
 /** イメージユーザーの区切り：イメージチャットごと（データベースのページのチャットも、ページごとに別） */
 export const chatImageScope = (chatId: string) => `chat:${chatId}`;
 

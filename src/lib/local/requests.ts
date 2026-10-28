@@ -495,6 +495,8 @@ export async function deleteProperty(dbId: string, propId: string) {
   if (database.props.some((p) => p.id === propId && p.type === "page")) await deleteSubPages(dbId, propId);
   await db.transaction("rw", [db.databases, db.dbPages, db.dbViews, db.chats, db.messages, db.chatReads], async () => {
     await patchProps(dbId, (props) => props.filter((p) => p.id !== propId));
+    // 納期のお知らせに選んでいた項目なら、名前から自動で選ぶ形に戻す（消えた項目を指したままだと、お知らせが止まる）
+    if (database.dueProp === propId) await db.databases.update(dbId, { dueProp: undefined });
     // チャットの項目は、各ページの会話（発言も）を消す
     if (isChat) {
       const pages = await db.dbPages.where("dbId").equals(dbId).toArray();

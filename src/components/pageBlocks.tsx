@@ -491,7 +491,7 @@ export function seedUsers(roomId: string, page: Pick<DbPage, "title" | "icon"> |
 }
 
 /** ページのチャットの項目のチャット（無ければ作る）。チャットの項目はイメージチャットなら、話す人に依頼者と参加者を入れられる */
-export function PropChatView({ database, page, prop }: { database: Database; page: DbPage; prop: Property }) {
+export function PropChatView({ page, prop }: { page: DbPage; prop: Property }) {
   const ctx = useNoteContext();
   const cur = page.values[prop.id];
   const chatId = typeof cur === "string" ? cur : "";
@@ -592,7 +592,7 @@ export function DbChatBlock({ kind, propId, onChange, fill }: { kind: "normal" |
       </div>
       <div className={fill || big ? "min-h-0 flex-1 p-3" : "h-[420px] p-3"}>
         {page && database && prop ? (
-          <PropChatView key={prop.id} database={database} page={page} prop={prop} />
+          <PropChatView key={prop.id} page={page} prop={prop} />
         ) : (
           <p className="text-sm text-muted">
             {!prop ? (ctx.locked ? `編集モードにすると、データベースに「${base}」の項目ができて、ここと繋がります` : "準備中…") : `ページを作ると、ここにそのページの「${prop.name}」が出ます`}

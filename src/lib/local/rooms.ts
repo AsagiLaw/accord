@@ -3,7 +3,9 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import type { IconName } from "@/components/Icon";
 import { unlinkRoom } from "./boxes";
+import { renumber } from "./renumber";
 import { presetRecords } from "./roomPresetRecords";
+import { forgetMovedMedia } from "./rowSync";
 import { db, defaultCategories, defaultChat, newId, newRoomMediaBox, type Chat, type Profile, type RoomRole } from "./db";
 import { errorText, profilePatchRow, pull, SaveError, sb, supa } from "./sync";
 
@@ -139,13 +141,16 @@ export async function createRoom(name: string, userId: string, template: RoomTem
  * メディアはボックスに入っていてルームのものではないので、紐づけを外すだけで、ボックスと画像は残る
  */
 export async function deleteRoom(roomId: string) {
-  // Supabase 版：先に Supabase で消す（消せるのはホストだけ。メンバーと招待も一緒に消える）
+  const linkedBoxes = (await db.boxShares.where("roomId").equals(roomId).toArray()).map((s) => s.boxId);
   if (supa) {
-    const { error } = await sb().from("rooms").delete().eq("id", roomId);
+    // Supabase 版：先に Supabase で消す（消せるのはホストだけ。メンバーと招待も一緒に消える）。
+    // 紐づけをやめて、メンバーが入れた画像をそれぞれのマイメディアに移すのも、この関数の中で行う（0022）
+    const { error } = await sb().rpc("delete_room", { target: roomId });
     if (error) throw new SaveError(`ルームを削除できませんでした（${error.message}）`);
+  } else {
+    // 紐づけを外す（メンバーが入れた画像は、それぞれのマイメディアに移る）。メンバーの一覧を使うので、ルームを消す前に行う
+    await unlinkRoom(roomId);
   }
-  // 紐づけを外す（メンバーが入れた画像は、それぞれのマイメディアに移る）。メンバーの一覧を使うので、ルームを消す前に行う
-  await unlinkRoom(roomId);
   const tables = [db.rooms, db.roomMembers, db.roomInvites, db.boxShares, db.chats, db.messages, db.chatReads, db.databases, db.dbPages, db.dbViews, db.events, db.todos, db.notes, db.categories, db.imageUsers, db.windows];
   await db.transaction("rw", tables, async () => {
     // ルームの ID を持たないもの（既読・ビュー）は、持ち主から辿って消す
@@ -160,6 +165,12 @@ export async function deleteRoom(roomId: string) {
     await db.rooms.delete(roomId);
   });
   await pull();
+  if (supa) {
+    // メンバーのマイメディアに移った画像を、ブラウザの中のボックスから片づけて、自動の名前の番号を詰める
+    const kept = (await db.mediaBoxes.bulkGet(linkedBoxes)).flatMap((b) => (b ? [b.id] : []));
+    await forgetMovedMedia(kept);
+    for (const id of kept) await renumber(id);
+  }
 }
 
 export async function renameRoom(roomId: string, name: string) {

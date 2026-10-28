@@ -5,7 +5,7 @@ import { APPEND } from "@/lib/media/autoname";
 import { db, newId, newMyMediaBox, type BoxShare, type Media, type MediaBox } from "./db";
 import type { MemberWithProfile } from "./rooms";
 import { renumber } from "./renumber";
-import { forgetBoxes, pullRows } from "./rowSync";
+import { forgetBoxes, forgetMovedMedia, pullRows } from "./rowSync";
 import { deletedBoxes, pull, SaveError, sb, supa } from "./sync";
 
 // メディアのボックス：持ち主・共有先（フレンド・ルーム）と、だれが見られる・編集できるか
@@ -258,9 +258,13 @@ export async function removeShare(shareId: string) {
     if (error) throw new SaveError(`共有をやめられませんでした（${error.message}）`);
     await pull();
     await pullRows();
-    // 画像が抜けたボックスの、自動の名前の番号を詰める（移った先のボックスは見られないので、その人が次に触ったときに詰まる）
+    // ほかの人のマイメディアに移った画像を、ブラウザの中のボックスから片づけてから、画像が抜けたボックスの、自動の名前の番号を詰める
+    // （移った先のボックスは見られないので、その人が次に触ったときに詰まる）
     const moved = typeof data === "number" ? data : 0;
-    if (moved && boxId && (await db.mediaBoxes.get(boxId))) await renumber(boxId);
+    if (moved && boxId && (await db.mediaBoxes.get(boxId))) {
+      await forgetMovedMedia([boxId]);
+      await renumber(boxId);
+    }
     return moved;
   }
   const share = await db.boxShares.get(shareId);

@@ -692,7 +692,7 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
         {head}
         <div className="min-h-0 flex-1">
           {page && database && prop ? (
-            <PropChatView database={database} page={page} prop={prop} />
+            <PropChatView page={page} prop={prop} />
           ) : (
             (ctx.template ? <p className="grid h-full place-items-center text-sm text-muted">ページを作ると、ここにそのページのチャットが出ます</p> : <ChatSkeleton composer={false} />)
           )}

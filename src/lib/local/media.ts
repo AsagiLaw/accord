@@ -12,6 +12,7 @@ import { PSD_MIME } from "@/lib/media/psd";
 import { childrenOf, descendants, withAncestors } from "@/lib/media/logic";
 import { loadBlobRow, loadShownBlob } from "@/lib/media/remote";
 import { boxAccess, uploadBoxForRoom } from "./boxes";
+import { speakerName } from "./chat";
 import { renumber, renumberBoxes } from "./renumber";
 import { fetchReferencedMedia } from "./rowSync";
 import { db, newId, type Library, type Media, type MediaBlob } from "./db";
@@ -321,6 +322,10 @@ export function useChatSentMedia(chatId: string) {
       .filter((m) => m.mediaIds.length)
       .reverse();
     const people = new Map((await db.profiles.toArray()).map((p) => [p.id, p.displayName]));
+    // イメージチャット・再現チャットは、話者の名前（イメージユーザーの ID などのままにしない）
+    const chat = await db.chats.get(chatId);
+    const speakers = new Map<string, string | undefined>();
+    for (const s of new Set(messages.flatMap((m) => (m.speaker ? [m.speaker] : [])))) speakers.set(s, await speakerName(s, chat));
     const media = new Map((await db.media.bulkGet([...new Set(messages.flatMap((m) => m.mediaIds))])).flatMap((m) => (m ? [[m.id, m] as const] : [])));
     const out: SentImage[] = [];
     const seen = new Set<string>();
@@ -329,7 +334,7 @@ export function useChatSentMedia(chatId: string) {
         const m = media.get(id);
         if (!m || seen.has(id)) continue;
         seen.add(id);
-        out.push({ media: m, by: msg.speaker ?? people.get(msg.authorId) ?? "退出した人", at: msg.createdAt });
+        out.push({ media: m, by: (msg.speaker ? speakers.get(msg.speaker) : undefined) ?? people.get(msg.authorId) ?? "退出した人", at: msg.createdAt });
       }
     }
     return out;

@@ -4,6 +4,7 @@ import { liveQuery } from "dexie";
 import { useEffect, useSyncExternalStore } from "react";
 import { askNotifyPermission, notifyPermission, showAppNotice, type AppNotice } from "@/lib/notify";
 import { subscribePush, unsubscribePush } from "@/lib/push";
+import { speakerName } from "./chat";
 import { db, type Chat, type Message } from "./db";
 
 // チャットのブラウザの通知。アプリを開いている間、ほかの人の発言が届いたら知らせる（閉じているときは、プッシュ通知：src/lib/push.ts）。
@@ -91,9 +92,8 @@ export async function noticeOf(m: Message): Promise<AppNotice | null> {
   const chat = await db.chats.get(m.chatId);
   if (!chat) return null;
   const author = await db.profiles.get(m.authorId);
-  // 再現・イメージチャットは、話者（イメージユーザー）の名前で
-  const imageUser = m.speaker ? await db.imageUsers.get(m.speaker) : undefined;
-  const who = imageUser?.name ?? m.speaker ?? author?.displayName ?? "だれか";
+  // 再現・イメージチャットは、話者（イメージユーザー・依頼者・参加者）の名前で
+  const who = (await speakerName(m.speaker, chat)) ?? author?.displayName ?? "だれか";
   // ルームへの招待のカードは、招待したルームの名前で
   const invited = m.inviteId ? await db.roomInvites.get(m.inviteId) : undefined;
   const invitedRoom = invited ? (await db.rooms.get(invited.roomId))?.name : undefined;
