@@ -9,15 +9,19 @@ import { EmojiPicker } from "@/components/db/meta";
 import { IconMark } from "@/components/IconMark";
 import { MenuDivider, MenuItem, MenuLabel, Popover, usePopover } from "@/components/ui/Popover";
 import { confirmAction } from "@/components/ui/overlay";
-import { deleteImageUser, deleteMessage, editMessage, changeSpeaker, saveImageUser, sendMessage, chatImageScope, useScopedImageUsers } from "@/lib/local/chat";
+import { deleteImageUser, deleteMessage, changeSpeaker, saveImageUser, chatImageScope, useScopedImageUsers } from "@/lib/local/chat";
 import type { Chat, ImageUser, Media, Message, Profile } from "@/lib/local/db";
 import { useMediaByIds } from "@/lib/local/media";
-import { copyText, LongText } from "./LongText";
+import { useAllProfiles } from "@/lib/local/rooms";
+import { useTyping } from "@/lib/local/typing";
+import { LongText } from "./LongText";
 import { SendStatus, useSendState } from "./SendStatus";
 import { UploadGauge } from "@/components/media/Thumb";
 import { NewBelowButton, UnreadLine } from "./ChatView";
+import { Composer } from "./Composer";
+import { DayDivider, EditBox, EditedMark, MenuDots, MessageMenu, MessageTime, sameDay, useMessageGestures, type MenuState } from "./messageParts";
+import { emojiOnly } from "./RichText";
 import { useMessageWindow } from "./useMessageWindow";
-import { useAutoGrow } from "./useAutoGrow";
 import { useReadProgress } from "./useReadProgress";
 import { ChatSkeleton } from "@/components/Skeleton";
 import { isBackdropClick } from "@/components/ui/backdrop";
@@ -38,6 +42,7 @@ const isFixed = (u: ImageUser) => u.id.startsWith("@");
 /**
  * イメージチャット：イメージユーザー（名前とアイコン）で会話を再現する。
  * 下で選んでいるイメージユーザーの発言が右、それ以外が左。別の人に切り替えると左右が入れ替わる。
+ * 発言の操作（「…」・右クリック・長押しのメニュー、その場で直す欄）と入力欄は、ふつうのチャットと同じもの
  */
 export function ImageChatView({
   chat,
@@ -57,6 +62,7 @@ export function ImageChatView({
   const win = useMessageWindow(chat.id, me.id);
   const messages = win.messages;
   const list = useRef<HTMLDivElement>(null);
+  const composerInput = useRef<HTMLTextAreaElement>(null);
   // 添付した画像は、どのボックスに入っていても ID で引く
   const media = useMediaByIds(useMemo(() => (messages ?? []).flatMap((m) => m.mediaIds), [messages]));
   const byId = useMemo(() => media ?? new Map<string, Media>(), [media]);
@@ -76,7 +82,16 @@ export function ImageChatView({
       // 保存できなくても、このページの間は効く
     }
   };
+  // 「入力中…」には、書いている人（イメージユーザーではなく、ルームの人）の名前を出す
+  const profiles = useAllProfiles();
+  const nameOf = (id: string) => profiles?.find((p) => p.id === id)?.displayName ?? "退出した人";
+  const typing = useTyping(chat.id, me.id);
+  const canEdit = !readOnlyNotice;
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
   const [viewer, setViewer] = useState<{ items: Media[]; start: number } | null>(null);
+  // 一番下から遠くまで戻ったか（「最新の発言へ」を出す）
+  const [far, setFar] = useState(false);
   const last = messages?.at(-1);
   const stick = useRef(true);
   const placed = useRef(false);
@@ -103,59 +118,127 @@ export function ImageChatView({
 
   if (!messages) return <ChatSkeleton />;
   const userOf = (m: Message) => users.find((u) => u.id === m.speaker);
+  const remove = async (m: Message, skipConfirm?: boolean) => {
+    if (skipConfirm || (await confirmAction("この発言を削除します", "削除", "添付した画像はメディアに残ります。"))) await deleteMessage(m.id);
+  };
+  const endEdit = () => {
+    setEditingId(null);
+    composerInput.current?.focus();
+  };
+  /** 入力欄が空のときに ↑ で、最後の発言を直す（ふつうのチャットと同じ。イメージチャットの発言はメンバーの誰でも直せる） */
+  const editLast = () => {
+    const m = messages.at(-1);
+    if (!m || !canEdit) return false;
+    setEditingId(m.id);
+    requestAnimationFrame(() => document.querySelector(`[data-msg="${CSS.escape(m.id)}"]`)?.scrollIntoView({ block: "nearest" }));
+    return true;
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-name="イメージチャット">
       <div className="relative flex min-h-0 flex-1 flex-col">
-      <div
-        ref={list}
-        data-name="発言一覧"
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-          win.onScroll(el);
-          read.measure();
-        }}
-        className="min-h-0 flex-1 space-y-2 overflow-y-auto pb-2"
-      >
-        {win.hasOlder && (
-          <button type="button" onClick={(e) => void win.loadOlder(e.currentTarget.parentElement)} className="mx-auto block rounded-full px-3 py-1 text-xs text-muted hover:bg-tint hover:text-ink">
-            さらに前の発言を読み込む
-          </button>
-        )}
-        {!messages.length && <p className="py-8 text-center text-sm text-muted">イメージユーザーを選んで、会話を書いていきましょう。</p>}
-        {messages.map((m, i) => {
-          const u = userOf(m);
-          const right = !!speaker && m.speaker === speaker;
-          const firstUnread = m.id === win.unreadId;
-          const grouped = !firstUnread && messages[i - 1]?.speaker === m.speaker;
-          return (
-            <div key={m.id} data-msg={m.id} data-at={m.createdAt}>
-            {firstUnread && <UnreadLine />}
-            <ImageMessage
-              m={m}
-              user={u}
-              users={users}
-              right={right}
-              grouped={grouped}
-              media={byId}
-              canEdit={!readOnlyNotice}
-              mine={m.authorId === me.id}
-              onOpen={(idx) => {
-                const items = m.mediaIds.map((id) => byId.get(id)).filter((x): x is Media => !!x);
-                if (items.length) setViewer({ items, start: idx });
-              }}
-            />
-            </div>
-          );
-        })}
-      </div>
-      {read.newBelow > 0 && <NewBelowButton count={read.newBelow} list={list} />}
+        <div
+          ref={list}
+          data-name="発言一覧"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+            stick.current = gap < 80;
+            const isFar = gap > el.clientHeight * 1.5;
+            if (isFar !== far) setFar(isFar);
+            win.onScroll(el);
+            read.measure();
+          }}
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pt-3 pb-2"
+        >
+          {win.hasOlder && (
+            <button type="button" onClick={(e) => void win.loadOlder(e.currentTarget.parentElement)} className="mx-auto my-2 block rounded-full px-3 py-1 text-xs text-muted hover:bg-tint hover:text-ink">
+              さらに前の発言を読み込む
+            </button>
+          )}
+          {!messages.length && <p className="py-8 text-center text-sm text-muted">イメージユーザーを選んで、会話を書いていきましょう。</p>}
+          {messages.map((m, i) => {
+            const prev = messages[i - 1];
+            const newDay = !prev || !sameDay(prev.createdAt, m.createdAt);
+            const firstUnread = m.id === win.unreadId;
+            const grouped = !newDay && !firstUnread && prev?.speaker === m.speaker;
+            const hasMenu = canEdit || !!m.text;
+            return (
+              <div key={m.id} data-msg={m.id} data-at={m.createdAt}>
+                {newDay && <DayDivider at={m.createdAt} />}
+                {firstUnread && <UnreadLine />}
+                <ImageMessage
+                  m={m}
+                  user={userOf(m)}
+                  right={!!speaker && m.speaker === speaker}
+                  grouped={grouped}
+                  media={byId}
+                  mine={m.authorId === me.id}
+                  editing={editingId === m.id}
+                  active={menu?.m.id === m.id}
+                  dotsOpen={menu?.m.id === m.id && menu.anchor instanceof HTMLElement}
+                  onMenu={hasMenu ? (anchor) => setMenu({ m, anchor }) : undefined}
+                  onEditEnd={endEdit}
+                  onDelete={() => void remove(m)}
+                  onOpen={(idx) => {
+                    const items = m.mediaIds.map((id) => byId.get(id)).filter((x): x is Media => !!x);
+                    if (items.length) setViewer({ items, start: Math.min(idx, items.length - 1) });
+                  }}
+                />
+              </div>
+            );
+          })}
+        </div>
+        {read.newBelow > 0 ? <NewBelowButton count={read.newBelow} list={list} /> : far && <NewBelowButton count={0} list={list} />}
       </div>
       {readOnlyNotice ? (
         <p className="border-t border-line pt-2 text-center text-sm text-muted">{readOnlyNotice}</p>
       ) : (
-        <ImageComposer chat={chat} me={me} scope={chatImageScope(chat.id)} users={users} speaker={speaker} onSpeaker={setSpeaker} onSent={win.dismissUnread} />
+        <Composer
+          chat={chat}
+          me={me}
+          inputRef={composerInput}
+          header={<ImageSpeakers chat={chat} me={me} scope={chatImageScope(chat.id)} users={users} speaker={speaker} onSpeaker={setSpeaker} />}
+          speaker={speaker}
+          disabledTitle={speaker ? undefined : "上の「＋イメージユーザー」で話す人を作ると書けます"}
+          onSent={win.dismissUnread}
+          onEditLast={editLast}
+          typing={typing}
+          typers={typing.typers.map(nameOf)}
+          placeholder={`${users.find((u) => u.id === speaker)?.name ?? "イメージユーザー"}の発言`}
+        />
+      )}
+      {menu && (
+        <MessageMenu
+          state={menu}
+          social={false}
+          canReply={false}
+          canEdit={canEdit}
+          onClose={() => setMenu(null)}
+          onEdit={() => setEditingId(menu.m.id)}
+          onDelete={(skip) => void remove(menu.m, skip)}
+          extra={(close) =>
+            canEdit && (
+              <>
+                <MenuDivider />
+                <MenuLabel>話している人を変える</MenuLabel>
+                {users.map((u) => (
+                  <MenuItem
+                    key={u.id}
+                    icon={<ImageUserIcon user={u} size={20} />}
+                    active={u.id === menu.m.speaker}
+                    onClick={() => {
+                      close();
+                      void changeSpeaker(menu.m.id, u.id);
+                    }}
+                  >
+                    {u.name}
+                  </MenuItem>
+                ))}
+              </>
+            )
+          }
+        />
       )}
       {viewer && <ImageViewer items={viewer.items} start={viewer.start} roomId={chat.roomId} onClose={() => setViewer(null)} />}
     </div>
@@ -165,143 +248,124 @@ export function ImageChatView({
 function ImageMessage({
   m,
   user,
-  users,
   right,
   grouped,
   media,
-  canEdit,
   mine,
+  editing,
+  active,
+  dotsOpen,
+  onMenu,
+  onEditEnd,
+  onDelete,
   onOpen,
 }: {
   m: Message;
   user: ImageUser | undefined;
-  users: ImageUser[];
   right: boolean;
   grouped: boolean;
   media: Map<string, Media>;
-  canEdit: boolean;
   /** 自分が書いた発言（届くまで「送信中…」を出す） */
   mine: boolean;
+  editing: boolean;
+  /** この発言のメニューを開いている（行に色を付けたままにする） */
+  active: boolean;
+  /** 「…」のボタンからメニューを開いている（乗せていなくてもボタンを出したままにする） */
+  dotsOpen: boolean;
+  /** メニューを開く。メニューに出すものが無い発言（見るだけで、文章の無い発言）は無し */
+  onMenu?: (anchor: MenuState["anchor"]) => void;
+  onEditEnd: () => void;
+  onDelete: () => void;
   onOpen: (i: number) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(m.text);
-  const menu = usePopover();
   const images = m.mediaIds.filter((id) => media.has(id));
+  const missing = m.mediaIds.length - images.length;
   const name = user?.name ?? "削除されたユーザー";
   // 自分の発言が届くまでは薄く出す（Discord と同じ）
   const send = useSendState(m, mine);
-  const dim = send === "sending" || send === "offline" ? " opacity-60" : "";
+  const pending = send === "sending" || send === "offline";
+  const big = !editing && !missing && emojiOnly(m.text);
+  // 右クリック・指で触る端末の長押しで、メニュー（ふつうのチャットと同じ）
+  const gestures = useMessageGestures((anchor) => onMenu?.(anchor), editing || !onMenu);
+  // 発言の操作のメニューを開く「…」（吹き出しの横）
+  const dots = !editing && onMenu && <MenuDots open={dotsOpen} onOpen={onMenu} />;
+  // 続けて送った発言は、乗せたときだけ時刻を出す
+  const hoverTime = grouped && !editing && <MessageTime at={m.createdAt} className="shrink-0 self-end pb-0.5 text-[10px] text-muted opacity-0 group-hover:opacity-100" />;
+  // アイコン（続けて送った発言では空けておく）。右の発言は右、左の発言は左に出す
+  const icon = <span className="mt-0.5 w-[34px] shrink-0">{!grouped && <ImageUserIcon user={user} size={34} />}</span>;
 
   return (
-    <div data-name={`発言（${name}）`} className={`group flex items-end gap-2 ${right ? "flex-row-reverse" : ""} ${grouped ? "-mt-1" : ""}`}>
-      <span className={grouped ? "invisible" : ""}>
-        <ImageUserIcon user={user} size={34} />
-      </span>
-      <div className={`flex max-w-[min(520px,78%)] min-w-0 flex-col ${right ? "items-end" : "items-start"}`}>
-        {!grouped && <span className="mb-0.5 max-w-full truncate px-1 text-xs font-bold text-muted">{name}</span>}
-        {/* 画像は吹き出しに入れず、そのまま並べる（LINE と同じ）。文字や編集中の欄があるときだけ、その下に吹き出しを出す。狭いブロックでは幅に合わせて縮む */}
-        {images.length > 0 && (
-          <div className={`grid max-w-full gap-1 transition-opacity ${images.length > 1 ? "w-[324px] grid-cols-2" : "w-40"}${dim}`}>
-            {images.map((id, i) => (
-              <button key={id} onClick={() => onOpen(i)} className="relative block aspect-square w-full overflow-hidden rounded-[12px]" aria-label="画像を開く">
-                <ThumbImage id={id} alt="" />
-                <UploadGauge id={id} className="absolute right-2 bottom-2 left-2 h-1.5 rounded-full bg-black/50 shadow-[0_0_4px_#0008]" />
-              </button>
-            ))}
+    <div
+      data-name={`発言（${name}）`}
+      {...gestures}
+      className={`group relative flex gap-2 rounded-[10px] px-1.5 [-webkit-touch-callout:none] ${right ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5 py-px" : "mt-2.5 pt-1 pb-px"} ${
+        active ? "bg-ink/[0.04]" : "hover:bg-ink/[0.03]"
+      }`}
+    >
+      {!right && icon}
+      <div className={`flex min-w-0 flex-col ${editing ? "w-full max-w-[min(560px,85%)]" : "max-w-[min(560px,85%)]"} ${right ? "items-end" : "items-start"}`}>
+        {!grouped && (
+          <div className={`mb-0.5 flex max-w-full items-baseline gap-2 px-1 text-xs text-muted ${right ? "flex-row-reverse" : ""}`}>
+            <b className="min-w-0 truncate text-ink">{name}</b>
+            <MessageTime at={m.createdAt} className="shrink-0" />
           </div>
         )}
-        {(editing || !!m.text) && (
-          <div
-            className={`${images.length > 0 ? "mt-1 " : ""}max-w-full rounded-[18px] px-3 py-2 transition-opacity ${right ? "rounded-br-[6px] bg-accent text-accent-ink" : "rounded-bl-[6px] border border-line bg-card"}${dim}`}
-          >
-            {editing ? (
-              <div className="space-y-1">
-                <textarea
-                  value={draft}
-                  autoFocus
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                      e.preventDefault();
-                      void editMessage(m.id, draft.trim()).then(() => setEditing(false));
-                    }
-                    if (e.key === "Escape") setEditing(false);
-                  }}
-                  rows={Math.min(6, draft.split("\n").length + 1)}
-                  className="field w-56 max-w-full text-ink"
-                />
-                <div className="flex justify-end gap-2 text-xs">
-                  <button className="underline" onClick={() => setEditing(false)}>
-                    やめる
-                  </button>
-                  <button className="font-bold underline" onClick={() => editMessage(m.id, draft.trim()).then(() => setEditing(false))}>
-                    保存
-                  </button>
+        {editing ? (
+          <EditBox m={m} onDone={onEditEnd} onDelete={onDelete} />
+        ) : (
+          <div className="flex max-w-full min-w-0 items-end gap-1.5">
+            {right && hoverTime}
+            {right && dots}
+            {/* 画像は吹き出しに入れず、そのまま並べる（LINE と同じ）。文字があるときだけ、その下に吹き出しを出す。狭いブロックでは幅に合わせて縮む */}
+            <div className={`flex min-w-0 flex-col gap-1 transition-opacity ${right ? "items-end" : "items-start"} ${pending ? "opacity-60" : ""}`}>
+              {images.length > 0 && (
+                <div className={`grid max-w-full gap-1 ${images.length > 1 ? "w-[324px] grid-cols-2 sm:w-[388px]" : "w-40 sm:w-48"}`}>
+                  {images.map((id, i) => (
+                    <button key={id} onClick={() => onOpen(i)} className="relative block aspect-square w-full overflow-hidden rounded-[12px]" aria-label={`画像を開く：${media.get(id)?.name}`}>
+                      <ThumbImage id={id} alt={media.get(id)?.name ?? ""} />
+                      <UploadGauge id={id} className="absolute right-2 bottom-2 left-2 h-1.5 rounded-full bg-black/50 shadow-[0_0_4px_#0008]" />
+                    </button>
+                  ))}
                 </div>
-              </div>
-            ) : (
-              m.text && <LongText text={m.text} />
-            )}
+              )}
+              {big ? (
+                // 絵文字だけの短い発言は、吹き出しに入れずに大きく出す（ふつうのチャットと同じ）
+                <p className="px-1 text-[40px] leading-tight">
+                  {m.text}
+                  {m.editedAt && <EditedMark at={m.editedAt} />}
+                </p>
+              ) : (
+                (missing > 0 || !!m.text) && (
+                  <div className={`max-w-full rounded-[18px] px-3 py-2 ${right ? "rounded-br-[6px] bg-accent text-accent-ink" : "rounded-bl-[6px] border border-line bg-card"}`}>
+                    {missing > 0 && <p className="text-xs opacity-70">（削除された画像 {missing}枚）</p>}
+                    {m.text && (
+                      <LongText text={m.text} tone={right ? "accent" : "card"}>
+                        {m.editedAt && <EditedMark at={m.editedAt} />}
+                      </LongText>
+                    )}
+                  </div>
+                )
+              )}
+            </div>
+            {!right && dots}
+            {!right && hoverTime}
           </div>
         )}
         <SendStatus m={m} state={send} />
       </div>
-      {(canEdit || !!m.text) && (
-        <button
-          aria-label="この発言のメニュー"
-          onClick={menu.toggle}
-          className="mb-1 grid h-7 w-7 shrink-0 place-items-center rounded-full text-muted opacity-0 group-hover:opacity-100 hover:bg-tint focus:opacity-100 max-md:opacity-60 pointer-coarse:opacity-60"
-        >
-          <Icon name="dots" size={16} />
-        </button>
-      )}
-      {menu.anchor && (
-        <Popover anchor={menu.anchor} onClose={menu.close} width={220} label="発言のメニュー">
-          {m.text && (
-            <MenuItem icon={<Icon name="copy" size={16} />} onClick={() => (copyText(m.text), menu.close())}>
-              コピー
-            </MenuItem>
-          )}
-          {canEdit && (
-            <>
-              <MenuItem icon={<Icon name="edit" size={16} />} onClick={() => (setEditing(true), menu.close())}>
-                文章を直す
-              </MenuItem>
-              <MenuDivider />
-              <MenuLabel>話している人を変える</MenuLabel>
-              {users.map((u) => (
-                <MenuItem key={u.id} icon={<ImageUserIcon user={u} size={20} />} active={u.id === m.speaker} onClick={() => (changeSpeaker(m.id, u.id), menu.close())}>
-                  {u.name}
-                </MenuItem>
-              ))}
-              <MenuDivider />
-              <MenuItem
-                icon={<Icon name="del" size={16} />}
-                danger
-                onClick={async () => {
-                  menu.close();
-                  if (await confirmAction("この発言を削除します", "削除")) await deleteMessage(m.id);
-                }}
-              >
-                削除
-              </MenuItem>
-            </>
-          )}
-        </Popover>
-      )}
+      {right && icon}
     </div>
   );
 }
 
-function ImageComposer({
+/** 次の発言を話すイメージユーザーの並び（入力欄の上）。右クリック・「…」で名前とアイコンを直す・消す */
+function ImageSpeakers({
   chat,
   me,
   scope,
   users,
   speaker,
   onSpeaker,
-  onSent,
 }: {
   chat: Chat;
   me: Profile;
@@ -309,29 +373,13 @@ function ImageComposer({
   users: ImageUser[];
   speaker: string | null;
   onSpeaker: (id: string) => void;
-  /** 送ったあと（「ここから未読」の線を消す） */
-  onSent: () => void;
 }) {
-  const [text, setText] = useState("");
-  const input = useRef<HTMLTextAreaElement>(null);
-  useAutoGrow(input, text);
-  const [attached, setAttached] = useState<string[]>([]);
-  const [picking, setPicking] = useState(false);
   const [editingUser, setEditingUser] = useState<ImageUser | "new" | null>(null);
   const userMenu = usePopover();
   const [menuUser, setMenuUser] = useState<ImageUser | null>(null);
-  const canSend = !!speaker && (text.trim() || attached.length);
-
-  const send = async () => {
-    if (!canSend || !speaker) return;
-    await sendMessage(chat, me.id, { text: text.trim(), mediaIds: attached, replyTo: null, speaker });
-    setText("");
-    setAttached([]);
-    onSent();
-  };
 
   return (
-    <div data-name="入力欄" className="border-t border-line pt-2">
+    <>
       <div data-name="話す人の選択" className="mb-1.5 flex gap-1.5 overflow-x-auto pb-1">
         {users.map((u) => (
           <button
@@ -358,6 +406,7 @@ function ImageComposer({
         {speaker && !speaker.startsWith("@") && (
           <button
             aria-label="選んでいるイメージユーザーを編集"
+            title="選んでいるイメージユーザーを編集"
             onClick={(e) => {
               setMenuUser(users.find((u) => u.id === speaker) ?? null);
               userMenu.open(e);
@@ -368,55 +417,6 @@ function ImageComposer({
           </button>
         )}
       </div>
-      {attached.length > 0 && (
-        <div className="mb-1 flex flex-wrap gap-1.5">
-          {attached.map((id) => (
-            <div key={id} className="relative h-14 w-14 overflow-hidden rounded-md">
-              <ThumbImage id={id} alt="" />
-              <button aria-label="添付を外す" onClick={() => setAttached(attached.filter((x) => x !== id))} className="absolute top-0.5 right-0.5 grid h-5 w-5 place-items-center rounded-full bg-black/60 text-white">
-                <Icon name="x" size={12} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="flex items-end gap-2">
-        <button className="btn-sub w-10 shrink-0 px-0" aria-label="メディアから画像を貼る" onClick={() => setPicking(true)}>
-          <Icon name="img" />
-        </button>
-        <textarea
-          ref={input}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-          rows={1}
-          // ふつうのチャットと同じ文字。話す人は上の並びで分かる。話す人がまだいないときの案内は、カーソルを合わせたときに出す
-          placeholder="メッセージを入力"
-          title={speaker ? "Enterで送信・Shift＋Enterで改行" : "上の「＋イメージユーザー」で話す人を作ると書けます"}
-          aria-label="メッセージ"
-          disabled={!speaker}
-          className="field min-h-[36px] flex-1 resize-none py-1.5 text-sm"
-        />
-        <button className="btn w-12 shrink-0 px-0" aria-label="送信" disabled={!canSend} onClick={send}>
-          <Icon name="send" />
-        </button>
-      </div>
-      {picking && (
-        <MediaPicker
-          roomId={chat.roomId}
-          userId={me.id}
-          onClose={() => setPicking(false)}
-          onPick={(ids) => {
-            setAttached((a) => [...a, ...ids.filter((x) => !a.includes(x))]);
-            setPicking(false);
-          }}
-        />
-      )}
       {userMenu.anchor && menuUser && (
         <Popover anchor={userMenu.anchor} onClose={userMenu.close} width={220} label={`イメージユーザー「${menuUser.name}」`}>
           <MenuItem icon={<Icon name="edit" size={16} />} onClick={() => (setEditingUser(menuUser), userMenu.close())}>
@@ -446,7 +446,7 @@ function ImageComposer({
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
