@@ -197,6 +197,50 @@ export async function deleteMessage(id: string) {
   });
 }
 
+// ---- リアクション・ピン留め（Discord と同じ） ----
+
+/** 発言に付いたリアクション（付いた順）。絵文字ごとに、付けた人を並べる */
+export type ReactionGroup = { emoji: string; users: string[] };
+
+/** そのチャットのリアクションを、発言の ID ごとにまとめる */
+export function useReactions(chatId: string) {
+  return useLiveQuery(async () => {
+    const rows = (await db.reactions.where("chatId").equals(chatId).toArray()).sort((a, b) => a.createdAt - b.createdAt);
+    const byMessage = new Map<string, ReactionGroup[]>();
+    for (const r of rows) {
+      const list = byMessage.get(r.messageId) ?? [];
+      const g = list.find((x) => x.emoji === r.emoji);
+      if (g) g.users.push(r.userId);
+      else list.push({ emoji: r.emoji, users: [r.userId] });
+      byMessage.set(r.messageId, list);
+    }
+    return byMessage;
+  }, [chatId]);
+}
+
+/** リアクションを付ける・外す（もう付けていれば外す） */
+export async function toggleReaction(m: Pick<Message, "id" | "chatId" | "roomId">, userId: string, emoji: string) {
+  const id = `${m.id}|${userId}|${emoji}`;
+  if (await db.reactions.get(id)) await db.reactions.delete(id);
+  else await db.reactions.put({ id, messageId: m.id, chatId: m.chatId, roomId: m.roomId, userId, emoji, createdAt: Date.now() });
+}
+
+/** 発言をピン留めする・外す */
+export async function setPinned(chatId: string, messageId: string, pin: boolean) {
+  const chat = await db.chats.get(chatId);
+  if (!chat) return;
+  const rest = (chat.pinned ?? []).filter((id) => id !== messageId);
+  await db.chats.update(chatId, { pinned: pin ? [messageId, ...rest] : rest });
+}
+
+/** ピン留めした発言（留めた新しい順。消えた発言は出さない） */
+export function usePinnedMessages(chatId: string) {
+  return useLiveQuery(async () => {
+    const ids = (await db.chats.get(chatId))?.pinned ?? [];
+    return (await db.messages.bulkGet(ids)).filter((m): m is Message => !!m);
+  }, [chatId]);
+}
+
 // ---- やり取り再現チャット ----
 
 export async function addSpeaker(chatId: string, name: string) {

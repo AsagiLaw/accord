@@ -6,6 +6,7 @@ import { CalendarBlockView } from "@/components/calendar/CalendarBlock";
 import { ChatImagesButton } from "@/components/chat/ChatImages";
 import { ChatExpandButton, useChatExpand } from "@/components/chat/ChatExpand";
 import { ChatNotifyButton } from "@/components/chat/ChatNotify";
+import { ChatPinsButton } from "@/components/chat/ChatPins";
 import { ChatSearchButton } from "@/components/chat/ChatSearch";
 import { ChatView } from "@/components/chat/ChatView";
 import { ImageChatView } from "@/components/chat/ImageChatView";
@@ -259,6 +260,7 @@ export function ChatBlockView({
         ) : null}
         {/* 右上：送られた画像（チャットのチャンネルと同じ）と、設定の歯車 */}
         <span className="ml-auto flex shrink-0 items-center gap-0.5" data-block-keep={chat ? "" : undefined}>
+          {chat && <ChatPinsButton chatId={chat.id} compact />}
           {chat && <ChatSearchButton chatId={chat.id} roomId={roomId} compact />}
           {chat && <ChatImagesButton chatId={chat.id} roomId={roomId} compact />}
           {chat && <ChatNotifyButton chatId={chat.id} compact />}
@@ -668,6 +670,7 @@ export function SingleViewEmbed({ props, onChange, fill }: { props: SingleProps;
       ) : null}
       {/* 右上：（チャットの項目は）送られた画像と、設定の歯車 */}
       <span className="ml-auto flex shrink-0 items-center gap-0.5" data-block-keep={chatId ? "" : undefined}>
+        {chatId && <ChatPinsButton chatId={chatId} compact />}
         {chatId && <ChatSearchButton chatId={chatId} roomId={roomId} compact />}
         {chatId && <ChatImagesButton chatId={chatId} roomId={roomId} compact />}
         {chatId && <ChatNotifyButton chatId={chatId} compact />}

@@ -367,6 +367,13 @@ body {
 /* チャットの検索で選んだ発言を、少しのあいだ光らせる */
 @keyframes msg-flash { 0%, 60% { background: color-mix(in srgb, var(--accent) 22%, transparent); } 100% { background: transparent; } }
 .msg-flash { animation: msg-flash 1.8s ease-out; border-radius: 8px; }
+/* チャットの「○○が入力中…」の3つの点（Discord と同じ） */
+.typing-dots { display: inline-flex; gap: 2px; }
+.typing-dots i { width: 4px; height: 4px; border-radius: 9999px; background: currentColor; animation: typing-dot 1.2s infinite ease-in-out; }
+.typing-dots i:nth-child(2) { animation-delay: 0.15s; }
+.typing-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typing-dot { 0%, 60%, 100% { opacity: 0.35; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .typing-dots i { animation: none; opacity: 0.7; } }
 /* 読むだけのウィンドウでは、本文の最後の空の行（編集中に文字を足すための行）を出さない。下に隙間ができないように */
 .doc-window:not(.doc-editing) .ProseMirror > .bn-block-group > .bn-block-outer:last-child:has(> .bn-block > .bn-block-content[data-content-type="paragraph"] > .bn-inline-content > br.ProseMirror-trailingBreak:only-child) { display: none; }
 

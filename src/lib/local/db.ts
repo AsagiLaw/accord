@@ -242,6 +242,8 @@ export type Chat = {
   navOrder?: number;
   /** ダイレクトメッセージの2人（ID の小さい順）。ある2人の DM は1つだけ */
   dm?: string[];
+  /** ピン留めした発言（Discord と同じ。新しく留めたものが先頭） */
+  pinned?: string[];
 };
 
 export type Message = {
@@ -260,6 +262,9 @@ export type Message = {
   /** ルームへの招待のカード（DM で送る。text は空） */
   inviteId?: string;
 };
+
+/** 発言に付けたリアクション（Discord と同じ）。1人が1つの発言に付けた絵文字ごとに1行。ID は「発言の ID|人の ID|絵文字」 */
+export type Reaction = { id: string; messageId: string; chatId: string; roomId: string; userId: string; emoji: string; createdAt: number };
 
 /** どこまで読んだか（未読の数・既読に使う）と、そのチャットの通知を切っているか（人ごと） */
 export type ChatRead = { chatId: string; userId: string; lastReadAt: number; muted?: boolean };
@@ -661,6 +666,7 @@ export const db = new Dexie("irai-note") as Dexie & {
   libraries: EntityTable<Library, "id">;
   chats: EntityTable<Chat, "id">;
   messages: EntityTable<Message, "id">;
+  reactions: EntityTable<Reaction, "id">;
   chatReads: Table<ChatRead, [string, string]>;
   databases: EntityTable<Database, "id">;
   dbPages: EntityTable<DbPage, "id">;
@@ -1480,3 +1486,6 @@ db.version(36)
 
 // R2 から取ってきた画像のファイルの一部を残しておく（第3段階。同じ画像を何度も取りに行かないように）
 db.version(37).stores({ blobCache: "key" });
+
+// 発言のリアクション（チャットごとにまとめて読む）
+db.version(38).stores({ reactions: "id, chatId, messageId" });

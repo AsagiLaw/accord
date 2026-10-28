@@ -11,14 +11,14 @@ import { removeDeletedFiles, removeShrunkFiles } from "@/lib/media/remote";
 import { dmChatId } from "./dm";
 import { sb, supa } from "./sync";
 
-// Supabase 版：ルームの中のもの（カテゴリー・チャット・発言・既読・イメージユーザー：2-2、データベース・ページ・ビュー・予定・ToDo・ノート・ウィンドウ：2-3）を、
+// Supabase 版：ルームの中のもの（カテゴリー・チャット・発言・既読・イメージユーザー：2-2、発言のリアクション：0023、データベース・ページ・ビュー・予定・ToDo・ノート・ウィンドウ：2-3）を、
 // 画像の情報・ライブラリー（2-4）を、行ごとに Supabase の synced_rows（0011・0013・0014）に写す。
 // 置き場所は、ルーム・DM・ボックス（画像の情報とライブラリー）のどれか1つ。画像のファイルそのものは、まだ送らない（第3段階）。
 // 画面や処理は今までどおりブラウザの中（IndexedDB）に書く。書いた行は Dexie のフックで拾い、書き終わってから Supabase に送る。
 // ほかの人が書いた行は Realtime で届き、届かなかった分は「最後に読んだ時刻」より後の行だけを読み直す（全部は読まない）。
 // 表を足すときは、TABLES・scopeOf・belongs と、synced_rows の tbl の決まり（SQL）に足す
 
-const TABLES = ["categories", "chats", "messages", "chatReads", "imageUsers", "databases", "dbPages", "dbViews", "events", "todos", "notes", "windows", "media", "libraries"] as const;
+const TABLES = ["categories", "chats", "messages", "reactions", "chatReads", "imageUsers", "databases", "dbPages", "dbViews", "events", "todos", "notes", "windows", "media", "libraries"] as const;
 export type Tbl = (typeof TABLES)[number];
 
 type Scope = { room_id: string; dm: null; box_id: null } | { room_id: null; dm: string[]; box_id: null } | { room_id: null; dm: null; box_id: string };
@@ -63,6 +63,7 @@ async function scopeOf(tbl: Tbl, row: Row): Promise<Scope | null> {
     case "chats":
       return room(row.roomId) ?? dmOf(row.dm);
     case "messages":
+    case "reactions":
       return room(row.roomId) ?? (await byChat(row.chatId));
     case "chatReads":
       return byChat(row.chatId);
@@ -289,7 +290,8 @@ function retryLater(tbl: Tbl, id: string, row: Row) {
  * upsert は「作る」ときの決まり（自分の名前の行しか作れない）も必ず見るので、もうある行を直すだけでも断られてしまう。こういう行は updateRow で送る
  */
 function othersRow(row: Omit<ServerRow, "updated_at">) {
-  const owner = row.tbl === "media" ? row.data.uploadedBy : row.tbl === "messages" ? row.data.authorId : row.tbl === "chatReads" ? row.data.userId : undefined;
+  const owner =
+    row.tbl === "media" ? row.data.uploadedBy : row.tbl === "messages" ? row.data.authorId : row.tbl === "chatReads" || row.tbl === "reactions" ? row.data.userId : undefined;
   return owner !== undefined && owner !== me;
 }
 
@@ -460,7 +462,7 @@ async function belongs(r: ServerRow): Promise<boolean> {
       const database = typeof d.dbId === "string" ? await db.databases.get(d.dbId) : undefined;
       return database === undefined || database.roomId === r.room_id;
     }
-    if (r.tbl === "chatReads" || r.tbl === "messages") {
+    if (r.tbl === "chatReads" || r.tbl === "messages" || r.tbl === "reactions") {
       // まだ届いていないチャットの発言は通す（チャットが届けば、そのルームのものとして出る）
       const room = await roomOf(d.chatId);
       if (room !== undefined && room !== r.room_id) return false;
@@ -477,6 +479,7 @@ async function belongs(r: ServerRow): Promise<boolean> {
     case "chats":
       return d.id === dmId && !d.roomId && Array.isArray(d.dm) && [...(d.dm as string[])].sort().join() === [...r.dm].sort().join();
     case "messages":
+    case "reactions":
       return d.chatId === dmId && !d.roomId;
     case "chatReads":
       return d.chatId === dmId;

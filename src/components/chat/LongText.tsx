@@ -2,23 +2,24 @@
 
 import { useState } from "react";
 import { toast } from "@/components/ui/overlay";
+import { RichText } from "./RichText";
 
 /** これより長い発言は、はじめは途中までだけ出す */
 const MAX_CHARS = 500;
 const MAX_LINES = 15;
 
-/** 発言の文章。長いときは途中で切って「続きを読む」を出す（切った後ろは画面に描かない。検索や編集では全文を使う） */
-export function LongText({ text, className, children }: { text: string; className?: string; children?: React.ReactNode }) {
+/** 発言の文章（書式つき）。長いときは途中で切って「続きを読む」を出す（切った後ろは画面に描かない。検索や編集では全文を使う） */
+export function LongText({ text, className, children, tone }: { text: string; className?: string; children?: React.ReactNode; tone?: "card" | "accent" }) {
   const [open, setOpen] = useState(false);
   const cut = cutAt(text);
   const folded = cut !== null && !open;
   return (
     <div className={className}>
       {/* wrap-anywhere：URL など切れ目のない長い文字も、狭いチャットの中で折り返す */}
-      <p className="wrap-anywhere whitespace-pre-wrap">
-        {folded ? `${text.slice(0, cut).trimEnd()}…` : text}
+      <div className="wrap-anywhere whitespace-pre-wrap">
+        <RichText text={folded ? `${text.slice(0, cut).trimEnd()}…` : text} tone={tone} />
         {children}
-      </p>
+      </div>
       {cut !== null && (
         <button type="button" onClick={() => setOpen(!open)} className="mt-1 text-xs font-bold underline opacity-80 hover:opacity-100">
           {open ? "たたむ" : `続きを読む（全${text.length.toLocaleString()}文字）`}

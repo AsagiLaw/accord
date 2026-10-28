@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ChatImagesButton } from "@/components/chat/ChatImages";
 import { ChatExpandButton, useChatExpand } from "@/components/chat/ChatExpand";
 import { ChatNotifyButton } from "@/components/chat/ChatNotify";
+import { ChatPinsButton } from "@/components/chat/ChatPins";
 import { ChatSearchButton } from "@/components/chat/ChatSearch";
 import { ChatView } from "@/components/chat/ChatView";
 import { ImageChatView } from "@/components/chat/ImageChatView";
@@ -570,6 +571,7 @@ export function DbChatBlock({ kind, propId, onChange, fill }: { kind: "normal" |
         ) : null}
         {/* 右上：送られた画像（チャットのチャンネルと同じ）と、設定の歯車 */}
         <span className="ml-auto flex shrink-0 items-center gap-0.5" data-block-keep={chatId ? "" : undefined}>
+          {chatId && <ChatPinsButton chatId={chatId} compact />}
           {chatId && <ChatSearchButton chatId={chatId} roomId={ctx.roomId} compact />}
           {chatId && <ChatImagesButton chatId={chatId} roomId={ctx.roomId} compact />}
           {chatId && <ChatNotifyButton chatId={chatId} compact />}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ChatImagesButton } from "@/components/chat/ChatImages";
 import { ChatNotifyButton } from "@/components/chat/ChatNotify";
+import { ChatPinsButton } from "@/components/chat/ChatPins";
 import { ChatSearchButton } from "@/components/chat/ChatSearch";
 import { ChatView } from "@/components/chat/ChatView";
 import { TopBarActions } from "@/components/TopBarSlot";
@@ -43,6 +44,7 @@ export default function DmChatPage() {
   return (
     <div data-name="DM画面" className="flex h-full min-h-0 flex-col">
       <TopBarActions>
+        <ChatPinsButton chatId={chat.id} />
         <ChatSearchButton chatId={chat.id} roomId="" />
         <ChatImagesButton chatId={chat.id} roomId="" />
         <ChatNotifyButton chatId={chat.id} />
