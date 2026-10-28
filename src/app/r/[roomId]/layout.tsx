@@ -78,8 +78,13 @@ export default function RoomLayout({ children }: { children: React.ReactNode }) 
         <TopBarSlot.Provider value={slot}>
           {/* Discord と同じく、上のバーの下で、中身の右にメンバー一覧を並べる */}
           <div className="flex min-h-0 flex-1">
-            {/* スクロールバーの場所はいつも空けておく（出たり消えたりで幅が変わり、画像の大きさが揺れ続けないように） */}
-            <div ref={content} data-name="メイン画面の中身" className="min-h-0 min-w-0 flex-1 overflow-auto px-[clamp(16px,4vw,40px)] pt-4 pb-7 [scrollbar-gutter:stable]">
+            {/* スクロールバーの場所はいつも空けておく（出たり消えたりで幅が変わり、画像の大きさが揺れ続けないように）。
+                チャットの画面だけは下の余白を左下のアカウントの欄と同じにして、入力欄の下の端をアカウントの欄に揃える（Discord と同じ） */}
+            <div
+              ref={content}
+              data-name="メイン画面の中身"
+              className="min-h-0 min-w-0 flex-1 overflow-auto px-[clamp(16px,4vw,40px)] pt-4 pb-7 [scrollbar-gutter:stable] has-[[data-full-chat]]:pb-2"
+            >
               {/* ビューからページを押すと、ポップアップで開く（ページのポップアップ） */}
               <PagePeekProvider>{children}</PagePeekProvider>
               {/* 数式の項目の設定（項目のメニューなどから開く） */}

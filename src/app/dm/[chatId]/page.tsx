@@ -42,7 +42,7 @@ export default function DmChatPage() {
   const isFriend = friendships.friends.some((f) => f.other.id === otherId);
 
   return (
-    <div data-name="DM画面" className="flex h-full min-h-0 flex-col">
+    <div data-name="DM画面" data-full-chat="" className="flex h-full min-h-0 flex-col">
       <TopBarActions>
         <ChatPinsButton chatId={chat.id} />
         <ChatSearchButton chatId={chat.id} roomId="" />

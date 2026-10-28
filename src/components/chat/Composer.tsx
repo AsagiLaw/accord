@@ -191,7 +191,7 @@ export function Composer({
   return (
     <div
       data-name="入力欄"
-      className="relative pt-1"
+      className="relative"
       // メディアの画像をドラッグしてきたときは、ファイルの追加として扱わない（同じ画像が二重に増えないように）
       onDragOver={(e) => e.dataTransfer.types.includes("Files") && !e.dataTransfer.types.includes(MEDIA_DRAG_TYPE) && e.preventDefault()}
       onDrop={(e) => {
@@ -221,6 +221,19 @@ export function Composer({
           ))}
         </div>
       )}
+      {/* 入力中の人。入力欄（話す人の並び）の上に出す。出たり消えたりしても欄が動かないよう、場所はいつも空けておく */}
+      <div aria-live="polite" className="flex h-5 items-center gap-1.5 px-2 text-xs text-muted">
+        {typers.length > 0 && (
+          <>
+            <span className="typing-dots" aria-hidden>
+              <i />
+              <i />
+              <i />
+            </span>
+            <span className="truncate">{typingLabel(typers)}</span>
+          </>
+        )}
+      </div>
       {header}
       <div className={`overflow-hidden rounded-[14px] border border-line bg-card transition-colors focus-within:border-accent ${disabled ? "opacity-60" : ""}`}>
         {replyTo && (
@@ -252,7 +265,8 @@ export function Composer({
             {uploading && <span className="self-center text-sm text-muted">メディアに追加中…</span>}
           </div>
         )}
-        <div className="flex items-end gap-0.5 px-1 py-0.5" title={disabledTitle}>
+        {/* 1行のときの高さは、左下のアカウントの欄と同じ 54px（Discord と同じ） */}
+        <div className="flex items-end gap-0.5 px-1.5 py-2" title={disabledTitle}>
           <button className={iconBtn} aria-label="画像を添付" title="画像を添付" disabled={disabled} onClick={plus.toggle}>
             <Icon name="add" />
           </button>
@@ -319,7 +333,7 @@ export function Composer({
             placeholder={placeholder}
             title={disabledTitle ?? `Enterで送信・Shift＋Enterで改行・空の欄で ↑ を押すと最後の発言を直す${mentionables.length ? "・@ で人を呼ぶ" : ""}`}
             aria-label="メッセージ"
-            className="min-h-[36px] flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none! placeholder:text-muted"
+            className="min-h-[36px] flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none! placeholder:truncate placeholder:text-muted"
           />
           <button
             className={iconBtn}
@@ -341,19 +355,6 @@ export function Composer({
             <Icon name="send" size={18} />
           </button>
         </div>
-      </div>
-      {/* 入力中の人（出たり消えたりしても欄が動かないよう、場所はいつも空けておく） */}
-      <div aria-live="polite" className="flex h-5 items-center gap-1.5 px-2 text-xs text-muted">
-        {typers.length > 0 && (
-          <>
-            <span className="typing-dots" aria-hidden>
-              <i />
-              <i />
-              <i />
-            </span>
-            <span className="truncate">{typingLabel(typers)}</span>
-          </>
-        )}
       </div>
       <input
         ref={file}

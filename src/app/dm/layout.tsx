@@ -97,7 +97,12 @@ export default function DmLayout({ children }: { children: React.ReactNode }) {
             <UploadIndicator />
           </header>
           <TopBarSlot.Provider value={slot}>
-            <div ref={content} data-name="メイン画面の中身" className="min-h-0 flex-1 overflow-auto px-[clamp(16px,4vw,40px)] pt-4 pb-7 [scrollbar-gutter:stable]">
+            {/* DM の画面だけは下の余白を左下のアカウントの欄と同じにして、入力欄の下の端をアカウントの欄に揃える（Discord と同じ） */}
+            <div
+              ref={content}
+              data-name="メイン画面の中身"
+              className="min-h-0 flex-1 overflow-auto px-[clamp(16px,4vw,40px)] pt-4 pb-7 [scrollbar-gutter:stable] has-[[data-full-chat]]:pb-2"
+            >
               {children}
             </div>
           </TopBarSlot.Provider>

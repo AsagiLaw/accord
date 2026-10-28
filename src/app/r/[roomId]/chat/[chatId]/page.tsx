@@ -29,7 +29,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div data-name="チャット画面" className="flex h-full min-h-0 flex-col">
+    <div data-name="チャット画面" data-full-chat="" className="flex h-full min-h-0 flex-col">
       {/* 名前は上のバーに出る（名前の変更は、サイドバーの右クリックから）。参加者は上のバーの右のメンバー一覧 */}
       <TopBarActions>
         <ChatPinsButton chatId={chat.id} />

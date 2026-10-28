@@ -592,7 +592,8 @@ export function DbChatBlock({ kind, propId, onChange, fill }: { kind: "normal" |
           )}
         </span>
       </div>
-      <div className={fill || big ? "min-h-0 flex-1 p-3" : "h-[420px] p-3"}>
+      {/* 大きくしたときは、入力欄の下の端を左下のアカウントの欄に揃える（下の余白をアカウントの欄と同じ 8px に） */}
+      <div className={big ? "min-h-0 flex-1 px-3 pt-3 pb-2" : fill ? "min-h-0 flex-1 p-3" : "h-[420px] p-3"}>
         {page && database && prop ? (
           <PropChatView key={prop.id} page={page} prop={prop} />
         ) : (
