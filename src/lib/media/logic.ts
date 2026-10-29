@@ -85,6 +85,8 @@ export type MediaPrefs = {
    * Windows 風（エクスプローラーの画像表示のように、切り抜かずに枠へ収め、名前を下に出す）
    */
   iconStyle: "card" | "explorer";
+  /** 標準のアイコン表示で、画像の上に名前を重ねて出す */
+  cardName: boolean;
   /** リスト表示で出す列（並べた順）。データベースのプロパティの表示/非表示と同じく、出す・隠す・並べ替えができる */
   columns: ListColumn[];
   /** 画像の名前の後ろに拡張子を付けて出す（Windows のエクスプローラーの「ファイル名拡張子」） */
@@ -104,6 +106,7 @@ export const DEFAULT_PREFS: MediaPrefs = {
   libMode: "rep",
   imageView: "icon",
   iconStyle: "card",
+  cardName: true,
   columns: ["dims", "size", "date"],
   showExt: false,
   previewRatio: "original",

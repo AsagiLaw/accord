@@ -159,7 +159,7 @@ export function Thumb({
   renaming?: boolean;
   onRenamed?: (name: string | null) => void;
 }) {
-  const { showExt, iconStyle } = useMediaPrefs();
+  const { showExt, iconStyle, cardName } = useMediaPrefs();
   // Windows 風：エクスプローラーの画像表示のように、画像を切り抜かずに正方形の枠へ収め（下にそろえる）、名前を画像の下に出す
   const explorer = iconStyle === "explorer";
   const drag = !renaming && <DragOriginal m={m} multiSelected={order !== undefined} />;
@@ -169,10 +169,10 @@ export function Thumb({
   // 画像の上に重ねる印（ゲージ・選んだ順の番号・お気に入り・子ライブラリーの印など）
   const marks = (
     <>
-      {/* R2 に置いている途中なら、ゲージを出す（明るい画像の上でも見えるよう、暗い下地と影を付ける）。標準では名前の札のすぐ上 */}
+      {/* R2 に置いている途中なら、ゲージを出す（明るい画像の上でも見えるよう、暗い下地と影を付ける）。標準で名前を出すときは名前の札のすぐ上 */}
       <UploadGauge
         id={m.id}
-        className={`pointer-events-auto absolute right-2 left-2 h-1.5 rounded-full bg-black/50 shadow-[0_0_4px_#0008] ${explorer ? "bottom-2" : "bottom-[32px]"}`}
+        className={`pointer-events-auto absolute right-2 left-2 h-1.5 rounded-full bg-black/50 shadow-[0_0_4px_#0008] ${explorer || !cardName ? "bottom-2" : "bottom-[32px]"}`}
       />
       {/* 複数選んでいるときだけ、選んだ順の番号を出す（1枚だけのときは枠の色だけ） */}
       {selected && order !== undefined && (
@@ -261,10 +261,11 @@ export function Thumb({
           <ThumbImage id={m.id} alt={m.name} />
           {/* 他のアプリ（デスクトップ・Photoshop など）へドラッグすると、元の画像のファイルとして渡す */}
           {drag}
+          {/* 名前を出さない設定でも、名前を変えている間は入力欄を出す */}
           {renaming ? (
             nameField("absolute right-2 bottom-2 left-2 h-6 text-xs font-bold")
           ) : (
-            <span className="pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-16px)] truncate rounded-[10px] bg-black/25 px-2.5 py-px text-xs font-bold text-white backdrop-blur-md [text-shadow:0_1px_3px_#000,0_0_8px_#000a]">
+            cardName && <span className="pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-16px)] truncate rounded-[10px] bg-black/25 px-2.5 py-px text-xs font-bold text-white backdrop-blur-md [text-shadow:0_1px_3px_#000,0_0_8px_#000a]">
               {labelOf(m, showExt)}
             </span>
           )}
