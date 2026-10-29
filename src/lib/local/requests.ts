@@ -6,7 +6,7 @@ import { renameInFormula, withFormulas } from "@/lib/requests/formula";
 import { defaultsOf } from "@/lib/requests/props";
 import { stamp, today } from "@/lib/requests/logic";
 import { stageOf } from "@/lib/requests/stages";
-import { deleteOwnedChats } from "./channels";
+import { deleteNoteTree, deleteOwnedChats } from "./channels";
 import { copySubPages, deleteSubPages } from "./subPages";
 import { freshBlocks } from "./templates";
 import { db, newId, type CalEvent, type Database, type DbPage, type DbView, type PageTemplate, type Property, type StatusGroup, type TagColor, type Todo } from "./db";
@@ -196,11 +196,13 @@ export async function restorePage(pageId: string) {
   await db.dbPages.update(pageId, { deletedAt: undefined });
 }
 
-/** ゴミ箱に入れてから TRASH_DAYS 日たったページを、完全に削除する（アプリを開いたときに呼ぶ） */
+/** ゴミ箱に入れてから TRASH_DAYS 日たったページ（データベースのページ・ノートの子のページ）を、完全に削除する（アプリを開いたときに呼ぶ） */
 export async function purgeOldTrash() {
   const limit = Date.now() - TRASH_DAYS * 864e5;
   const old = await db.dbPages.filter((p) => !!p.deletedAt && p.deletedAt < limit).toArray();
   for (const p of old) await deletePageForever(p);
+  const notes = await db.notes.filter((n) => !!n.deletedAt && n.deletedAt < limit).toArray();
+  for (const n of notes) await deleteNoteTree(n.id);
 }
 
 /** ゴミ箱を空にする */
@@ -362,7 +364,7 @@ export function useRoomCalendars(roomId: string) {
       );
     };
     for (const n of notes) {
-      if (n.template || n.inner) continue;
+      if (n.template || n.inner || n.deletedAt) continue;
       // ページの本文・別ページは、そのページの名前で呼ぶ
       const page = n.pageId ? pages.find((p) => p.id === n.pageId) : undefined;
       if (n.pageId && (!page || page.deletedAt)) continue;

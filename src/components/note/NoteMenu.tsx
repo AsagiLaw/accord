@@ -5,8 +5,10 @@ import { Icon } from "@/components/Icon";
 import { MenuDivider, MenuItem, Popover, usePopover } from "@/components/ui/Popover";
 import { ToggleRow } from "@/components/ui/SettingsMenu";
 import { confirmAction, toast } from "@/components/ui/overlay";
+import { noteDescendants } from "@/lib/local/channels";
 import type { Note, NoteLook } from "@/lib/local/db";
-import { deleteNote, setNoteLocked, setNoteLook } from "@/lib/local/notes";
+import { TRASH_DAYS } from "@/lib/local/requests";
+import { deleteNote, restoreSubNote, setNoteLocked, setNoteLook, trashSubNote } from "@/lib/local/notes";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 import { plainText } from "./docBlocks";
 
@@ -35,9 +37,10 @@ const when = (t: number) => new Date(t).toLocaleString("ja-JP", { month: "numeri
 
 /**
  * ノートの上のバーの「…」（Notion と同じ）：書体・小さい文字・全幅・ページのロック・リンクのコピー・削除。いちばん下に文字数と最後に直した人。
- * body：文字数を数える中身（テンプレートと繋いだノートは、テンプレートの中身）
+ * body：文字数を数える中身（テンプレートと繋いだノートは、テンプレートの中身）。
+ * 子のページの削除はゴミ箱へ（親の本文の「ページ」ブロックも外す。Notion と同じ）。チャンネルのノートは、中の子のページごと完全に削除する
  */
-export function NoteMenu({ note, body, roomId, members, linked }: { note: Note; body: Note; roomId: string; members: MemberWithProfile[]; linked: boolean }) {
+export function NoteMenu({ note, body, roomId, userId, members, linked }: { note: Note; body: Note; roomId: string; userId: string; members: MemberWithProfile[]; linked: boolean }) {
   const pop = usePopover();
   const router = useRouter();
   const look = note.look ?? {};
@@ -96,7 +99,15 @@ export function NoteMenu({ note, body, roomId, members, linked }: { note: Note; 
             danger
             onClick={async () => {
               pop.close();
-              if (!(await confirmAction(`「${note.title}」を削除します`, "削除", "貼った画像はメディアに残ります。"))) return;
+              const name = note.title || "無題";
+              if (note.parentId) {
+                router.push(`/r/${roomId}/note/${note.parentId}`);
+                await trashSubNote(note, userId);
+                toast(`「${name}」をゴミ箱に入れました（${TRASH_DAYS}日後に完全に削除）`, { label: "元に戻す", run: () => void restoreSubNote(note, userId) });
+                return;
+              }
+              const subs = (await noteDescendants(note.id)).length;
+              if (!(await confirmAction(`「${name}」を削除します`, "削除", `${subs ? `中のページ（${subs}）も消えます。` : ""}貼った画像はメディアに残ります。`))) return;
               await deleteNote(note.id);
               router.push(`/r/${roomId}`);
             }}

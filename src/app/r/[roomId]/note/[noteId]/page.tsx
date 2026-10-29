@@ -2,10 +2,13 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { Icon } from "@/components/Icon";
-import { useNote } from "@/lib/local/notes";
+import { confirmAction } from "@/components/ui/overlay";
+import { deleteNoteTree } from "@/lib/local/channels";
+import type { Note } from "@/lib/local/db";
+import { restoreSubNote, useNote, useNoteAncestors } from "@/lib/local/notes";
 import { setLinkedChat } from "@/lib/local/channelTemplates";
 import { TopBarActions } from "@/components/TopBarSlot";
 import { NoteHeader } from "@/components/note/NoteHeader";
@@ -34,6 +37,7 @@ export default function NotePage() {
   const members = useMembers(roomId);
   const editorRef = useRef<Editor | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
+  const ancestors = useNoteAncestors(note?.parentId);
 
   // 開いている間の更新は、見たことにする（サイドバーの「更新あり」の印を消す）
   useEffect(() => {
@@ -51,7 +55,10 @@ export default function NotePage() {
 
   const linked = !!note.sourceId && !!source;
   const body = linked && source ? source : note;
-  const locked = !!note.locked && !linked;
+  // ゴミ箱にあるとき（このページか、上の階層のページ）は、読むだけ
+  const trashed = note.deletedAt ? note : ancestors?.findLast((a) => a.deletedAt);
+  const lockedByUser = !!note.locked && !linked;
+  const locked = lockedByUser || (!!trashed && !linked);
   const look = note.look ?? {};
 
   /** タイトルから本文へ。new なら、いちばん上に空の行を作って移る（いちばん上が空の段落なら、そこへ） */
@@ -99,9 +106,9 @@ export default function NotePage() {
     <div data-name="ノート画面" className="note-page" data-font={look.font} data-small={look.small ? "" : undefined} data-full={look.full ? "" : undefined}>
       {/* 名前は上のバーにも出る（押すとその場で変えられる）。更新の知らせと「…」のメニューは、上のバーの右に置く */}
       <TopBarActions>
-        {locked && <LockedChip note={note} />}
+        {lockedByUser && <LockedChip note={note} />}
         <NoteUpdatesButton note={body} members={members} meId={me.id} />
-        <NoteMenu note={note} body={body} roomId={roomId} members={members} linked={linked} />
+        <NoteMenu note={note} body={body} roomId={roomId} userId={me.id} members={members} linked={linked} />
       </TopBarActions>
       {linked && editing && (
         <TopBarActions>
@@ -112,6 +119,7 @@ export default function NotePage() {
           </button>
         </TopBarActions>
       )}
+      {trashed && <TrashBar trashed={trashed} self={trashed.id === note.id} roomId={roomId} userId={me.id} />}
       <NoteHeader note={note} roomId={roomId} userId={me.id} editable={!locked} onEnter={toBody} titleRef={titleRef} />
       <div className="note-body">
         {linked && source ? (
@@ -138,11 +146,36 @@ export default function NotePage() {
             editorRef={editorRef}
             onExitTop={toTitle}
             linkable
+            subPages={!note.template}
           />
         )}
         {/* Notion と同じく、本文の下を空けておき、押すと最後に書き足せる */}
         <div aria-hidden className={`h-[30vh] ${locked || (linked && !editing) ? "" : "cursor-text"}`} onClick={toEnd} />
       </div>
+    </div>
+  );
+}
+
+/** ゴミ箱にあるページの上の帯（Notion と同じ）：元に戻す・完全に削除。self が false なら、上の階層のページと一緒にゴミ箱にある */
+function TrashBar({ trashed, self, roomId, userId }: { trashed: Note; self: boolean; roomId: string; userId: string }) {
+  const router = useRouter();
+  const name = trashed.title || "無題";
+  return (
+    <div role="alert" data-name="ゴミ箱のページ" className="note-trash-bar">
+      <span>{self ? "このページはゴミ箱にあります" : `「${name}」と一緒にゴミ箱にあります`}</span>
+      <button type="button" onClick={() => void restoreSubNote(trashed, userId)}>
+        元に戻す
+      </button>
+      <button
+        type="button"
+        onClick={async () => {
+          if (!(await confirmAction(`「${name}」を完全に削除します`, "削除", "中のページも消えます。元に戻せません。"))) return;
+          router.push(trashed.parentId ? `/r/${roomId}/note/${trashed.parentId}` : `/r/${roomId}`);
+          await deleteNoteTree(trashed.id);
+        }}
+      >
+        完全に削除
+      </button>
     </div>
   );
 }

@@ -24,12 +24,12 @@ export function useCategories(roomId: string) {
   return useLiveQuery(async () => (await db.categories.where("roomId").equals(roomId).toArray()).sort((a, b) => a.order - b.order), [roomId]);
 }
 
-/** ルームのチャンネルを全部（依頼ページの中のチャット・メモは除く） */
+/** ルームのチャンネルを全部（依頼ページの中のチャット・メモと、ノートの子のページは除く） */
 export function useChannels(roomId: string) {
   return useLiveQuery(async () => {
     const [chats, notes, windows] = await Promise.all([
       db.chats.where("roomId").equals(roomId).filter((c) => !c.pageId).toArray(),
-      db.notes.where("roomId").equals(roomId).filter((n) => !n.pageId && !n.template && !n.inner).toArray(),
+      db.notes.where("roomId").equals(roomId).filter((n) => !n.pageId && !n.template && !n.inner && !n.parentId && !n.deletedAt).toArray(),
       // ホームのウィンドウは、サイドバーの「ホーム」から開くので出さない。テンプレートも出さない
       db.windows.where("roomId").equals(roomId).filter((w) => !w.home && !w.template).toArray(),
     ]);
@@ -163,11 +163,12 @@ export async function setChannelIcon(ch: Pick<Channel, "kind" | "id">, icon: str
   await (tableOf(ch.kind) as typeof db.chats).update(ch.id, { icon });
 }
 
-/** チャンネルを削除する（画像はメディアに残る） */
+/** チャンネルを削除する（画像はメディアに残る）。ノートは、中の子のページも消す */
 export async function deleteChannel(ch: Pick<Channel, "kind" | "id">) {
-  if (ch.kind === "note" || ch.kind === "window") {
-    await deleteOwnedChats(`${ch.kind}:${ch.id}`);
-    return ch.kind === "note" ? db.notes.delete(ch.id) : db.windows.delete(ch.id);
+  if (ch.kind === "note") return deleteNoteTree(ch.id);
+  if (ch.kind === "window") {
+    await deleteOwnedChats(`window:${ch.id}`);
+    return db.windows.delete(ch.id);
   }
   await db.transaction("rw", db.chats, db.messages, db.chatReads, async () => {
     await db.messages.filter((m) => m.chatId === ch.id).delete();
@@ -196,6 +197,31 @@ export async function deleteDatabase(dbId: string) {
     await db.databases.delete(dbId);
     await db.categories.filter((c) => c.dbId === dbId).delete();
   });
+}
+
+/** ノートの子のページ（孫より下も。ゴミ箱のものも）の ID */
+export async function noteDescendants(noteId: string): Promise<string[]> {
+  const note = await db.notes.get(noteId);
+  if (!note) return [];
+  const subs = await db.notes.where("roomId").equals(note.roomId).filter((n) => !!n.parentId).toArray();
+  const out: string[] = [];
+  const walk = (id: string) => {
+    for (const n of subs)
+      if (n.parentId === id && n.id !== noteId && !out.includes(n.id)) {
+        out.push(n.id);
+        walk(n.id);
+      }
+  };
+  walk(noteId);
+  return out;
+}
+
+/** ノートを、中の子のページ（孫より下も）ごと完全に削除する。中に置いたチャットの発言も消える（画像はメディアに残る） */
+export async function deleteNoteTree(noteId: string) {
+  for (const id of [noteId, ...(await noteDescendants(noteId))]) {
+    await deleteOwnedChats(`note:${id}`);
+    await db.notes.delete(id);
+  }
 }
 
 export const channelHref = (roomId: string, ch: Pick<Channel, "kind" | "id">) => `/r/${roomId}/${ch.kind}/${ch.id}`;

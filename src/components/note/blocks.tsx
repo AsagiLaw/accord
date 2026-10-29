@@ -7,6 +7,7 @@ import { useEffect, useRef } from "react";
 import { BlockBody } from "@/components/embeds";
 import { FieldBlockView } from "@/components/pageBlocks";
 import { CalloutBlock, MentionInline, TocBlock } from "./docBlocks";
+import { SubPageBlock } from "./subPage";
 import { TabsBlockView, type AnyBlock } from "./TabsBlock";
 
 export { NoteContext } from "@/components/embeds";
@@ -227,6 +228,7 @@ export const noteSchema = withMultiColumn(
     calendarBlock: CalendarBlock(),
     callout: CalloutBlock(),
     toc: TocBlock(),
+    subPage: SubPageBlock(),
   },
   // 文の中のメンション（@：メンバー・日付・ノート）
   inlineContentSpecs: { ...defaultInlineContentSpecs, mention: MentionInline },

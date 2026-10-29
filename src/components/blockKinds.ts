@@ -79,16 +79,16 @@ export const BLOCK_KINDS: Record<BlockKind, { label: string; short: string; note
     group: "道具",
     aliases: ["calendar", "karenda", "かれんだー", "カレンダー", "予定", "スケジュール", "schedule"],
   },
-  pageTitle: { label: "ページのタイトル", short: "タイトル", note: "このページのアイコンと名前（後ろに「様の依頼」など）", icon: "text", group: "ページ", aliases: ["title", "taitoru", "タイトル", "名前"] },
+  pageTitle: { label: "ページのタイトル", short: "タイトル", note: "このページのアイコンと名前（後ろに「様の依頼」など）", icon: "text", group: "データベースのページ", aliases: ["title", "taitoru", "タイトル", "名前"] },
   pageProps: {
     label: "ページの項目",
     short: "項目",
     note: "ページの項目を並べて入力する（どのページの、どの項目を出すかは設定で選ぶ）",
     icon: "list",
-    group: "ページ",
+    group: "データベースのページ",
     aliases: ["props", "prop", "property", "detail", "field", "詳細", "項目", "プロパティ", "koumoku", "こうもく"],
   },
-  pageChat: { label: "ページのチャット", short: "ページのチャット", note: "このページの依頼進行チャット・やり取り再現", icon: "chat", group: "ページ", aliases: ["chat", "comment", "コメント", "進行", "再現"] },
+  pageChat: { label: "ページのチャット", short: "ページのチャット", note: "このページの依頼進行チャット・やり取り再現", icon: "chat", group: "データベースのページ", aliases: ["chat", "comment", "コメント", "進行", "再現"] },
 };
 
 /** 文章以外の、ノートでは1つのブロックになる種類 */

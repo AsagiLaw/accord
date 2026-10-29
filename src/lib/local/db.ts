@@ -567,6 +567,10 @@ export type Note = {
   sub?: { propId: string; kind: "note" | "window"; sourceId: string | null };
   /** ボタンのブロックの中のページのとき（ノート型・ウィンドウ型）。サイドバーには出さず、ボタンを押したポップアップで開く */
   inner?: { kind: "note" | "window" };
+  /** ノートの「ページ」ブロックで作った子のページのとき、親のノートの ID。サイドバーでは親の下に並び、上のバーは「親 › 子」 */
+  parentId?: string | null;
+  /** ゴミ箱に入れた日時（子のページのブロックを消したとき・子のページを削除したとき）。TRASH_DAYS 日たったら完全に削除する */
+  deletedAt?: number;
 };
 
 /**

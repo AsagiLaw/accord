@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon, type IconName } from "@/components/Icon";
 import { IconMark } from "@/components/IconMark";
 import { IconPicker } from "@/components/IconPicker";
@@ -100,6 +100,11 @@ function Title({ note, editable, onEnter, titleRef }: { note: Note; editable: bo
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
   }, [value, titleRef]);
+  // 「/ページ」で作ったばかりの子のページ（名前が空）は、すぐ名前を書けるようにする（Notion と同じ）
+  useEffect(() => {
+    if (editable && !note.title && note.parentId && Date.now() - note.createdAt < 10_000) titleRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 開いたときに1回だけ
+  }, [note.id]);
   return (
     <textarea
       ref={titleRef}

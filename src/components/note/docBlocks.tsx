@@ -246,7 +246,11 @@ export async function mentionItems(editor: MentionEditor, ctx: Ctx, query: strin
   for (const m of ctx?.members ?? [])
     if (hit(m.displayName)) items.push({ title: m.displayName, group: "メンバー", icon: <Icon name="person" size={16} />, onItemClick: insert("user", m.userId, m.displayName) });
   if (ctx?.roomId) {
-    const notes = (await db.notes.where("roomId").equals(ctx.roomId).filter((n) => !n.pageId && !n.template && !n.inner).toArray()).sort((a, b) => b.updatedAt - a.updatedAt);
+    // 子のページも出す。ゴミ箱のページ（とその中のページ）は出さない
+    const all = await db.notes.where("roomId").equals(ctx.roomId).filter((n) => !n.pageId && !n.template && !n.inner).toArray();
+    const byId = new Map(all.map((n) => [n.id, n]));
+    const inTrash = (n: (typeof all)[number] | undefined, depth = 0): boolean => !!n && (!!n.deletedAt || (depth < 20 && inTrash(byId.get(n.parentId ?? ""), depth + 1)));
+    const notes = all.filter((n) => !inTrash(n)).sort((a, b) => b.updatedAt - a.updatedAt);
     for (const n of notes.filter((n) => hit(n.title || "無題")).slice(0, 8))
       items.push({
         title: n.title || "無題",

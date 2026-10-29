@@ -17,6 +17,7 @@ import { confirmAction, promptText } from "@/components/ui/overlay";
 import { openSourceEdit, pickTemplateForNew, SourceMenu, SourceName, type SourceTarget } from "@/components/window/channelSource";
 import { useUnreadCounts } from "@/lib/local/chat";
 import { hasUnseenUpdate, useNoteSeen } from "@/lib/local/noteSeen";
+import { useSubNotes } from "@/lib/local/notes";
 import {
   CHANNEL_KINDS,
   channelHref,
@@ -28,6 +29,7 @@ import {
   deleteDatabase,
   moveCategory,
   moveChannel,
+  noteDescendants,
   renameCategory,
   renameChannel,
   useCategories,
@@ -35,7 +37,7 @@ import {
   type Channel,
   type ChannelKind,
 } from "@/lib/local/channels";
-import type { Category, Database, DbPage, DbView } from "@/lib/local/db";
+import type { Category, Database, DbPage, DbView, Note } from "@/lib/local/db";
 import { linkTemplate, useChannelTemplates, type TemplateKind } from "@/lib/local/channelTemplates";
 import { updateDatabase, useDatabase, useDatabases, usePages, useViews } from "@/lib/local/requests";
 import { useMembers } from "@/lib/local/rooms";
@@ -90,6 +92,39 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
     }
   });
   const total = [...(unread?.values() ?? [])].reduce((a, b) => a + b, 0);
+
+  // ノートの子のページ（Notion の階層）：親の行の下に折りたたんで並べる。開いている親は、ルームごとに覚えておく
+  const subs = useSubNotes(roomId);
+  const [openSubs, setOpenSubs] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(`irai-note:subpages:${roomId}`) ?? "[]");
+    } catch {
+      return [];
+    }
+  });
+  const parentOf = new Map<string, string>();
+  for (const [parentId, list] of subs ?? []) for (const n of list) parentOf.set(n.id, parentId);
+  const activeNote = pathname.startsWith(`/r/${roomId}/note/`) ? pathname.split("/")[4] : undefined;
+  // 今開いているページの上の階層（閉じたカテゴリーの中でも、ここまでの道は出す）
+  const path = new Set<string>();
+  for (let id = activeNote && parentOf.get(activeNote); id && !path.has(id); id = parentOf.get(id)) path.add(id);
+  // 子のページを開いたら、上の階層を開いて見せる（あとで閉じられる）
+  const [shownFor, setShownFor] = useState<string>();
+  if (subs && activeNote !== shownFor) {
+    setShownFor(activeNote);
+    const more = [...path].filter((id) => !openSubs.includes(id));
+    if (more.length) setOpenSubs([...openSubs, ...more]);
+  }
+  const toggleSub = (id: string) => {
+    const next = openSubs.includes(id) ? openSubs.filter((x) => x !== id) : [...openSubs, id];
+    setOpenSubs(next);
+    try {
+      localStorage.setItem(`irai-note:subpages:${roomId}`, JSON.stringify(next));
+    } catch {
+      // 保存できなくても、このページの間は効く
+    }
+  };
+  const subTree = { subs: subs ?? new Map<string, Note[]>(), open: openSubs, path, onToggle: toggleSub, roomId, userId, noteSeen, pathname };
 
   // ブラウザのタブにも未読の数を出す（取り込み中は出さない）
   const quiet = useDoNotDisturb();
@@ -190,8 +225,11 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
   };
   const line = <div className="mx-2 h-0.5 rounded-full bg-accent" />;
 
-  const row = (ch: Channel, index: number) => {
+  /** onlyPath：閉じたカテゴリーの中。子のページは、今開いているページへの道だけ出す */
+  const row = (ch: Channel, index: number, onlyPath = false) => {
     const href = channelHref(roomId, ch);
+    const kids = ch.kind === "note" ? subs?.get(ch.id) : undefined;
+    const open = !!kids && (onlyPath ? path.has(ch.id) : openSubs.includes(ch.id));
     const active = pathname === href;
     const n = ch.kind === "chat" ? (unread?.get(ch.id) ?? 0) : 0;
     // ノート：ほかの人が直して、まだ開いていない更新があれば、名前を太くして印を出す
@@ -211,15 +249,15 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
           onDragEnd={() => (setDrag(null), setDrop(null))}
           onContextMenu={onContext({ type: "channel", ch })}
           data-name={`チャンネル「${ch.name || "無題"}」（${CHANNEL_KINDS[ch.kind].label}）`}
-          className={`group flex min-h-[36px] items-center rounded-[10px] transition ${active ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"} ${drag?.type === "channel" && drag.ch.id === ch.id ? "opacity-40" : ""}`}
+          className={`group relative flex min-h-[36px] items-center rounded-[10px] transition ${active ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"} ${drag?.type === "channel" && drag.ch.id === ch.id ? "opacity-40" : ""}`}
         >
           <Link href={href} draggable={false} className={`flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-3 ${(n && !active) || updated ? "font-bold" : ""}`}>
             {ch.icon ? (
-              <span className="w-4 shrink-0 text-center">
+              <span className={`w-4 shrink-0 text-center ${kids ? TOGGLE_HIDES : ""}`}>
                 <IconMark icon={ch.icon} />
               </span>
             ) : (
-              <Icon name={KIND_ICON[ch.kind]} size={16} className="shrink-0" />
+              <Icon name={KIND_ICON[ch.kind]} size={16} className={`shrink-0 ${kids ? TOGGLE_HIDES : ""}`} />
             )}
             <span className={`truncate ${ch.name ? "" : "text-muted"}`}>{ch.name || "無題"}</span>
             {ch.sourceId && (
@@ -237,7 +275,9 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
           >
             <Icon name="dots" size={16} />
           </button>
+          {kids && <TreeToggle open={open} onToggle={() => toggleSub(ch.id)} depth={0} />}
         </div>
+        {open && <SubNoteRows parentId={ch.id} depth={1} onlyPath={onlyPath} {...subTree} />}
       </div>
     );
   };
@@ -247,7 +287,7 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
     const endLine = drop?.type === "channel" && drop.categoryId === categoryId && drop.index === list.length;
     return (
       <div className="space-y-0.5">
-        {list.map(row)}
+        {list.map((ch, i) => row(ch, i))}
         {endLine && line}
       </div>
     );
@@ -340,7 +380,10 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
             ) : (
               <>
                 {!isCollapsed && channelList(cat.id)}
-                {isCollapsed && listOf(cat.id).filter((c) => pathname.startsWith(channelHref(roomId, c))).map((c) => row(c, listOf(cat.id).indexOf(c)))}
+                {isCollapsed &&
+                  listOf(cat.id)
+                    .filter((c) => pathname.startsWith(channelHref(roomId, c)) || path.has(c.id))
+                    .map((c) => row(c, listOf(cat.id).indexOf(c), true))}
               </>
             )}
           </div>
@@ -598,9 +641,14 @@ function ChannelMenu({
           danger
           onClick={async () => {
             close();
-            const body = ch.kind === "chat" ? "発言はすべて消えます。画像はメディアに残ります。元に戻せません。" : "中に置いたチャットの発言も消えます。画像はメディアに残ります。元に戻せません。";
+            const subs = ch.kind === "note" ? await noteDescendants(ch.id) : [];
+            const body =
+              ch.kind === "chat"
+                ? "発言はすべて消えます。画像はメディアに残ります。元に戻せません。"
+                : `${subs.length ? `中のページ（${subs.length}）も消えます。` : ""}中に置いたチャットの発言も消えます。画像はメディアに残ります。元に戻せません。`;
             if (!(await confirmAction(`「${ch.name || "無題"}」を削除します`, "削除", body))) return;
-            if (pathname.startsWith(channelHref(roomId, ch))) router.push(`/r/${roomId}`);
+            // 開いているのが、このチャンネルか中のページなら、ルームの最初へ
+            if (pathname.startsWith(channelHref(roomId, ch)) || subs.some((id) => pathname === `/r/${roomId}/note/${id}`)) router.push(`/r/${roomId}`);
             await deleteChannel(ch);
           }}
         >
@@ -698,6 +746,79 @@ function ChannelMenu({
       <MenuItem icon={<Icon name="add" size={16} />} onClick={() => setStep("kinds")}>
         チャンネルを作成
       </MenuItem>
+    </div>
+  );
+}
+
+/** 子のページがある行で、カーソルを乗せたときにアイコンを隠す（代わりに開け閉めの「›」を出す） */
+const TOGGLE_HIDES = "group-hover:opacity-0 group-focus-within:opacity-0 [@media(hover:none)]:opacity-0";
+
+/** 子のページを1段ごとに下げる幅 */
+const SUB_INDENT = 16;
+
+/** 子のページの開け閉め。アイコンの上に重ね、カーソルを乗せたときだけ出す（Notion と同じ。触って使う画面では、いつも出す） */
+function TreeToggle({ open, onToggle, depth }: { open: boolean; onToggle: () => void; depth: number }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-label={open ? "中のページを閉じる" : "中のページを開く"}
+      title={open ? "中のページを閉じる" : "中のページを開く"}
+      style={{ left: 8 + depth * SUB_INDENT }}
+      className="absolute top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-[6px] opacity-0 hover:bg-tint group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+    >
+      <Icon name={open ? "dn" : "rt"} size={14} />
+    </button>
+  );
+}
+
+type SubTree = {
+  subs: Map<string, Note[]>;
+  open: string[];
+  path: Set<string>;
+  onToggle: (id: string) => void;
+  roomId: string;
+  userId: string;
+  noteSeen: Record<string, number>;
+  pathname: string;
+};
+
+/**
+ * ノートの子のページ（Notion の階層）。親の行の下に、1段ずつ下げて並べる（並びは親の本文の「ページ」ブロックの順）。
+ * onlyPath（閉じたカテゴリーの中）なら、今開いているページへの道だけ。右クリックは、ブラウザのメニュー（新しいタブで開くなど）
+ */
+function SubNoteRows({ parentId, depth, onlyPath, ...tree }: SubTree & { parentId: string; depth: number; onlyPath: boolean }) {
+  const { subs, open, path, onToggle, roomId, userId, noteSeen, pathname } = tree;
+  const list = (subs.get(parentId) ?? []).filter((n) => !onlyPath || path.has(n.id) || pathname === `/r/${roomId}/note/${n.id}`);
+  return (
+    <div className="mt-0.5 space-y-0.5">
+      {list.map((n) => {
+        const href = `/r/${roomId}/note/${n.id}`;
+        const active = pathname === href;
+        const kids = subs.get(n.id);
+        const isOpen = !!kids && (onlyPath ? path.has(n.id) : open.includes(n.id));
+        const updated = !active && hasUnseenUpdate(noteSeen, userId, n);
+        return (
+          <div key={n.id}>
+            <div
+              onContextMenu={(e) => e.stopPropagation()}
+              data-name={`ページ「${n.title || "無題"}」`}
+              className={`group relative flex min-h-[36px] items-center rounded-[10px] transition ${active ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"}`}
+            >
+              <Link href={href} className={`flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2 ${updated ? "font-bold" : ""}`} style={{ paddingLeft: 12 + depth * SUB_INDENT }}>
+                <span className={`grid w-4 shrink-0 place-items-center ${kids ? TOGGLE_HIDES : ""}`}>
+                  <IconMark icon={n.icon} fallback={<Icon name="note" size={16} />} />
+                </span>
+                <span className={`truncate ${n.title ? "" : "text-muted"}`}>{n.title || "無題"}</span>
+              </Link>
+              {updated && <UpdatedDot />}
+              {kids && <TreeToggle open={isOpen} onToggle={() => onToggle(n.id)} depth={depth} />}
+            </div>
+            {isOpen && <SubNoteRows parentId={n.id} depth={depth + 1} onlyPath={onlyPath} {...tree} />}
+          </div>
+        );
+      })}
     </div>
   );
 }

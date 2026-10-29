@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Icon, type IconName } from "@/components/Icon";
 import { DEFAULT_PAGE_ICON, IconMark } from "@/components/IconMark";
 import { IconPicker } from "@/components/IconPicker";
@@ -10,14 +10,14 @@ import { UploadIndicator } from "@/components/media/UploadIndicator";
 import { usePopover } from "@/components/ui/Popover";
 import { setChannelIcon, type ChannelKind } from "@/lib/local/channels";
 import { renameChat, useChat } from "@/lib/local/chat";
-import { renameNote, useNote } from "@/lib/local/notes";
+import { renameNote, useNote, useNoteAncestors } from "@/lib/local/notes";
 import { setDatabaseIcon, setPageIcon, updateDatabase, updatePageTitle, useDatabase, usePage } from "@/lib/local/requests";
 import type { PageTemplate } from "@/lib/local/db";
 import { updateTemplate } from "@/lib/local/templates";
 import { renameWindow, useWindowPage } from "@/lib/local/windows";
 
 /**
- * Discord のような、メイン画面の上の細いバー。今の画面のアイコンと名前を出す（データベースのページは「データベース › ページ」）。
+ * Discord のような、メイン画面の上の細いバー。今の画面のアイコンと名前を出す（データベースのページは「データベース › ページ」、ノートの子のページは「親 › 子」）。
  * 今開いている画面のアイコン・名前は、押すとその場で変えられる。
  * 右には、画面ごとの操作（TopBarActions で入れる）と、いちばん右に Discord と同じメンバー一覧のボタン。
  * スマホでは、左のメニューのボタンの分をあける。前の階層は「‹」だけにし、テンプレートの印は出さない（1段に収めて、今の画面の名前を読めるように）
@@ -205,12 +205,33 @@ function WindowCrumb({ roomId, id }: { roomId: string; id: string }) {
   );
 }
 
+/** 上の階層を出す数。多いときは、いちばん上と、すぐ上の2つだけにして、間は「…」にする（Notion と同じ） */
+const MAX_CRUMBS = 3;
+
 function NoteCrumb({ roomId, id }: { roomId: string; id: string }) {
   const note = useNote(id);
   const source = useNote(note?.sourceId ?? undefined);
+  const ancestors = useNoteAncestors(note?.parentId) ?? [];
   if (!note) return null;
+  const hidden = ancestors.length > MAX_CRUMBS ? ancestors.slice(1, -2) : [];
+  const shown = hidden.length ? [ancestors[0], null, ...ancestors.slice(-2)] : ancestors;
   return (
     <>
+      {shown.map((a, i) => (
+        <Fragment key={a?.id ?? "more"}>
+          {/* スマホでは、すぐ上の親だけ（戻るための「‹」） */}
+          <span className={i < shown.length - 1 ? "contents max-md:hidden" : "contents"}>
+            {a ? (
+              <Crumb icon={<IconMark icon={a.icon} fallback={<Icon name="note" size={16} />} />} label={a.title || "無題"} href={`/r/${roomId}/note/${a.id}`} />
+            ) : (
+              <span className="shrink-0 px-1 text-muted" title={hidden.map((h) => h.title || "無題").join(" › ")}>
+                …
+              </span>
+            )}
+          </span>
+          <Sep />
+        </Fragment>
+      ))}
       <ChannelCrumb roomId={roomId} kind="note" id={id} name={note.title} icon={note.icon} template={note.template} />
       {source && <SourceChip name={source.title} />}
     </>

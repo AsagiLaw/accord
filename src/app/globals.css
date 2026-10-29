@@ -551,5 +551,22 @@ body {
 .note-page-link:hover { background: var(--tint); }
 .note-page-link-icon { display: inline-grid; place-items: center; align-self: center; }
 .note-page-link-text { font-weight: 500; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); text-underline-offset: 2px; }
+/* 子のページ（「ページ」ブロック）：アイコンと名前の1行（高さは段落と同じ）。行いっぱいを押せて、押すとそのページを開く（Notion と同じ） */
+.bn-editor .bn-block-content[data-content-type="subPage"], .note-page .bn-editor .bn-block-content[data-content-type="subPage"] { padding-block: 0; }
+.note-subpage { display: flex; width: 100%; align-items: center; gap: 6px; border-radius: 4px; padding: 3px 2px; color: inherit; line-height: 1.5; cursor: pointer; user-select: none; transition: background-color .15s; }
+.note-subpage:hover { background: var(--tint); }
+.note-subpage-icon { display: grid; place-items: center; width: 1.3em; height: 1.3em; flex-shrink: 0; font-size: 1.15em; line-height: 1; }
+.note-subpage-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 25%, transparent); text-decoration-thickness: 1px; text-underline-offset: 4px; }
+.note-subpage[data-gone] { color: var(--muted); }
+.note-subpage[data-gone] .note-subpage-text { text-decoration-line: line-through; }
+div.note-subpage[data-gone] { cursor: default; }
+div.note-subpage[data-gone]:hover { background: none; }
+
+/* ゴミ箱にあるページの上の帯（Notion と同じ）。カバーと同じく、メイン画面の左右と上の余白まで広げる */
+.note-trash-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; margin: -16px calc(-1 * clamp(16px, 4vw, 40px)) 0; padding: 8px 16px; background: var(--warn); color: #fff; font-size: 14px; }
+.note-trash-bar button { border: 1px solid color-mix(in srgb, #fff 60%, transparent); border-radius: 6px; padding: 2px 10px; font-size: 13px; }
+.note-trash-bar button:hover { background: color-mix(in srgb, #fff 15%, transparent); }
+.note-trash-bar + [data-name="ノートの頭"] .note-cover { margin-top: 0; }
+
 /* 入力の案内（「/」でコマンドなど）は、書いているときだけ出す（Notion と同じ）。ページが空のときは、そのまま出す */
 .note-editor .ProseMirror:not(:focus) .bn-block-content[data-is-empty-and-focused]:not([data-is-only-empty-block]) .bn-inline-content::before { content: none !important; }
