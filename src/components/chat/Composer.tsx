@@ -191,7 +191,7 @@ export function Composer({
   return (
     <div
       data-name="入力欄"
-      className="relative"
+      className="relative pt-1"
       // メディアの画像をドラッグしてきたときは、ファイルの追加として扱わない（同じ画像が二重に増えないように）
       onDragOver={(e) => e.dataTransfer.types.includes("Files") && !e.dataTransfer.types.includes(MEDIA_DRAG_TYPE) && e.preventDefault()}
       onDrop={(e) => {
@@ -221,17 +221,18 @@ export function Composer({
           ))}
         </div>
       )}
-      {/* 入力中の人。入力欄（話す人の並び）の上に出す。出たり消えたりしても欄が動かないよう、場所はいつも空けておく */}
-      <div aria-live="polite" className="flex h-5 items-center gap-1.5 px-2 text-xs text-muted">
+      {/* 入力中の人。場所は取らず、入力欄（話す人の並び）のすぐ上に、発言一覧の下の端へ重ねて出す。
+          出ているときだけ文字の後ろに透かしの背景を敷いて、下の発言と重なっても読めるようにする */}
+      <div aria-live="polite" className="pointer-events-none absolute bottom-full left-1 z-10 flex max-w-[calc(100%-8px)]">
         {typers.length > 0 && (
-          <>
+          <span className="mb-0.5 flex min-w-0 items-center gap-1.5 rounded-full bg-bg/85 px-2.5 py-0.5 text-xs text-muted shadow-sm backdrop-blur-sm">
             <span className="typing-dots" aria-hidden>
               <i />
               <i />
               <i />
             </span>
             <span className="truncate">{typingLabel(typers)}</span>
-          </>
+          </span>
         )}
       </div>
       {header}
