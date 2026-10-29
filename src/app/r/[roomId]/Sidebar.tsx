@@ -13,6 +13,7 @@ import { MediaSettingsDialog } from "@/components/media/MediaSettings";
 import { useBoxAccess, useRoomBox } from "@/lib/local/boxes";
 import { useCanInvite } from "@/lib/local/invites";
 import { InviteFriendsDialog } from "@/components/InviteFriendsDialog";
+import { RoomTrashDialog } from "@/components/RoomTrashDialog";
 
 type Room = { id: string; name: string };
 
@@ -34,6 +35,8 @@ export function Sidebar({
   // フレンドを招待（ホストと、ホストが許したときのメンバー）
   const canInvite = useCanInvite(room.id, me.id);
   const [inviting, setInviting] = useState(false);
+  // ルームのゴミ箱（ノートの子のページとデータベースのページ）
+  const [trash, setTrash] = useState(false);
   const base = `/r/${room.id}`;
   // ルームの「メディア」は、ルームに紐づいたボックス
   const roomBox = useRoomBox(room.id);
@@ -99,6 +102,15 @@ export function Sidebar({
               </MenuItem>
             )}
             <MenuItem
+              icon={<Icon name="del" size={16} />}
+              onClick={() => {
+                roomMenu.close();
+                setTrash(true);
+              }}
+            >
+              ゴミ箱
+            </MenuItem>
+            <MenuItem
               icon={<Icon name="gear" size={16} />}
               onClick={() => {
                 roomMenu.close();
@@ -109,6 +121,7 @@ export function Sidebar({
             </MenuItem>
           </Popover>
           {inviting && <InviteFriendsDialog room={room} me={me} onClose={() => setInviting(false)} />}
+          {trash && <RoomTrashDialog roomId={room.id} userId={me.id} onClose={() => setTrash(false)} />}
           {/* メディアのボタンは、ボックスが紐づいているルームだけ（設定していないルームでは、チャットの上のフォルダから画像を見る） */}
           {roomBox && (
             <>

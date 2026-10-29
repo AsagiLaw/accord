@@ -9,7 +9,7 @@ import { stageOf } from "@/lib/requests/stages";
 import { deleteNoteTree, deleteOwnedChats } from "./channels";
 import { copySubPages, deleteSubPages } from "./subPages";
 import { freshBlocks } from "./templates";
-import { db, newId, type CalEvent, type Database, type DbPage, type DbView, type PageTemplate, type Property, type StatusGroup, type TagColor, type Todo } from "./db";
+import { db, newId, type CalEvent, type Database, type DbPage, type DbView, type Note, type PageTemplate, type Property, type StatusGroup, type TagColor, type Todo } from "./db";
 import { pageNoteId } from "./notes";
 
 // ---- 読み込み ----
@@ -203,6 +203,33 @@ export async function purgeOldTrash() {
   for (const p of old) await deletePageForever(p);
   const notes = await db.notes.filter((n) => !!n.deletedAt && n.deletedAt < limit).toArray();
   for (const n of notes) await deleteNoteTree(n.id);
+}
+
+/** ルームのゴミ箱のもの：ノートの子のページ（parent は親のノート）と、データベースのページ */
+export type RoomTrashItem = { kind: "note"; note: Note; parent?: Note; deletedAt: number } | { kind: "page"; page: DbPage; database?: Database; deletedAt: number };
+
+/** ルームのゴミ箱（ノートの子のページと、すべてのデータベースのページ。新しく入れた順） */
+export function useRoomTrash(roomId: string) {
+  return useLiveQuery(async () => {
+    const [notes, pages, databases] = await Promise.all([
+      db.notes.where("roomId").equals(roomId).toArray(),
+      db.dbPages.where("roomId").equals(roomId).filter((p) => !!p.deletedAt).toArray(),
+      db.databases.where("roomId").equals(roomId).toArray(),
+    ]);
+    const items: RoomTrashItem[] = [
+      ...notes.filter((n) => !!n.deletedAt).map((n) => ({ kind: "note" as const, note: n, parent: notes.find((x) => x.id === n.parentId), deletedAt: n.deletedAt! })),
+      ...pages.map((p) => ({ kind: "page" as const, page: p, database: databases.find((d) => d.id === p.dbId), deletedAt: p.deletedAt! })),
+    ];
+    return items.sort((a, b) => b.deletedAt - a.deletedAt);
+  }, [roomId]);
+}
+
+/** ルームのゴミ箱を空にする（ノートの子のページは中のページごと） */
+export async function emptyRoomTrash(roomId: string) {
+  const notes = await db.notes.where("roomId").equals(roomId).filter((n) => !!n.deletedAt).toArray();
+  for (const n of notes) await deleteNoteTree(n.id);
+  const pages = await db.dbPages.where("roomId").equals(roomId).filter((p) => !!p.deletedAt).toArray();
+  for (const p of pages) await deletePageForever(p);
 }
 
 /** ゴミ箱を空にする */
