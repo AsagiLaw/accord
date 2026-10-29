@@ -38,7 +38,7 @@ export const viewport: Viewport = {
   // アプリとして開いたときの上の帯の色（globals.css の --bg に合わせる）
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f2f2f2" },
-    { media: "(prefers-color-scheme: dark)", color: "#0d0d0d" },
+    { media: "(prefers-color-scheme: dark)", color: "#1e1f22" },
   ],
 };
 
