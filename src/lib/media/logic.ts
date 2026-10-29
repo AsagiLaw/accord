@@ -80,6 +80,11 @@ export type MediaPrefs = {
   libMode: LibMode;
   /** 画像とライブラリーの見せ方：アイコン（サムネイル・カードを並べる）／リスト（1行に1つ、名前やサイズを並べる） */
   imageView: "icon" | "list";
+  /**
+   * アイコン表示の画像の見せ方：標準（正方形に切り抜き、名前を画像に重ねる）／
+   * Windows 風（エクスプローラーの画像表示のように、切り抜かずに枠へ収め、名前を下に出す）
+   */
+  iconStyle: "card" | "explorer";
   /** リスト表示で出す列（並べた順）。データベースのプロパティの表示/非表示と同じく、出す・隠す・並べ替えができる */
   columns: ListColumn[];
   /** 画像の名前の後ろに拡張子を付けて出す（Windows のエクスプローラーの「ファイル名拡張子」） */
@@ -98,6 +103,7 @@ export const DEFAULT_PREFS: MediaPrefs = {
   level: 3,
   libMode: "rep",
   imageView: "icon",
+  iconStyle: "card",
   columns: ["dims", "size", "date"],
   showExt: false,
   previewRatio: "original",

@@ -30,7 +30,8 @@ const FIELD_ICON: Record<PreviewField, IconName> = {
 /**
  * メディアの設定（サイドバーのメディアのボタンを右クリック →「メディアの設定」）。
  * 入れた画像の名前を自動で付けるか（今のボックスの設定。入れる人・端末に関係なく効く）と、
- * プレビュー欄の画像の枠（元の縦横比／1:1）・詳細に出す項目と順番（こちらは端末ごとに覚える）を変える
+ * アイコン表示の画像の見せ方（標準／Windows 風）、プレビュー欄の画像の枠（元の縦横比／1:1）・詳細に出す項目と順番
+ * （こちらは端末ごとに覚える）を変える
  */
 export function MediaSettingsDialog({
   boxId,
@@ -104,6 +105,23 @@ export function MediaSettingsDialog({
                 />
               </>
             )}
+            <SectionHead label="アイコン表示" />
+            <OptionRow
+              icon="gallery"
+              note="画像を正方形に切り抜いて並べ、名前を画像の上に重ねます"
+              selected={prefs.iconStyle === "card"}
+              onClick={() => updatePrefs({ iconStyle: "card" })}
+            >
+              標準
+            </OptionRow>
+            <OptionRow
+              icon="folder"
+              note="Windows のフォルダの画像表示のように、画像を切り抜かずに枠へ収め、名前を画像の下に出します"
+              selected={prefs.iconStyle === "explorer"}
+              onClick={() => updatePrefs({ iconStyle: "explorer" })}
+            >
+              Windows 風
+            </OptionRow>
             <SectionHead label="プレビュー欄の画像" />
             <OptionRow
               icon="img"

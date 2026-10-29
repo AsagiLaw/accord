@@ -159,46 +159,20 @@ export function Thumb({
   renaming?: boolean;
   onRenamed?: (name: string | null) => void;
 }) {
-  const { showExt } = useMediaPrefs();
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-pressed={selected}
-      aria-label={m.name}
-      data-media={m.id}
-      data-name="画像"
-      onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") onDoubleClick?.();
-        if (e.key === " ") {
-          e.preventDefault();
-          onClick(e as unknown as React.MouseEvent);
-        }
-      }}
-      className={`group relative aspect-square cursor-pointer overflow-hidden rounded-[12px] border border-line bg-card transition duration-300 select-none motion-safe:hover:-translate-y-[3px] active:scale-95 ${
-        selected ? "outline-[3px] -outline-offset-1 outline-accent" : ""
-      }`}
-    >
-      <ThumbImage id={m.id} alt={m.name} />
-      {/* 他のアプリ（デスクトップ・Photoshop など）へドラッグすると、元の画像のファイルとして渡す */}
-      {!renaming && <DragOriginal m={m} multiSelected={order !== undefined} />}
-      {renaming ? (
-        <NameField
-          name={editableName(m)}
-          onDone={(n) => onRenamed?.(n)}
-          className="absolute right-2 bottom-2 left-2 h-6 text-xs font-bold"
-        />
-      ) : (
-        <span className="pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-16px)] truncate rounded-[10px] bg-black/25 px-2.5 py-px text-xs font-bold text-white backdrop-blur-md [text-shadow:0_1px_3px_#000,0_0_8px_#000a]">
-          {labelOf(m, showExt)}
-        </span>
-      )}
-      {/* R2 に置いている途中なら、名前の札のすぐ上にゲージを出す（明るい画像の上でも見えるよう、暗い下地と影を付ける） */}
+  const { showExt, iconStyle } = useMediaPrefs();
+  // Windows 風：エクスプローラーの画像表示のように、画像を切り抜かずに正方形の枠へ収め（下にそろえる）、名前を画像の下に出す
+  const explorer = iconStyle === "explorer";
+  const drag = !renaming && <DragOriginal m={m} multiSelected={order !== undefined} />;
+  const nameField = (className: string) => (
+    <NameField name={editableName(m)} onDone={(n) => onRenamed?.(n)} className={className} />
+  );
+  // 画像の上に重ねる印（ゲージ・選んだ順の番号・お気に入り・子ライブラリーの印など）
+  const marks = (
+    <>
+      {/* R2 に置いている途中なら、ゲージを出す（明るい画像の上でも見えるよう、暗い下地と影を付ける）。標準では名前の札のすぐ上 */}
       <UploadGauge
         id={m.id}
-        className="pointer-events-auto absolute right-2 bottom-[32px] left-2 h-1.5 rounded-full bg-black/50 shadow-[0_0_4px_#0008]"
+        className={`pointer-events-auto absolute right-2 left-2 h-1.5 rounded-full bg-black/50 shadow-[0_0_4px_#0008] ${explorer ? "bottom-2" : "bottom-[32px]"}`}
       />
       {/* 複数選んでいるときだけ、選んだ順の番号を出す（1枚だけのときは枠の色だけ） */}
       {selected && order !== undefined && (
@@ -225,6 +199,78 @@ export function Thumb({
         </button>
       )}
       {extra}
+    </>
+  );
+  // 元の画像の縦横比（分からなければ正方形）。Windows 風では、この形のまま枠に収める
+  const ratio = m.width && m.height ? m.width / m.height : 1;
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-label={m.name}
+      data-media={m.id}
+      data-name="画像"
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") onDoubleClick?.();
+        if (e.key === " ") {
+          e.preventDefault();
+          onClick(e as unknown as React.MouseEvent);
+        }
+      }}
+      className={
+        explorer
+          ? `group relative flex cursor-default flex-col items-center gap-1 rounded-[6px] border p-1.5 outline-none select-none ${
+              selected ? "border-accent/50 bg-accent/15" : "border-transparent hover:bg-tint focus-visible:bg-tint"
+            }`
+          : `group relative aspect-square cursor-pointer overflow-hidden rounded-[12px] border border-line bg-card transition duration-300 select-none motion-safe:hover:-translate-y-[3px] active:scale-95 ${
+              selected ? "outline-[3px] -outline-offset-1 outline-accent" : ""
+            }`
+      }
+    >
+      {explorer ? (
+        <>
+          <div className="relative flex aspect-square w-full items-end justify-center">
+            {/* 画像の形の枠（拡大表示がこの位置から出てくる。ドラッグで渡すときの絵もこの形） */}
+            <span
+              className="relative block overflow-hidden"
+              style={{ width: `${Math.min(1, ratio) * 100}%`, aspectRatio: ratio }}
+            >
+              <ThumbImage id={m.id} alt={m.name} />
+              {/* 他のアプリ（デスクトップ・Photoshop など）へドラッグすると、元の画像のファイルとして渡す */}
+              {drag}
+            </span>
+            {marks}
+          </div>
+          {renaming ? (
+            nameField("h-6 w-full text-center text-xs")
+          ) : (
+            // 長い名前は2行まで（全部はカーソルを合わせると出る）
+            <span
+              title={labelOf(m, showExt)}
+              className="line-clamp-2 w-full text-center text-xs leading-4 [overflow-wrap:anywhere]"
+            >
+              {labelOf(m, showExt)}
+            </span>
+          )}
+        </>
+      ) : (
+        <>
+          <ThumbImage id={m.id} alt={m.name} />
+          {/* 他のアプリ（デスクトップ・Photoshop など）へドラッグすると、元の画像のファイルとして渡す */}
+          {drag}
+          {renaming ? (
+            nameField("absolute right-2 bottom-2 left-2 h-6 text-xs font-bold")
+          ) : (
+            <span className="pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-16px)] truncate rounded-[10px] bg-black/25 px-2.5 py-px text-xs font-bold text-white backdrop-blur-md [text-shadow:0_1px_3px_#000,0_0_8px_#000a]">
+              {labelOf(m, showExt)}
+            </span>
+          )}
+          {marks}
+        </>
+      )}
     </div>
   );
 }
