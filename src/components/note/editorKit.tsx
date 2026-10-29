@@ -1,13 +1,16 @@
 "use client";
 
-import { combineByGroup, filterSuggestionItems, fragmentToBlocks, insertOrUpdateBlockForSlashMenu, type DropCursorHooks, type PartialBlock } from "@blocknote/core";
+import { combineByGroup, filterSuggestionItems, formatKeyboardShortcut, fragmentToBlocks, insertOrUpdateBlockForSlashMenu, type DropCursorHooks, type PartialBlock } from "@blocknote/core";
 import { SideMenuExtension } from "@blocknote/core/extensions";
 import { ja } from "@blocknote/core/locales";
 import {
+  BasicTextStyleButton,
   BlockColorsItem,
   DragHandleMenu,
+  FormattingToolbar,
   FormattingToolbarController,
   getDefaultReactSlashMenuItems,
+  getFormattingToolbarItems,
   RemoveBlockItem,
   SideMenu,
   SideMenuController,
@@ -18,10 +21,11 @@ import {
   useExtensionState,
   usePortalElement,
   type DefaultReactSuggestionItem,
+  type FormattingToolbarProps,
 } from "@blocknote/react";
 import { offset } from "@floating-ui/react";
 import { getMultiColumnSlashMenuItems, locales as multiColumnLocales, multiColumnDropCursor } from "@blocknote/xl-multi-column";
-import { useContext, useEffect } from "react";
+import { createContext, useContext, useEffect } from "react";
 import { BLOCK_KINDS, MENU_KINDS } from "@/components/blockKinds";
 import { NoteContext } from "@/components/embeds";
 import { Icon } from "@/components/Icon";
@@ -31,6 +35,7 @@ import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { isImageFile } from "@/lib/media/image";
 import { noteSchema, type NoteEditor as Editor } from "./blocks";
 import { ColumnTabsHost, columnTabsExtension } from "./columnTabs";
+import { mentionItems } from "./docBlocks";
 import { isFixedBlock, isSeparate, isTextOnly, TextOnlyToolbar, TextOptionItems, TextOptionsContext, textOptionsExtension, useTextOptions, type TextOptions } from "./textOptions";
 
 // ノート・ウィンドウ・ページの本文・テンプレートで共通に使う、エディタの作り方とメニュー
@@ -58,9 +63,62 @@ export function slashItems(editor: Editor): DefaultReactSuggestionItem[] {
     icon: <Icon name="board" />,
     onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: "tabs", children: [{ type: "paragraph" }] } as never),
   };
+  // Notion のコールアウト（基本ブロック）と目次（高度なブロック）。グループの名前は標準の項目に合わせる
+  const notion: DefaultReactSuggestionItem[] = [
+    {
+      title: "コールアウト",
+      subtext: "アイコン付きの目立つ枠で書く",
+      aliases: ["callout", "kooruauto", "こーるあうと", "注意", "メモ", "ヒント"],
+      group: editor.dictionary.slash_menu.quote.group,
+      icon: <Icon name="bulb" />,
+      onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: "callout" } as never),
+    },
+    {
+      title: "目次",
+      subtext: "このページの見出しを並べる",
+      aliases: ["toc", "table of contents", "mokuji", "もくじ", "目次"],
+      group: editor.dictionary.slash_menu.table.group,
+      icon: <Icon name="list" />,
+      onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: "toc" } as never),
+    },
+  ];
   // 同じグループ（「基本ブロック」など）は1か所にまとめる（分かれると、メニューの表示でエラーになる）
-  return combineByGroup(defaults, getMultiColumnSlashMenuItems(editor), ours, [tabs]);
+  return combineByGroup(defaults, notion, getMultiColumnSlashMenuItems(editor), ours, [tabs]);
 }
+
+/** 文字を選んだときのツールバー：標準のものに、インラインコードのボタンを足す（打ち消し線の右） */
+function toolbarItems() {
+  const items = getFormattingToolbarItems();
+  const at = items.findIndex((x) => x.key === "strikeStyleButton");
+  items.splice(at + 1, 0, <BasicTextStyleButton basicTextStyle="code" key="codeStyleButton" />);
+  return items;
+}
+
+function NoteToolbar(props: FormattingToolbarProps) {
+  return <FormattingToolbar {...props}>{toolbarItems()}</FormattingToolbar>;
+}
+
+function NoteTextOnlyToolbar(props: FormattingToolbarProps) {
+  return <TextOnlyToolbar {...props}>{toolbarItems()}</TextOnlyToolbar>;
+}
+
+type Loose = { id?: string; props?: Record<string, unknown>; children?: Loose[] };
+
+/** 複製するブロックの中身（チャットは中身を引き継がず、新しい会話になる。ボタンの中のページも、押したときに新しく作る） */
+function copyBlock(b: Loose): Loose {
+  const props = b.props && ("chatId" in b.props || "noteId" in b.props) ? { ...b.props, ...("chatId" in b.props ? { chatId: "" } : {}), ...("noteId" in b.props ? { noteId: "" } : {}) } : b.props;
+  // id を外すと、新しい id が付く
+  return { ...b, id: undefined, ...(props ? { props } : {}), children: (b.children ?? []).map(copyBlock) };
+}
+
+/** すぐ下に同じブロックを足す（Ctrl+D と「⋮⋮」の「複製」） */
+function duplicateBlocks(editor: Editor, blocks: Loose[]) {
+  if (!blocks.length) return;
+  editor.insertBlocks(blocks.map(copyBlock) as never, blocks[blocks.length - 1] as never, "after");
+}
+
+/** ブロックへのリンクを出せるところ（ノートのチャンネル・データベースのページなど、URL でそのページを開けるところ） */
+const BlockLinkContext = createContext(false);
 
 /** 「⋮⋮」のメニューの「データベースと繋ぐ」：ふつうの段落・見出しを、データベースの項目と繋いだテキストにする */
 function BindFieldItem() {
@@ -148,6 +206,7 @@ const CONVERT: { label: string; type: string; props?: Record<string, unknown> }[
   { label: "チェックリスト", type: "checkListItem" },
   { label: "トグル", type: "toggleListItem" },
   { label: "引用", type: "quote" },
+  { label: "コールアウト", type: "callout" },
   { label: "コード", type: "codeBlock" },
 ];
 
@@ -188,16 +247,35 @@ function DuplicateItem() {
   const editor = useBlockNoteEditor<typeof noteSchema.blockSchema, typeof noteSchema.inlineContentSchema, typeof noteSchema.styleSchema>();
   const block = useExtensionState(SideMenuExtension, { editor, selector: (state) => state?.block });
   if (!block) return null;
-  type Loose = { id?: string; props?: Record<string, unknown>; children?: Loose[] };
-  const copy = (b: Loose): Loose => {
-    // ボタンの中のページ（noteId）も引き継がず、押したときに新しく作る
-    const props = b.props && ("chatId" in b.props || "noteId" in b.props) ? { ...b.props, ...("chatId" in b.props ? { chatId: "" } : {}), ...("noteId" in b.props ? { noteId: "" } : {}) } : b.props;
-    // id を外すと、新しい id が付く
-    return { ...b, id: undefined, ...(props ? { props } : {}), children: (b.children ?? []).map(copy) };
-  };
   return (
-    <Components.Generic.Menu.Item className="bn-menu-item" onClick={() => editor.insertBlocks([copy(block as unknown as Loose) as never], block, "after")}>
-      複製
+    <Components.Generic.Menu.Item className="bn-menu-item" onClick={() => duplicateBlocks(editor as unknown as Editor, [block as unknown as Loose])}>
+      <span className="flex w-full items-center gap-3">
+        <span className="flex-1">複製</span>
+        <kbd className="text-xs text-muted">{formatKeyboardShortcut("Mod-d")}</kbd>
+      </span>
+    </Components.Generic.Menu.Item>
+  );
+}
+
+/** 「⋮⋮」のメニューの「ブロックへのリンクをコピー」：開くと、そのブロックまで移って光る */
+function CopyLinkItem() {
+  const Components = useComponentsContext()!;
+  const editor = useBlockNoteEditor<typeof noteSchema.blockSchema, typeof noteSchema.inlineContentSchema, typeof noteSchema.styleSchema>();
+  const block = useExtensionState(SideMenuExtension, { editor, selector: (state) => state?.block });
+  const linkable = useContext(BlockLinkContext);
+  if (!block || !linkable) return null;
+  return (
+    <Components.Generic.Menu.Item
+      className="bn-menu-item"
+      onClick={() => {
+        const url = `${location.origin}${location.pathname}#block-${block.id}`;
+        navigator.clipboard.writeText(url).then(
+          () => toast("ブロックへのリンクをコピーしました"),
+          () => toast("リンクをコピーできませんでした"),
+        );
+      }}
+    >
+      ブロックへのリンクをコピー
     </Components.Generic.Menu.Item>
   );
 }
@@ -209,6 +287,7 @@ function DocDragHandleMenu() {
       <BlockColorsItem>カラー</BlockColorsItem>
       <TextOptionItems />
       <DuplicateItem />
+      <CopyLinkItem />
       <BindFieldItem />
       <TabsItems />
       <RemoveBlockItem>削除</RemoveBlockItem>
@@ -468,7 +547,8 @@ function useDropBesideColumns(editor: Editor) {
  * BlockNoteView の中に置くメニュー：「/」（全角の「／」でも開く）と、左の「＋」「⋮⋮」。
  * textOptions：ウィンドウの文章のブロックの枠・固定（渡すと「⋮⋮」に「枠」「固定」が出る）。
  * textOnly：ふだんのウィンドウ。固定していない文章だけ直せる（「＋」「⋮⋮」「/」は出さない）。
- * separate：そのうえ、文章のブロックもそれぞれ別（足したり消したり、つなげたりしない）
+ * separate：そのうえ、文章のブロックもそれぞれ別（足したり消したり、つなげたりしない）。
+ * linkable：「⋮⋮」に「ブロックへのリンクをコピー」を出す（URL でそのページを開けるところ）
  */
 export function EditorMenus({
   editor,
@@ -476,13 +556,16 @@ export function EditorMenus({
   onTextOptions,
   textOnly = false,
   separate = false,
+  linkable = false,
 }: {
   editor: Editor;
   textOptions?: TextOptions;
   onTextOptions?: (options: TextOptions) => void;
   textOnly?: boolean;
   separate?: boolean;
+  linkable?: boolean;
 }) {
+  const ctx = useContext(NoteContext);
   useSideMenuOnHover(editor, !textOnly);
   useDropBesideColumns(editor);
   useTextOptions(editor, textOptions, textOnly, separate);
@@ -502,8 +585,9 @@ export function EditorMenus({
         e.stopPropagation();
         return;
       }
-      if (textOnly) textOnlyEdgeKey(editor, e, separate);
-      else columnBackspace(editor, e);
+      if (textOnly) return textOnlyEdgeKey(editor, e, separate);
+      if (notionKey(editor, e)) return;
+      columnBackspace(editor, e);
     };
     const onInput = (e: InputEvent) => {
       if (inField(e)) return;
@@ -521,11 +605,16 @@ export function EditorMenus({
   }, [editor, textOnly, separate]);
   const menus = textOnly ? (
     // ふだんのウィンドウ：文字を選んだときのツールバーだけ（固定した文章などにかかるときは出さない。BlockNoteView の標準のものは止めておく）
-    <FormattingToolbarController formattingToolbar={TextOnlyToolbar} />
+    <FormattingToolbarController formattingToolbar={NoteTextOnlyToolbar} />
   ) : (
     <>
+      {/* 文字を選んだときのツールバー（BlockNoteView の標準のものは止めておく） */}
+      <FormattingToolbarController formattingToolbar={NoteToolbar} />
       <SuggestionMenuController triggerCharacter="/" getItems={async (query) => filterSuggestionItems(slashItems(editor), query)} />
       <SuggestionMenuController triggerCharacter="／" getItems={async (query) => filterSuggestionItems(slashItems(editor), query)} />
+      {/* 「@」（全角の「＠」でも）：メンバー・日付・ルームのノートを文の中に入れる */}
+      <SuggestionMenuController triggerCharacter="@" getItems={(query) => mentionItems(editor as never, ctx, query)} />
+      <SuggestionMenuController triggerCharacter="＠" getItems={(query) => mentionItems(editor as never, ctx, query)} />
       <SideMenuController
         sideMenu={(props) => <SideMenu {...props} dragHandleMenu={DocDragHandleMenu} />}
         // 「＋」「⋮⋮」を、そのブロックの1行目の真ん中にそろえる（BlockNote の決まった値は、見出しの大きさが違うとずれるので、実際の文字から測る）
@@ -535,11 +624,46 @@ export function EditorMenus({
   );
   return (
     <TextOptionsContext.Provider value={textOptions && onTextOptions ? { options: textOptions, onChange: onTextOptions } : null}>
-      {menus}
-      {/* 左右に並んだブロック（列）を、スマホの幅ではタブにする */}
-      <ColumnTabsHost editor={editor} textOnly={textOnly} />
+      <BlockLinkContext.Provider value={linkable}>
+        {menus}
+        {/* 左右に並んだブロック（列）を、スマホの幅ではタブにする */}
+        <ColumnTabsHost editor={editor} textOnly={textOnly} />
+      </BlockLinkContext.Provider>
     </TextOptionsContext.Provider>
   );
+}
+
+/**
+ * Notion と同じキー。処理したら true。
+ * - Ctrl+D（Mac は ⌘D）：今のブロック（選んでいるブロック）を、すぐ下に複製する
+ * - コールアウトの中の Enter：最後なら下に新しい段落を作って移り、途中ならコールアウトの中で改行する
+ */
+function notionKey(editor: Editor, e: KeyboardEvent) {
+  if (e.isComposing || e.keyCode === 229) return false;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "d") {
+    e.preventDefault();
+    e.stopPropagation();
+    const selected = editor.getSelection()?.blocks;
+    duplicateBlocks(editor, (selected?.length ? selected : [editor.getTextCursorPosition().block]) as unknown as Loose[]);
+    return true;
+  }
+  if (e.key !== "Enter" || e.shiftKey || mod || e.altKey) return false;
+  // 「/」「@」のメニューが開いているときは、メニューで選ぶ
+  if (document.querySelector(".bn-suggestion-menu")) return false;
+  const { block } = editor.getTextCursorPosition();
+  if (block.type !== "callout") return false;
+  const sel = editor.prosemirrorState.selection;
+  e.preventDefault();
+  e.stopPropagation();
+  if (sel.empty && sel.$from.parentOffset === sel.$from.parent.content.size) {
+    const [next] = editor.insertBlocks([{ type: "paragraph" }], block, "after");
+    editor.setTextCursorPosition(next, "start");
+  } else {
+    const view = editor.prosemirrorView;
+    view?.dispatch(view.state.tr.replaceSelectionWith(view.state.schema.nodes.hardBreak.create()).scrollIntoView());
+  }
+  return true;
 }
 
 /** 画像を、まずメディアに入れてから「画像（メディアから）」ブロックにして貼る */

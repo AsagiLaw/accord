@@ -168,8 +168,8 @@ export function BlockEditor({
         editable={editable || textOnly}
         slashMenu={false}
         sideMenu={false}
-        // ふだんのウィンドウでは、文字を選んだときのツールバーは EditorMenus が出す（固定した文章などでは出さない）
-        formattingToolbar={!textOnly}
+        // 文字を選んだときのツールバーは EditorMenus が出す（インラインコードのボタンを足したもの。ふだんのウィンドウでは、固定した文章などでは出さない）
+        formattingToolbar={false}
         onChange={() => {
           if (applying.current) return;
           onEdit?.(editor.document);

@@ -2,14 +2,16 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useParams } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { Icon } from "@/components/Icon";
-import { confirmAction } from "@/components/ui/overlay";
-import { deleteNote, useNote } from "@/lib/local/notes";
+import { useNote } from "@/lib/local/notes";
 import { setLinkedChat } from "@/lib/local/channelTemplates";
 import { TopBarActions } from "@/components/TopBarSlot";
+import { NoteHeader } from "@/components/note/NoteHeader";
+import { LockedChip, NoteMenu } from "@/components/note/NoteMenu";
 import { NoteUpdatesButton } from "@/components/note/NoteUpdates";
+import type { NoteEditor as Editor } from "@/components/note/blocks";
 import { useEditMode } from "@/components/window/editMode";
 import { useMembers } from "@/lib/local/rooms";
 import { markNoteSeen } from "@/lib/local/noteSeen";
@@ -19,18 +21,19 @@ import { DocSkeleton } from "@/components/Skeleton";
 // エディタはブラウザでしか動かないので、サーバーでは描画しない
 const NoteEditor = dynamic(() => import("@/components/note/NoteEditor").then((m) => m.NoteEditor), {
   ssr: false,
-  loading: () => <DocSkeleton />,
+  loading: () => <DocSkeleton title={false} />,
 });
 
 export default function NotePage() {
   const { roomId, noteId } = useParams<{ roomId: string; noteId: string }>();
-  const router = useRouter();
   const note = useNote(noteId);
   // ソース（テンプレート）と繋いでいれば、テンプレートの中身を出す。編集は、サイドバーの右クリック「編集」から
   const source = useNote(note?.sourceId ?? undefined);
   const { editing, finish } = useEditMode();
   const me = useCurrentUser();
   const members = useMembers(roomId);
+  const editorRef = useRef<Editor | null>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
 
   // 開いている間の更新は、見たことにする（サイドバーの「更新あり」の印を消す）
   useEffect(() => {
@@ -47,36 +50,71 @@ export default function NotePage() {
   }
 
   const linked = !!note.sourceId && !!source;
+  const body = linked && source ? source : note;
+  const locked = !!note.locked && !linked;
+  const look = note.look ?? {};
+
+  /** タイトルから本文へ。new なら、いちばん上に空の行を作って移る（いちばん上が空の段落なら、そこへ） */
+  const toBody = (mode: "new" | "first") => {
+    const ed = editorRef.current;
+    if (!ed || !ed.isEditable) return;
+    const first = ed.document[0];
+    try {
+      const empty = first?.type === "paragraph" && Array.isArray(first.content) && first.content.length === 0;
+      if (mode === "new" && first && !empty) {
+        const [b] = ed.insertBlocks([{ type: "paragraph" }], first, "before");
+        ed.setTextCursorPosition(b, "start");
+      } else if (first) ed.setTextCursorPosition(first, "start");
+      ed.focus();
+    } catch {
+      // いちばん上がチャットなど、文字を書けないブロックのとき
+      ed.focus();
+    }
+  };
+  /** 本文の下の空いたところを押したら、最後に書き足す（最後が空の段落でなければ、空の段落を足す） */
+  const toEnd = () => {
+    const ed = editorRef.current;
+    if (!ed || !ed.isEditable) return;
+    const last = ed.document[ed.document.length - 1];
+    try {
+      const empty = last?.type === "paragraph" && Array.isArray(last.content) && last.content.length === 0;
+      if (last && !empty) {
+        const [b] = ed.insertBlocks([{ type: "paragraph" }], last, "after");
+        ed.setTextCursorPosition(b, "start");
+      } else if (last) ed.setTextCursorPosition(last, "end");
+      ed.focus();
+    } catch {
+      ed.focus();
+    }
+  };
+  /** 本文のいちばん上で ↑ を押したら、タイトルの最後へ */
+  const toTitle = () => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  };
+
   return (
-    <div data-name="ノート画面" className="mx-auto max-w-3xl">
-      {/* 名前は上のバーに出る（押すとその場で変えられる）。更新の知らせと削除も、上のバーの右に置く */}
+    <div data-name="ノート画面" className="note-page" data-font={look.font} data-small={look.small ? "" : undefined} data-full={look.full ? "" : undefined}>
+      {/* 名前は上のバーにも出る（押すとその場で変えられる）。更新の知らせと「…」のメニューは、上のバーの右に置く */}
       <TopBarActions>
-        <NoteUpdatesButton note={linked && source ? source : note} members={members} meId={me.id} />
-        <button
-          type="button"
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-[8px] text-muted hover:bg-tint hover:text-warn md:h-7 md:w-7"
-          aria-label="このノートを削除"
-          title="このノートを削除"
-          onClick={async () => {
-            if (!(await confirmAction(`「${note.title}」を削除します`, "削除", "貼った画像はメディアに残ります。"))) return;
-            await deleteNote(note.id);
-            router.push(`/r/${roomId}`);
-          }}
-        >
-          <Icon name="del" size={18} />
-        </button>
+        {locked && <LockedChip note={note} />}
+        <NoteUpdatesButton note={body} members={members} meId={me.id} />
+        <NoteMenu note={note} body={body} roomId={roomId} members={members} linked={linked} />
       </TopBarActions>
-      {linked && source ? (
-        <>
-          {editing && (
-            <TopBarActions>
-              <span className="text-xs text-warn">テンプレートを編集しています（使っているところ全部に反映されます）</span>
-              <button onClick={finish} className="btn h-7 min-h-0 px-3 text-sm" data-name="編集を終える">
-                <Icon name="ok" size={14} />
-                完了
-              </button>
-            </TopBarActions>
-          )}
+      {linked && editing && (
+        <TopBarActions>
+          <span className="text-xs text-warn">テンプレートを編集しています（使っているところ全部に反映されます）</span>
+          <button onClick={finish} className="btn h-7 min-h-0 px-3 text-sm" data-name="編集を終える">
+            <Icon name="ok" size={14} />
+            完了
+          </button>
+        </TopBarActions>
+      )}
+      <NoteHeader note={note} roomId={roomId} userId={me.id} editable={!locked} onEnter={toBody} titleRef={titleRef} />
+      <div className="note-body">
+        {linked && source ? (
           <NoteEditor
             key={source.id}
             note={source}
@@ -85,11 +123,26 @@ export default function NotePage() {
             editable={editing}
             owner={`note:${note.id}`}
             linkedChats={{ get: (blockId) => note.chatMap?.[blockId], set: (blockId, chatId) => void setLinkedChat("note", note.id, blockId, chatId) }}
+            editorRef={editorRef}
+            onExitTop={toTitle}
+            linkable
           />
-        </>
-      ) : (
-        <NoteEditor key={note.id} note={note} userId={me.id} members={members} template={note.template} />
-      )}
+        ) : (
+          <NoteEditor
+            key={note.id}
+            note={note}
+            userId={me.id}
+            members={members}
+            template={note.template}
+            editable={!locked}
+            editorRef={editorRef}
+            onExitTop={toTitle}
+            linkable
+          />
+        )}
+        {/* Notion と同じく、本文の下を空けておき、押すと最後に書き足せる */}
+        <div aria-hidden className={`h-[30vh] ${locked || (linked && !editing) ? "" : "cursor-text"}`} onClick={toEnd} />
+      </div>
     </div>
   );
 }

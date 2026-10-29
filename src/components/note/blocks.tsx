@@ -1,11 +1,12 @@
 "use client";
 
-import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
+import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
 import { createReactBlockSpec } from "@blocknote/react";
 import { withMultiColumn } from "@blocknote/xl-multi-column";
 import { useEffect, useRef } from "react";
 import { BlockBody } from "@/components/embeds";
 import { FieldBlockView } from "@/components/pageBlocks";
+import { CalloutBlock, MentionInline, TocBlock } from "./docBlocks";
 import { TabsBlockView, type AnyBlock } from "./TabsBlock";
 
 export { NoteContext } from "@/components/embeds";
@@ -224,7 +225,11 @@ export const noteSchema = withMultiColumn(
     addButton: AddButtonBlock(),
     linkButton: LinkButtonBlock(),
     calendarBlock: CalendarBlock(),
+    callout: CalloutBlock(),
+    toc: TocBlock(),
   },
+  // 文の中のメンション（@：メンバー・日付・ノート）
+  inlineContentSpecs: { ...defaultInlineContentSpecs, mention: MentionInline },
   }),
 );
 

@@ -8,7 +8,8 @@ import type { Note } from "@/lib/local/db";
 import { saveNoteBlocks } from "@/lib/local/notes";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 import { useIsDark } from "@/lib/theme";
-import { NoteContext } from "./blocks";
+import { NoteContext, type NoteEditor as Editor } from "./blocks";
+import { jumpToBlock } from "./docBlocks";
 import { dropImages, EditorMenus, useBlockEditor, type Blocks } from "./editorKit";
 
 /**
@@ -18,7 +19,9 @@ import { dropImages, EditorMenus, useBlockEditor, type Blocks } from "./editorKi
  */
 /**
  * page：データベースのページの本文（メモ）のとき。ページのブロックがそのページを出す。
- * テンプレートと繋いだノートでは、note はテンプレート、owner・linkedChats はこのノートのもの。editable が false なら読むだけ
+ * テンプレートと繋いだノートでは、note はテンプレート、owner・linkedChats はこのノートのもの。editable が false なら読むだけ。
+ * ノートのチャンネル（ページの頭にタイトルがあるとき）：editorRef でエディタを渡し、いちばん上の行の頭で ↑ を押すと onExitTop を呼ぶ（タイトルへ戻る）。
+ * linkable なら「⋮⋮」に「ブロックへのリンクをコピー」を出し、URL の #block-（ID）のブロックへ移る
  */
 export function NoteEditor({
   note,
@@ -29,6 +32,9 @@ export function NoteEditor({
   owner,
   linkedChats,
   template,
+  editorRef,
+  onExitTop,
+  linkable = false,
 }: {
   note: Note;
   userId: string;
@@ -38,9 +44,23 @@ export function NoteEditor({
   owner?: string;
   linkedChats?: { get: (blockId: string) => string | undefined; set: (blockId: string, chatId: string) => void };
   template?: boolean;
+  editorRef?: React.RefObject<Editor | null>;
+  onExitTop?: () => void;
+  linkable?: boolean;
 }) {
   const isDark = useIsDark();
   const editor = useBlockEditor(note.blocks, note.roomId, userId, [note.id]);
+  useEffect(() => {
+    if (!editorRef) return;
+    editorRef.current = editor;
+    return () => {
+      editorRef.current = null;
+    };
+  }, [editor, editorRef]);
+  const exitTop = useRef(onExitTop);
+  useEffect(() => {
+    exitTop.current = onExitTop;
+  });
   const lastSaved = useRef(note.updatedAt);
   // 前にそろえたときの本文（自分がどのブロックを直したかを見分けるのに使う）
   const base = useRef<Blocks>([]);
@@ -58,6 +78,31 @@ export function NoteEditor({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [saving, setSaving] = useState<"idle" | "pending" | "saved">("idle");
   const wrapper = useRef<HTMLDivElement>(null);
+
+  // ブロックへのリンク（#block-ID）で開いたら、そのブロックまで移って光らせる
+  useEffect(() => {
+    if (!linkable) return;
+    const go = () => {
+      const id = decodeURIComponent(location.hash.match(/^#block-(.+)$/)?.[1] ?? "");
+      // エディタが描き終わるのを待ってから
+      if (id) setTimeout(() => wrapper.current && jumpToBlock(wrapper.current, id), 150);
+    };
+    go();
+    window.addEventListener("hashchange", go);
+    return () => window.removeEventListener("hashchange", go);
+  }, [linkable, editor]);
+
+  // いちばん上の行の頭で ↑ を押したら、ページのタイトルへ戻る（Notion と同じ）
+  const onKeyDownCapture = (e: React.KeyboardEvent) => {
+    if (!exitTop.current || e.key !== "ArrowUp" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.nativeEvent.isComposing) return;
+    if (document.querySelector(".bn-suggestion-menu")) return;
+    const sel = editor.prosemirrorState.selection;
+    if (!sel.empty || sel.$from.parentOffset !== 0) return;
+    const first = editor.document[0];
+    if (!first || editor.getTextCursorPosition().block.id !== first.id) return;
+    e.preventDefault();
+    exitTop.current();
+  };
 
   /** ほかの人の本文を、今の本文とブロックごとにまとめてエディタに入れ、まとめた本文を返す */
   const pull = (remote: Note) => {
@@ -138,12 +183,15 @@ export function NoteEditor({
         data-name="ノートのエディタ"
         className="note-editor"
         onDropCapture={dropImages(editor, note.roomId, userId)}
+        onKeyDownCapture={onKeyDownCapture}
       >
         <BlockNoteView
           editor={editor}
           theme={isDark ? "dark" : "light"}
           slashMenu={false}
           sideMenu={false}
+          // 文字を選んだときのツールバーは EditorMenus が出す（インラインコードのボタンを足したもの）
+          formattingToolbar={false}
           editable={editable}
           onChange={() => {
             if (!editable || applying.current) return;
@@ -152,7 +200,7 @@ export function NoteEditor({
             timer.current = setTimeout(save, 700);
           }}
         >
-          <EditorMenus editor={editor} />
+          <EditorMenus editor={editor} linkable={linkable} />
         </BlockNoteView>
         <p className="mx-[54px] mt-2 h-4 text-right text-xs text-muted" aria-live="polite">
           {saving === "pending" ? "保存待ち…" : saving === "saved" ? "保存しました" : ""}

@@ -193,8 +193,8 @@ function selectionTouchesFixed(editor: Editor) {
   return hit;
 }
 
-/** ふだんのウィンドウの、文字を選んだときのツールバー。固定した文章などにかかっているときは出さない */
-export function TextOnlyToolbar(props: FormattingToolbarProps) {
+/** ふだんのウィンドウの、文字を選んだときのツールバー。固定した文章などにかかっているときは出さない。children はツールバーのボタン（無ければ標準のもの） */
+export function TextOnlyToolbar(props: FormattingToolbarProps & { children?: React.ReactNode }) {
   const editor = useBlockNoteEditor<typeof noteSchema.blockSchema, typeof noteSchema.inlineContentSchema, typeof noteSchema.styleSchema>();
   return selectionTouchesFixed(editor as unknown as Editor) ? null : <FormattingToolbar {...props} />;
 }

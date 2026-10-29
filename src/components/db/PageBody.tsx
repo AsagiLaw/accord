@@ -91,7 +91,7 @@ export function PageBody({ roomId, dbId, pageId, peek }: { roomId: string; dbId:
             owner={`page:${page.id}`}
           />
         ) : memo ? (
-          <NoteEditor key={memo.id} note={memo} userId={me.id} members={members} page={{ dbId, pageId: page.id }} />
+          <NoteEditor key={memo.id} note={memo} userId={me.id} members={members} page={{ dbId, pageId: page.id }} linkable={!peek} />
         ) : (
           <DocSkeleton title={false} />
         )}

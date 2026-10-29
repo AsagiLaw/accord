@@ -527,6 +527,10 @@ export type CalEvent = {
 };
 export type Todo = { id: string; roomId: string; text: string; done: boolean; createdAt: number };
 
+/** ノートの見た目。font：無ければ標準（ゴシック） */
+export type NoteLook = { font?: "serif" | "mono"; small?: boolean; full?: boolean };
+export type NoteCover = { mediaId?: string; gradient?: string; y?: number };
+
 /** ノート（ブロック式のページ）。blocks はエディタ（BlockNote）の中身をそのまま保存する */
 export type Note = {
   id: string;
@@ -534,6 +538,12 @@ export type Note = {
   title: string;
   /** アイコン（絵文字・メディアの画像・シンプルなアイコン）。無ければ種類のアイコン */
   icon?: string;
+  /** ノートのチャンネルのカバー：メディアの画像か、ギャラリーの色（gradient：色の ID）。y は画像のどの高さを見せるか（上端 0〜下端 100） */
+  cover?: NoteCover;
+  /** ノートのチャンネルの見た目（Notion の「…」メニューと同じ）：書体・小さい文字・全幅 */
+  look?: NoteLook;
+  /** ページをロック：ロックを外すまで、だれも本文を直せない */
+  locked?: boolean;
   blocks: unknown[];
   /** 依頼ページのメモのときは、その依頼の ID。サイドバーには出さない */
   pageId: string | null;

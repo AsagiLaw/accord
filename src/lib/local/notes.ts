@@ -2,7 +2,7 @@
 
 import { useLiveQuery } from "dexie-react-hooks";
 import { deleteOwnedChats } from "./channels";
-import { db, newId, type Note } from "./db";
+import { db, newId, type Note, type NoteCover, type NoteLook } from "./db";
 
 /** サイドバーに出すノート（依頼のメモ・テンプレート・ボタンの中のページは除く） */
 export function useNotes(roomId: string) {
@@ -57,6 +57,21 @@ export async function saveNoteBlocks(noteId: string, blocks: unknown[], userId: 
 
 export async function renameNote(noteId: string, title: string) {
   await db.notes.update(noteId, { title });
+}
+
+/** カバーを変える（null なら外す）。画像の見せる高さ（y）は、はじめは真ん中 */
+export async function setNoteCover(noteId: string, cover: NoteCover | null) {
+  await db.notes.update(noteId, { cover: cover ?? undefined });
+}
+
+/** 見た目（書体・小さい文字・全幅）の一部を変える */
+export async function setNoteLook(noteId: string, patch: NoteLook) {
+  const prev = (await db.notes.get(noteId))?.look ?? {};
+  await db.notes.update(noteId, { look: { ...prev, ...patch } });
+}
+
+export async function setNoteLocked(noteId: string, locked: boolean) {
+  await db.notes.update(noteId, { locked: locked || undefined });
 }
 
 /** ノートを削除する。貼った画像はメディアに残る */
