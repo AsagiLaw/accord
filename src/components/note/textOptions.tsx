@@ -8,6 +8,7 @@ import { Plugin, PluginKey } from "prosemirror-state";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import { createContext, useContext, useLayoutEffect } from "react";
 import type { NoteEditor as Editor, noteSchema } from "./blocks";
+import { FIX_META } from "./containers";
 
 // ウィンドウの文章のブロック（段落・見出し・箇条書き・チェックリストなど）の「枠」「固定」。
 // ブロックの中身には入れず、ウィンドウにブロックの ID ごとに持つ（区画の高さと同じ）。
@@ -107,8 +108,8 @@ export const textOptionsExtension: ExtensionFactoryInstance = ({ editor }) => {
           apply: (tr, prev, _old, state) => (tr.docChanged || tr.getMeta(key) ? decorate(state.doc, box) : prev),
         },
         props: { decorations: (state) => key.getState(state) },
-        // ふだんのウィンドウでは、守るものを変える入力を通さない（部品の設定の書き換えなどは通す）
-        filterTransaction: (tr, state) => box.pass || !box.textOnly || !tr.docChanged || keepsFixed(state.doc, tr.doc, box.options, box.separate),
+        // ふだんのウィンドウでは、守るものを変える入力を通さない（部品の設定の書き換え・タブの形を整える変更などは通す）
+        filterTransaction: (tr, state) => box.pass || !box.textOnly || !tr.docChanged || !!tr.getMeta(FIX_META) || keepsFixed(state.doc, tr.doc, box.options, box.separate),
       }),
     ],
   };

@@ -296,7 +296,8 @@ export function homeBlocks(dbId: string | undefined, views: { list?: DbView; sum
   if (!dbId) return [{ type: "todoBlock" }];
   // データベースのビューをコピーして、それぞれのオールビューが持つ（無ければ表）
   const view = (v: DbView | undefined) => dbViewBlock(dbId, copyView(v ?? { name: "表", type: "table", filters: [], sort: null, options: {} }));
-  const tabs = [views.timeline, views.calendar].filter(Boolean).map((v) => ({ id: newId(), ...view(v) }));
+  // タブはタブごとの入れ物（tabPanel）に中身を入れる
+  const tabs = [views.timeline, views.calendar].filter(Boolean).map((v) => ({ id: newId(), type: "tabPanel", children: [view(v)] }));
   return [
     {
       type: "columnList",

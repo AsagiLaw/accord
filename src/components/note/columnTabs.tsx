@@ -8,7 +8,7 @@ import { useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { TabSwitch } from "@/components/ui/TabStrip";
 import type { NoteEditor as Editor } from "./blocks";
-import { parseTitles, TabLabel, textOf, type AnyBlock } from "./TabsBlock";
+import { activeTab, blank, parseTitles, TabLabel, tabHead, tabTitle, type AnyBlock } from "./TabsBlock";
 
 // 左右に並んだブロック（列）を、スマホの幅ではタブにして1列ずつ見せる（ノート・ウィンドウ・ページの本文で共通）。
 // 保存する中身は変えない（パソコンでは今までどおり左右に並ぶ）。どの列を見ているかは画面の上だけで覚える。
@@ -116,9 +116,6 @@ export const columnTabsExtension: ExtensionFactoryInstance = ({ editor }) => {
   };
 };
 
-/** 中身の無い文章のブロック（タブの名前に使わない） */
-const blank = (b: AnyBlock) => (b.type === "paragraph" || b.type === "heading") && !textOf(b);
-
 /** 1つの列の並びのタブ。名前は、列の中の最初のブロック（空の行は飛ばす）。何も無ければ「列 1」のように */
 function ColumnTabs({ editor, listId, textOnly }: { editor: Editor; listId: string; textOnly: boolean }) {
   const list = editor.getBlock(listId) as unknown as AnyBlock | undefined;
@@ -149,12 +146,12 @@ function ColumnTabs({ editor, listId, textOnly }: { editor: Editor; listId: stri
     const tabs = inner[i];
     if (!tabs) return [{ id: c.id, content: named[i] ? <TabLabel child={named[i]} /> : <span className="min-w-0 flex-1 truncate text-left">列 {i + 1}</span> }];
     const titles = parseTitles(tabs.props.titles);
-    return tabs.children.map((t) => ({ id: `${c.id}:${t.id}`, content: <TabLabel child={t} title={titles[t.id]} /> }));
+    return tabs.children.map((t) => ({ id: `${c.id}:${t.id}`, content: <TabLabel child={tabHead(t)} title={tabTitle(titles, t)} /> }));
   });
   // 選んでいるもの：タブを並べた列なら、その中で選んでいるタブ
   const activeTabs = inner[cols.findIndex((c) => c.id === active)];
-  const activeTab = activeTabs ? (activeTabs.children.find((t) => t.id === activeTabs.props.active) ?? activeTabs.children[0]) : undefined;
-  const activeItem = activeTab ? `${active}:${activeTab.id}` : active;
+  const shownTab = activeTabs ? activeTab(activeTabs) : undefined;
+  const activeItem = shownTab ? `${active}:${shownTab.id}` : active;
   const pick = (itemId: string) => {
     const [colId, tabId] = itemId.split(":");
     const tabs = inner[cols.findIndex((c) => c.id === colId)];

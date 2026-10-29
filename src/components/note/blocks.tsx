@@ -196,11 +196,20 @@ export const FieldBlock = createReactBlockSpec(
   },
 );
 
-// ---- タブ（中のブロックを1つずつタブにして、選んだ1つだけ見せる） ----
+// ---- タブ（タブごとの入れ物に中身のブロックを入れて、選んだタブの中身だけ見せる） ----
 
 export const TabsBlock = createReactBlockSpec(
   { type: "tabs", propSchema: { active: { default: "" }, titles: { default: "{}" } }, content: "none" },
   { render: ({ block, editor }) => <TabsBlockView block={block as unknown as AnyBlock} editor={editor as unknown as NoteEditor} /> },
+);
+
+/**
+ * タブ1つ分の入れ物。中のブロック（子のブロック）がそのタブの中身。自分は何も描かない（globals.css で隠す）。
+ * タブのブロックのすぐ下にだけ置く（containers.ts が整える）。選べないようにして、見えない入れ物ごと消えないようにする
+ */
+export const TabPanelBlock = createReactBlockSpec(
+  { type: "tabPanel", propSchema: {}, content: "none" },
+  { meta: { selectable: false }, render: () => <div data-tab-panel="" /> },
 );
 
 // 画像・動画・音声・ファイルの標準ブロックは外す（画像はメディアから貼るブロックに一本化）
@@ -222,6 +231,7 @@ export const noteSchema = withMultiColumn(
     pageChat: PageChatBlock(),
     field: FieldBlock(),
     tabs: TabsBlock(),
+    tabPanel: TabPanelBlock(),
     todoBlock: TodoBlock(),
     addButton: AddButtonBlock(),
     linkButton: LinkButtonBlock(),

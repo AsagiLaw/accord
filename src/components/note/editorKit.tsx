@@ -38,7 +38,9 @@ import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { isImageFile } from "@/lib/media/image";
 import { noteSchema, type NoteEditor as Editor } from "./blocks";
 import { ColumnTabsHost, columnTabsExtension } from "./columnTabs";
+import { calloutDropTarget, containerKey, containersExtension, dropIntoCallout, moveOut } from "./containers";
 import { mentionItems } from "./docBlocks";
+import { newPanel, undockTab } from "./TabsBlock";
 import { isFixedBlock, isSeparate, isTextOnly, TextOnlyToolbar, TextOptionItems, TextOptionsContext, textOptionsExtension, useTextOptions, type TextOptions } from "./textOptions";
 
 // ノート・ウィンドウ・ページの本文・テンプレートで共通に使う、エディタの作り方とメニュー
@@ -70,11 +72,17 @@ export function slashItems(editor: Editor, onSubPage?: () => void): DefaultReact
     });
   const tabs: DefaultReactSuggestionItem = {
     title: "タブ",
-    subtext: "ブロックをタブにまとめる（ほかのブロックの「⋮⋮」をタブの並びに落とすと入る）",
+    subtext: "タブで切り替えて見せる（タブごとにブロックを入れられる）",
     aliases: ["tab", "tabs", "tabu", "たぶ", "タブ"],
     group: "レイアウト",
     icon: <Icon name="board" />,
-    onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: "tabs", children: [{ type: "paragraph" }] } as never),
+    onItemClick: () => {
+      // 作ったら、最初のタブの中の行に入る
+      const panel = newPanel();
+      const block = insertOrUpdateBlockForSlashMenu(editor, { type: "tabs", props: { active: panel.id }, children: [panel] } as never) as unknown as Loose | undefined;
+      const line = block?.children?.[0]?.children?.[0];
+      if (line?.id) editor.setTextCursorPosition(line.id, "start");
+    },
   };
   // Notion のコールアウト（基本ブロック）と目次（高度なブロック）。グループの名前は標準の項目に合わせる
   const notion: DefaultReactSuggestionItem[] = [
@@ -160,51 +168,56 @@ function BindFieldItem() {
   );
 }
 
-/** 「⋮⋮」のメニューの「上のブロックとタブにまとめる」「タブから外す」 */
-function TabsItems() {
+/** 「⋮⋮」のメニューの「上のブロックとタブにまとめる」「タブから外す」「コールアウトから出す」 */
+function ContainerItems() {
   const Components = useComponentsContext()!;
   const editor = useBlockNoteEditor<typeof noteSchema.blockSchema, typeof noteSchema.inlineContentSchema, typeof noteSchema.styleSchema>();
   const block = useExtensionState(SideMenuExtension, { editor, selector: (state) => state?.block });
   if (!block || block.type === "column" || block.type === "columnList") return null;
+  const ed = editor as unknown as Editor;
   const parent = editor.getParentBlock(block);
   const prev = editor.getPrevBlock(block);
   type Loose = { id: string; type: string; children: Loose[] };
   const b = block as unknown as Loose;
   return (
     <>
-      {prev && parent?.type !== "tabs" && prev.type !== "column" && prev.type !== "columnList" && (
+      {prev && parent?.type !== "tabPanel" && prev.type !== "column" && prev.type !== "columnList" && (
         <Components.Generic.Menu.Item
           className="bn-menu-item"
           onClick={() => {
             const p = prev as unknown as Loose;
+            const panel = newPanel([b as never]);
             editor.transact(() => {
               if (p.type === "tabs") {
-                // 上がタブなら、そのタブに足す
+                // 上がタブなら、新しいタブにして足す
                 editor.removeBlocks([b.id]);
-                const t = editor.getBlock(p.id) as unknown as Loose;
-                editor.updateBlock(p.id, { children: [...t.children, b] as never, props: { active: b.id } as never });
-              } else editor.replaceBlocks([p.id, b.id], [{ type: "tabs", props: { active: b.id, titles: "{}" }, children: [p, b] }] as never);
+                const last = (editor.getBlock(p.id) as unknown as Loose).children.at(-1);
+                if (last) editor.insertBlocks([panel as never], last.id, "after");
+                else editor.updateBlock(p.id, { children: [panel] as never });
+                editor.updateBlock(p.id, { props: { active: panel.id } as never });
+              } else editor.replaceBlocks([p.id, b.id], [{ type: "tabs", props: { active: panel.id, titles: "{}" }, children: [newPanel([p as never]), panel] }] as never);
             });
           }}
         >
           上のブロックとタブにまとめる
         </Components.Generic.Menu.Item>
       )}
-      {parent?.type === "tabs" && (
+      {parent?.type === "tabPanel" && (
         <Components.Generic.Menu.Item
           className="bn-menu-item"
           onClick={() => {
-            const t = parent as unknown as Loose;
-            const rest = t.children.filter((x) => x.id !== b.id);
-            editor.transact(() => {
-              if (rest.length >= 2) {
-                editor.updateBlock(t.id, { children: rest as never, props: { active: rest[0].id } as never });
-                editor.insertBlocks([b as never], t.id, "after");
-              } else editor.replaceBlocks([t.id], [...rest, b] as never);
-            });
+            // タブの中身がこのブロックだけなら、タブごと外す。ほかは、このブロックだけをタブのブロックの下に出す
+            const tabs = editor.getParentBlock(parent);
+            if (tabs && (parent as unknown as Loose).children.length === 1) undockTab(ed, tabs.id, parent.id);
+            else moveOut(ed, [b.id]);
           }}
         >
           タブから外す（下に出す）
+        </Components.Generic.Menu.Item>
+      )}
+      {parent?.type === "callout" && (
+        <Components.Generic.Menu.Item className="bn-menu-item" onClick={() => moveOut(ed, [b.id])}>
+          コールアウトから出す
         </Components.Generic.Menu.Item>
       )}
     </>
@@ -306,7 +319,7 @@ function DocDragHandleMenu() {
       <DuplicateItem />
       <CopyLinkItem />
       <BindFieldItem />
-      <TabsItems />
+      <ContainerItems />
       <RemoveBlockItem>削除</RemoveBlockItem>
     </DragHandleMenu>
   );
@@ -510,10 +523,15 @@ function columnListEdge(view: EditorView, x: number, y: number): { id: string; s
   return null;
 }
 
-/** 落とす位置の線：列のまとまりの上端・下端では、列のまとまりの上・下に横線を出す。ほかは列の機能のまま（左右の端なら列を足す） */
+/**
+ * 落とす位置の線：コールアウトの文の下半分では、コールアウトの中のいちばん上。列のまとまりの上端・下端では、列のまとまりの上・下に横線を出す。
+ * ほかは列の機能のまま（左右の端なら列を足す）
+ */
 const dropCursor: { hooks: DropCursorHooks } = {
   hooks: {
     computeDropPosition: (ctx) => {
+      const into = calloutDropTarget(ctx.view, ctx.event.clientX, ctx.event.clientY);
+      if (into) return { pos: into.pos, orientation: "block-horizontal" };
       const edge = columnListEdge(ctx.view, ctx.event.clientX, ctx.event.clientY);
       if (edge) return { pos: edge.pos, orientation: "block-horizontal" };
       return multiColumnDropCursor.hooks.computeDropPosition?.(ctx) ?? ctx.defaultPosition;
@@ -523,17 +541,28 @@ const dropCursor: { hooks: DropCursorHooks } = {
 
 /**
  * ブロックを列のまとまりの上端・下端に落としたとき、列の中ではなく、列のまとまりの上・下に置く
- * （BlockNote のままだと、列が画面いっぱいに広がっていると、列の外に置ける場所が無い）
+ * （BlockNote のままだと、列が画面いっぱいに広がっていると、列の外に置ける場所が無い）。
+ * コールアウトの文の下半分に落としたときは、コールアウトの中のいちばん上に入れる
  */
 function useDropBesideColumns(editor: Editor) {
   useEffect(() => {
     const dom = editor.domElement;
     if (!dom) return;
-    type Loose = { id: string; children: Loose[] };
+    type Loose = { id: string; type: string; children: Loose[] };
     const onDrop = (e: DragEvent) => {
       const view = editor.prosemirrorView;
       const slice = view?.dragging?.slice;
       if (!view || !slice) return;
+      const into = calloutDropTarget(view, e.clientX, e.clientY);
+      if (into) {
+        const dragged = fragmentToBlocks(slice.content) as unknown as Loose[];
+        if (!dragged.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        view.dragging = null;
+        dropIntoCallout(editor, into.id, dragged);
+        return;
+      }
       const edge = columnListEdge(view, e.clientX, e.clientY);
       if (!edge) return;
       const dragged = fragmentToBlocks(slice.content) as unknown as Loose[];
@@ -621,7 +650,7 @@ export function EditorMenus({
         return;
       }
       if (textOnly) return textOnlyEdgeKey(editor, e, separate);
-      if (notionKey(editor, e, userId)) return;
+      if (notionKey(editor, e, userId) || containerKey(editor, e)) return;
       columnBackspace(editor, e);
     };
     const onInput = (e: InputEvent) => {
@@ -669,35 +698,17 @@ export function EditorMenus({
 }
 
 /**
- * Notion と同じキー。処理したら true。
+ * Notion と同じキー。処理したら true。コールアウト・タブの中のキーは containerKey（containers.ts）
  * - Ctrl+D（Mac は ⌘D）：今のブロック（選んでいるブロック）を、すぐ下に複製する
- * - コールアウトの中の Enter：最後なら下に新しい段落を作って移り、途中ならコールアウトの中で改行する
  */
 function notionKey(editor: Editor, e: KeyboardEvent, userId?: string) {
   if (e.isComposing || e.keyCode === 229) return false;
   const mod = e.ctrlKey || e.metaKey;
-  if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "d") {
-    e.preventDefault();
-    e.stopPropagation();
-    const selected = editor.getSelection()?.blocks;
-    duplicateBlocks(editor, (selected?.length ? selected : [editor.getTextCursorPosition().block]) as unknown as Loose[], userId);
-    return true;
-  }
-  if (e.key !== "Enter" || e.shiftKey || mod || e.altKey) return false;
-  // 「/」「@」のメニューが開いているときは、メニューで選ぶ
-  if (document.querySelector(".bn-suggestion-menu")) return false;
-  const { block } = editor.getTextCursorPosition();
-  if (block.type !== "callout") return false;
-  const sel = editor.prosemirrorState.selection;
+  if (!mod || e.shiftKey || e.altKey || e.key.toLowerCase() !== "d") return false;
   e.preventDefault();
   e.stopPropagation();
-  if (sel.empty && sel.$from.parentOffset === sel.$from.parent.content.size) {
-    const [next] = editor.insertBlocks([{ type: "paragraph" }], block, "after");
-    editor.setTextCursorPosition(next, "start");
-  } else {
-    const view = editor.prosemirrorView;
-    view?.dispatch(view.state.tr.replaceSelectionWith(view.state.schema.nodes.hardBreak.create()).scrollIntoView());
-  }
+  const selected = editor.getSelection()?.blocks;
+  duplicateBlocks(editor, (selected?.length ? selected : [editor.getTextCursorPosition().block]) as unknown as Loose[], userId);
   return true;
 }
 
@@ -741,7 +752,8 @@ export function useBlockEditor(initial: unknown[], roomId: string, userId: strin
       disableExtensions: ["gapCursor"],
       // 左右に並んだブロック（列）を、スマホの幅ではタブにして1列ずつ見せる
       // ウィンドウの文章のブロックの枠・固定
-      extensions: [columnTabsExtension, textOptionsExtension],
+      // コールアウト・タブの中のブロック（タブの形を整える）
+      extensions: [columnTabsExtension, textOptionsExtension, containersExtension],
       initialContent: initial.length ? (initial as Blocks) : undefined,
       // 画像を貼り付けたときは、まずメディアに入れてから「画像（メディアから）」ブロックにする（ふだんのウィンドウでは、ブロックは足せないので貼らない）
       pasteHandler: ({ event, editor, defaultPasteHandler }) => {

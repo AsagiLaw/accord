@@ -404,27 +404,33 @@ body {
 /* ウィンドウの中のカード（チャット・ビューなど）は、上下に少しだけ間をあける */
 .doc-window .bn-block-content:has([data-fill]), .doc-window .bn-block-content:has([data-shrink]), .doc-window .bn-block-content:has([data-tabs]) { padding: 2px 0; }
 
-/* ---- タブのブロック：中のブロックは字下げせず、タブの並びの下に枠で囲んで出す ---- */
+/* ---- タブのブロック：タブごとの入れ物（tabPanel）の中身を、字下げせず、タブの並びの下に枠で囲んで出す ---- */
 /* タブのブロック全体：灰色の枠（タブの並びの下の角は丸めない）。中身は上下左右とも角の丸い白い面 */
 .bn-block:has(> .react-renderer [data-tabs]) { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
 .bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group { margin: 0 !important; border: 0; border-radius: 8px 8px 9px 9px; padding: 0; background: var(--card); overflow: hidden; }
 /* タブの並びと中身のあいだに隙間を作らない（中身は枠の左右・下までいっぱい） */
 .bn-editor .bn-block-content:has(> [data-tabs]), .bn-editor .react-renderer > .bn-block-content:has([data-tabs]) { padding: 0 !important; }
-/* タブの中のブロック：自分の枠・角の丸み・上下の間をなくして、タブの枠とつなげる。文章だけは左右に少し余白 */
-.bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content { padding: 0 !important; }
-.bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > * { border: 0 !important; border-radius: 0 !important; }
-.bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group > .bn-block-outer > .bn-block > .bn-block-content { padding: 6px 10px; }
-/* タブの中では、ブロックの見出し（タブの名前と同じ）を出さない。読むだけのときは見出しの段ごと出さない（チャットの検索・通知などのボタン data-block-keep があれば、段は残す） */
-.bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group [data-block-title] { display: none !important; }
-.bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group [data-block-head][data-locked]:not(:has([data-block-keep])) { display: none !important; }
-.bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group > .bn-block-outer::before { display: none !important; }
-/* ウィンドウでは、タブは残りの高さいっぱい（選んでいるタブの中身も広げる） */
+/* 入れ物：自分は出さず、中身を字下げしないで、まわりに少し余白 */
+.bn-block:has(> .react-renderer [data-tab-panel]) > .react-renderer { display: none; }
+.bn-block:has(> .react-renderer [data-tab-panel]) > .bn-block-group { margin: 0 !important; padding: 6px 10px; }
+.bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group > .bn-block-outer::before,
+.bn-block:has(> .react-renderer [data-tab-panel]) > .bn-block-group > .bn-block-outer::before { display: none !important; }
+/* タブの中のカード（チャット・ビューなど枠のあるもの）：自分の枠・角の丸みをなくし、入れ物の余白の外まで広げて、タブの枠とつなげる */
+.bn-block:has(> .react-renderer [data-tab-panel]) > .bn-block-group > .bn-block-outer:has(> .bn-block > .react-renderer > .bn-block-content > [class~="border"]) { margin-inline: -10px; }
+.bn-block:has(> .react-renderer [data-tab-panel]) > .bn-block-group > .bn-block-outer:first-child:has(> .bn-block > .react-renderer > .bn-block-content > [class~="border"]) { margin-top: -6px; }
+.bn-block:has(> .react-renderer [data-tab-panel]) > .bn-block-group > .bn-block-outer:last-child:has(> .bn-block > .react-renderer > .bn-block-content > [class~="border"]) { margin-bottom: -6px; }
+.bn-block:has(> .react-renderer [data-tab-panel]) > .bn-block-group > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content:has(> [class~="border"]) { padding: 0 !important; }
+.bn-block:has(> .react-renderer [data-tab-panel]) > .bn-block-group > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > [class~="border"] { border: 0 !important; border-radius: 0 !important; }
+/* ウィンドウでは、タブは残りの高さいっぱい（選んでいるタブの中身も広げる。入りきらなければ中身をスクロール） */
 .doc-window .bn-block-outer:has(> .bn-block > .react-renderer [data-tabs]) { flex: var(--grow) 1 0; min-height: 160px; display: flex; flex-direction: column; }
 .doc-window .bn-block:has(> .react-renderer [data-tabs]) { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 .doc-window .bn-block:has(> .react-renderer [data-tabs]) > .react-renderer { flex: 0 0 auto; }
 .doc-window .bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
 .doc-window .bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group > .bn-block-outer { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 .doc-window .bn-block:has(> .react-renderer [data-tabs]) > .bn-block-group > .bn-block-outer > .bn-block { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.doc-window .bn-block:has(> .react-renderer [data-tab-panel]) > .bn-block-group { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+/* タブの中身がチャットなど1つだけのときは、前と同じく、タブの高さに合わせて縮める */
+.doc-window .bn-block:has(> .react-renderer [data-tab-panel]) > .bn-block-group > .bn-block-outer:only-child { min-height: 0; }
 /* タブを押したときに、タブのブロック全体が選ばれた青い枠を出さない（読むだけのウィンドウでは、どのブロックも出さない）。
    ビュー（オールビュー・シングルビュー）とカレンダーも、中を押したときに青い枠を出さない */
 .ProseMirror-selectednode.node-tabs > .bn-block-content > *::after,
@@ -458,12 +464,12 @@ body {
   .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer:first-child > .bn-block > .react-renderer > .bn-block-content > * > [data-block-head][data-locked] [data-block-keep] { pointer-events: auto; }
   .col-tabs + .bn-block-column-list > .bn-block-column > .bn-block-outer > .bn-block > .bn-block-content { padding: 6px 12px; }
 
-  /* タブのブロック（読むだけのとき）：列と同じく、枠をなくして小さな切り替えだけを出す */
+  /* タブのブロック（読むだけのとき）：列と同じく、枠をなくして小さな切り替えだけを出す。中身の左右の余白は、画面の端から 12px（カードは端まで） */
   .bn-block:has(> .react-renderer [data-tabs][data-compact]) { background: transparent; border: 0; border-radius: 0; }
   .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group { background: transparent; border-radius: 0; margin-inline: -12px !important; }
-  .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > :not([data-chat-expanded]) { background: transparent !important; }
-  .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content:not(:has(> [class~="border"])) { padding: 0 12px !important; }
-  .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group > .bn-block-outer > .bn-block > .bn-block-content { padding: 6px 12px; }
+  .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group > .bn-block-outer > .bn-block > .bn-block-group { padding-inline: 12px; }
+  .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group > .bn-block-outer > .bn-block > .bn-block-group > .bn-block-outer:has(> .bn-block > .react-renderer > .bn-block-content > [class~="border"]) { margin-inline: -12px; }
+  .bn-block:has(> .react-renderer [data-tabs][data-compact]) > .bn-block-group > .bn-block-outer > .bn-block > .bn-block-group > .bn-block-outer > .bn-block > .react-renderer > .bn-block-content > :not([data-chat-expanded]) { background: transparent !important; }
 
   /* 読むだけのウィンドウの左右の余白は、画面の端から 16px */
   .doc-window:not(.doc-editing) .ProseMirror { padding-inline: 16px; }
@@ -530,9 +536,23 @@ body {
 .bn-editor .bn-inline-content a { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
 .bn-editor .bn-inline-content a:hover { text-decoration-color: currentColor; }
 
-/* コールアウト：左にアイコン、色のついた面（色は「⋮⋮」の「カラー」。はじめは薄い灰色） */
-.bn-editor .bn-block-content[data-content-type="callout"] { border-radius: 6px; padding: 12px 16px 12px 12px; margin-block: 2px; }
-.bn-editor .bn-block-content[data-content-type="callout"]:not([data-background-color]) { background: color-mix(in srgb, var(--muted) 12%, transparent); }
+/* コールアウト：左にアイコン、色のついた面（色は「⋮⋮」の「カラー」。はじめは薄い灰色）。
+   中のブロック（子のブロック）も同じ面の中に、文の左端にそろえて出す。そのため面はブロック全体（.bn-block）に塗る（色は BlockNote と同じ変数。暗い画面では暗い色） */
+.bn-block:has(> .react-renderer > [data-content-type="callout"]) { border-radius: 6px; margin-block: 2px; background: color-mix(in srgb, var(--muted) 12%, transparent); }
+.bn-block:has(> .react-renderer > [data-content-type="callout"][data-background-color="gray"]) { background: var(--bn-colors-highlights-gray-background); }
+.bn-block:has(> .react-renderer > [data-content-type="callout"][data-background-color="brown"]) { background: var(--bn-colors-highlights-brown-background); }
+.bn-block:has(> .react-renderer > [data-content-type="callout"][data-background-color="red"]) { background: var(--bn-colors-highlights-red-background); }
+.bn-block:has(> .react-renderer > [data-content-type="callout"][data-background-color="orange"]) { background: var(--bn-colors-highlights-orange-background); }
+.bn-block:has(> .react-renderer > [data-content-type="callout"][data-background-color="yellow"]) { background: var(--bn-colors-highlights-yellow-background); }
+.bn-block:has(> .react-renderer > [data-content-type="callout"][data-background-color="green"]) { background: var(--bn-colors-highlights-green-background); }
+.bn-block:has(> .react-renderer > [data-content-type="callout"][data-background-color="blue"]) { background: var(--bn-colors-highlights-blue-background); }
+.bn-block:has(> .react-renderer > [data-content-type="callout"][data-background-color="purple"]) { background: var(--bn-colors-highlights-purple-background); }
+.bn-block:has(> .react-renderer > [data-content-type="callout"][data-background-color="pink"]) { background: var(--bn-colors-highlights-pink-background); }
+.bn-editor .bn-block-content[data-content-type="callout"] { padding: 12px 16px 12px 12px; background: transparent; }
+/* 中にブロックがあるとき：文の下の余白は、中のブロックの下に。中のブロックは字下げの線を出さない */
+.bn-editor .bn-block:has(> .bn-block-group) > .react-renderer > .bn-block-content[data-content-type="callout"] { padding-bottom: 2px; }
+.bn-block:has(> .react-renderer > [data-content-type="callout"]) > .bn-block-group { margin-left: 44px; padding: 0 16px 10px 0; }
+.bn-block:has(> .react-renderer > [data-content-type="callout"]) > .bn-block-group > .bn-block-outer::before { display: none; }
 .note-callout { display: flex; width: 100%; align-items: flex-start; gap: 8px; }
 .note-callout-icon { display: grid; place-items: center; width: 24px; height: 1.5em; flex-shrink: 0; font-size: 1.2em; line-height: 1; border-radius: 4px; }
 .note-callout-icon:enabled:hover { background: var(--tint); }
