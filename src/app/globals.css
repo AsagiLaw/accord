@@ -257,6 +257,44 @@ body {
   }
 }
 
+/* スクロールバー：細い丸いつまみだけにする（上下の矢印と、通り道の色は出さない）。マウスかタッチパッドがある端末だけ（指だけの端末は OS の消えるバーのまま）。
+   つまみはいつも薄く見せ、スクロールする枠にマウスを乗せると少し濃く、つまみに乗せると少し太く濃くなる */
+@media (any-pointer: fine) {
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--ink) 18%, transparent) padding-box;
+  }
+  :hover::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--ink) 28%, transparent);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    border-width: 2px;
+    background-color: color-mix(in srgb, var(--ink) 40%, transparent);
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background-color: color-mix(in srgb, var(--ink) 50%, transparent);
+  }
+  /* Firefox は上の決まりが効かないので、細いバーと色だけ合わせる */
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: color-mix(in srgb, var(--ink) 18%, transparent) transparent;
+    }
+    :hover {
+      scrollbar-color: color-mix(in srgb, var(--ink) 28%, transparent) transparent;
+    }
+  }
+}
+
 @layer components {
   .btn {
     @apply inline-flex min-h-[38px] items-center justify-center gap-1.5 rounded-full bg-accent px-[18px] font-bold text-accent-ink transition active:scale-[.97] disabled:opacity-50;
