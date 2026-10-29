@@ -92,6 +92,7 @@ export function Composer({
   const [uploading, setUploading] = useState(false);
   const [emojiAt, setEmojiAt] = useState<HTMLElement | null>(null);
   const plus = usePopover();
+  const box = useRef<HTMLDivElement>(null);
   const file = useRef<HTMLInputElement>(null);
   const input = inputRef;
   const disabled = disabledTitle !== undefined;
@@ -236,7 +237,7 @@ export function Composer({
         )}
       </div>
       {header}
-      <div className={`overflow-hidden rounded-[14px] border border-line bg-card transition-colors focus-within:border-accent ${disabled ? "opacity-60" : ""}`}>
+      <div ref={box} className={`overflow-hidden rounded-[14px] border border-line bg-card transition-colors focus-within:border-accent ${disabled ? "opacity-60" : ""}`}>
         {replyTo && (
           <div className="flex items-center gap-2 border-b border-line bg-tint px-3 py-1 text-sm">
             <Icon name="reply" size={14} className="shrink-0 text-muted" />
@@ -372,7 +373,8 @@ export function Composer({
         }}
       />
       {plus.anchor && (
-        <Popover anchor={plus.anchor} onClose={plus.close} width={220} label="画像を添付">
+        // 入力欄の上に、左の端をそろえて出す（Discord と同じ）
+        <Popover anchor={plus.anchor} near={box} onClose={plus.close} width={220} label="画像を添付">
           <MenuItem
             icon={<Icon name="upload" size={16} />}
             onClick={() => {

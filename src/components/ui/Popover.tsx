@@ -20,6 +20,7 @@ export function Popover({
   align = "start",
   label,
   nested,
+  near,
 }: {
   anchor: Anchor | null;
   onClose: () => void;
@@ -29,21 +30,23 @@ export function Popover({
   label?: string;
   /** ほかのポップオーバーの中から開くもの（右クリックのメニューなど）。押しても、元のポップオーバーは閉じない */
   nested?: boolean;
+  /** ボタンでなく、この枠のそばに出す（チャットの入力欄の上など） */
+  near?: React.RefObject<HTMLElement | null>;
 }) {
   const panel = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number; maxH: number } | null>(null);
+  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number; maxH: number } | null>(null);
 
   useLayoutEffect(() => {
     if (!anchor) return;
     const place = () => {
-      const r = rectOf(anchor);
+      const r = rectOf(near?.current ?? anchor);
       const w = Math.min(width, window.innerWidth - 16);
       let left = align === "end" ? r.right - w : r.left;
       left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
       const below = window.innerHeight - r.bottom - 12;
       const above = r.top - 12;
-      // 下に入りきらず、上の方が広ければ上に出す
-      if (below < 240 && above > below) setPos({ left, top: Math.max(8, r.top - Math.min(above, 480) - 4), maxH: Math.min(above, 480) });
+      // 下に入りきらず、上の方が広ければ上に出す。下の端をボタンにそろえて、短いメニューでもボタンのすぐ上に出す
+      if (below < 240 && above > below) setPos({ left, bottom: window.innerHeight - r.top + 4, maxH: Math.min(above, 480) });
       else setPos({ left, top: r.bottom + 4, maxH: Math.min(below, 520) });
     };
     place();
@@ -53,7 +56,7 @@ export function Popover({
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [anchor, width, align]);
+  }, [anchor, near, width, align]);
 
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
@@ -82,7 +85,7 @@ export function Popover({
       data-nested-popover={nested ? "" : undefined}
       data-name={label ? `${label}（メニュー）` : undefined}
       className="anim-pop fixed z-[58] overflow-y-auto rounded-[12px] border border-line bg-card p-1.5 text-sm shadow-xl"
-      style={{ left: pos?.left ?? -9999, top: pos?.top ?? -9999, width: Math.min(width, typeof window !== "undefined" ? window.innerWidth - 16 : width), maxHeight: pos?.maxH }}
+      style={{ left: pos?.left ?? -9999, top: pos ? pos.top : -9999, bottom: pos?.bottom, width: Math.min(width, typeof window !== "undefined" ? window.innerWidth - 16 : width), maxHeight: pos?.maxH }}
     >
       {children}
     </div>,
