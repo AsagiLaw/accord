@@ -1,7 +1,7 @@
 "use client";
 
 import { combineByGroup, filterSuggestionItems, formatKeyboardShortcut, fragmentToBlocks, insertOrUpdateBlockForSlashMenu, type DropCursorHooks, type PartialBlock } from "@blocknote/core";
-import { SideMenuExtension } from "@blocknote/core/extensions";
+import { SideMenuExtension, SuggestionMenu } from "@blocknote/core/extensions";
 import { ja } from "@blocknote/core/locales";
 import {
   BasicTextStyleButton,
@@ -540,6 +540,37 @@ const dropCursor: { hooks: DropCursorHooks } = {
 };
 
 /**
+ * 「/」「@」のメニューは、ホイールでいつもメニュー自身を動かす（後ろのページは動かさない。Notion と同じ）。
+ * メニューはノートのスクロールする枠の中に置かれるが、位置の基準は画面なので、ページをスクロールしてあると、
+ * ブラウザがホイールの行き先を取り違えて、途中から下へ動かなくなる。開いている間だけ、ホイールを受け取ってメニューを動かす
+ */
+function useSuggestionMenuWheel(editor: Editor) {
+  const open = useExtensionState(SuggestionMenu, { editor, selector: (s) => !!s?.show });
+  useEffect(() => {
+    if (!open) return;
+    // 続けて回したぶんを足していく行き先（なめらかに動かしている途中でも、回したぶんを取りこぼさない）
+    let menu: HTMLElement | null = null;
+    let target = 0;
+    let last = 0;
+    const onWheel = (e: WheelEvent) => {
+      const el = e.target instanceof Element ? e.target.closest<HTMLElement>(".bn-suggestion-menu") : null;
+      if (!el || !e.cancelable || e.ctrlKey) return;
+      e.preventDefault();
+      const now = performance.now();
+      if (el !== menu || now - last > 250) target = el.scrollTop;
+      menu = el;
+      last = now;
+      const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientHeight : 1);
+      target = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, target + delta));
+      // マウスのホイール（1回で大きく動く）はなめらかに、トラックパッド（細かく動く）はそのまま
+      el.scrollTo({ top: target, behavior: Math.abs(delta) >= 50 ? "smooth" : "instant" });
+    };
+    document.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    return () => document.removeEventListener("wheel", onWheel, { capture: true });
+  }, [open]);
+}
+
+/**
  * ブロックを列のまとまりの上端・下端に落としたとき、列の中ではなく、列のまとまりの上・下に置く
  * （BlockNote のままだと、列が画面いっぱいに広がっていると、列の外に置ける場所が無い）。
  * コールアウトの文の下半分に落としたときは、コールアウトの中のいちばん上に入れる
@@ -632,6 +663,7 @@ export function EditorMenus({
   const items = async (query: string) => filterSuggestionItems(slashItems(editor, onSubPage), query);
   useSideMenuOnHover(editor, !textOnly);
   useDropBesideColumns(editor);
+  useSuggestionMenuWheel(editor);
   useTextOptions(editor, textOptions, textOnly, separate);
   // キーは ProseMirror より先に受け取る（capture）
   useEffect(() => {
