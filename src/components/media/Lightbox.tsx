@@ -21,6 +21,13 @@ import { useMediaRouter } from "./MediaLink";
 import { ThumbImage } from "./Thumb";
 import { isBackdropClick } from "@/components/ui/backdrop";
 
+/** 拡大の上限（画面に収めた大きさの何倍まで） */
+const MAX_ZOOM = 8;
+/** 画面に収めた大きさ（拡大していない） */
+const FIT = { zoom: 1, x: 0, y: 0 };
+const clamp = (v: number, lo: number, hi: number) =>
+  Math.min(hi, Math.max(lo, v));
+
 /** 一覧のサムネイルを押した位置（拡大して出てくる動きの始まり） */
 const opened: { from: DOMRect | null } = { from: null };
 export function rememberOpenedFrom(el: Element | null) {
@@ -32,6 +39,7 @@ export function rememberOpenedFrom(el: Element | null) {
  * サイドバーと上の操作バーは見えたまま、下の画面をぼかして画像を出す。
  * 下にフィルムストリップと、画像が入っているライブラリーのカード。
  * カードを押すとフィルムストリップがそのライブラリーの並びに、ダブルクリックでそのライブラリーを開く。
+ * 画像はホイール（トラックパッドのピンチも）で拡大・縮小し、拡大中はドラッグで動かす。
  */
 export function Lightbox() {
   const { viewing, setViewing, byId, media, libs, base, setOrganizing, setEditing, canEdit } =
@@ -59,6 +67,37 @@ export function Lightbox() {
   const prevId = useRef<string | null>(null);
 
   const m = viewing ? byId.get(viewing.id) : undefined;
+
+  // ---- 拡大・縮小 ----
+  // zoom：画面に収めた大きさの何倍か。x・y：画像の真ん中を、真ん中からどれだけずらしているか（px）。
+  // 別の画像に切り替えたら、全体の表示に戻す
+  const stage = useRef<HTMLDivElement>(null);
+  const [viewState, setViewState] = useState({ ...FIT, id: "" });
+  const view = viewState.id === m?.id ? viewState : { ...FIT, id: m?.id ?? "" };
+  const zoomed = view.zoom > 1;
+  /** 画面からはみ出す分だけ動かせる（少しだけ余白も見えるようにする） */
+  const clampView = (zoom: number, x: number, y: number) => {
+    const s = stage.current;
+    const el = img.current;
+    if (!s || !el || zoom <= 1.01) return { ...FIT, id: m?.id ?? "" };
+    const w = el.offsetWidth * zoom;
+    const h = el.offsetHeight * zoom;
+    const mx = w > s.clientWidth ? (w - s.clientWidth) / 2 + 40 : 0;
+    const my = h > s.clientHeight ? (h - s.clientHeight) / 2 + 40 : 0;
+    return { zoom, x: clamp(x, -mx, mx), y: clamp(y, -my, my), id: m?.id ?? "" };
+  };
+  /** (cx, cy)：画面の真ん中からの位置。そこにある所が動かないように拡大・縮小する */
+  const zoomAt = (factor: number, cx: number, cy: number) =>
+    setViewState((st) => {
+      const v = st.id === m?.id ? st : FIT;
+      const z = clamp(v.zoom * factor, 1, MAX_ZOOM);
+      const r = z / v.zoom;
+      return clampView(z, cx - (cx - v.x) * r, cy - (cy - v.y) * r);
+    });
+  const fitView = () => setViewState({ ...FIT, id: m?.id ?? "" });
+  /** ドラッグで画像を動かしている所 */
+  const pan = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
+  const [panning, setPanning] = useState(false);
   // 名前付きの URL で表示する（ドラッグして他のアプリに渡したとき、その名前のファイルになる）
   const { url: original, loading: loadingOriginal } = useOriginalState(m);
   const inLibPage = pathname.includes("/media/lib/");
@@ -150,6 +189,31 @@ export function Lightbox() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  // スクロールで拡大・縮小（トラックパッドのピンチも）。後ろの一覧がスクロールしないよう、自分で受け取る
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      // 元の画像を取ってくる間（小さい画像を出している間）は拡大しない
+      if (!img.current) return;
+      const dy =
+        e.deltaMode === 1
+          ? e.deltaY * 16
+          : e.deltaMode === 2
+            ? e.deltaY * el.clientHeight
+            : e.deltaY;
+      const r = el.getBoundingClientRect();
+      zoomAt(
+        Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)),
+        e.clientX - r.left - r.width / 2,
+        e.clientY - r.top - r.height / 2,
+      );
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  });
+
   // 今の画像がフィルムストリップの真ん中に来るように。
   // 並びが変わったとき（子ライブラリー⇔親など）は、画面に出す前に一気に合わせる（横に流れてから戻る動きを出さない）。
   // 同じ並びの中で画像を切り替えたときだけ、なめらかに動かす。
@@ -210,7 +274,8 @@ export function Lightbox() {
       disabled={disabled}
       onClick={onClick}
       onPointerDown={(e) => e.stopPropagation()}
-      className={`absolute top-1/2 ${side === "l" ? "left-0" : "right-0"} grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full border border-line text-ink backdrop-blur-md disabled:opacity-30`}
+      // 拡大した画像より手前に出す
+      className={`absolute top-1/2 z-10 ${side === "l" ? "left-0" : "right-0"} grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full border border-line text-ink backdrop-blur-md disabled:opacity-30`}
       style={{ background: "color-mix(in srgb, var(--bg) 70%, transparent)" }}
     >
       <Icon name={side} size={22} />
@@ -236,6 +301,16 @@ export function Lightbox() {
       }}
     >
       <div className="absolute top-3 right-4 flex gap-2">
+        {zoomed && (
+          <button
+            onClick={fitView}
+            title="画面に合わせる"
+            className="btn-sub px-4 tabular-nums backdrop-blur-md"
+            style={{ background: "color-mix(in srgb, var(--bg) 70%, transparent)" }}
+          >
+            {Math.round(view.zoom * 100)}%
+          </button>
+        )}
         {!m.trashed && canEdit && (
           <button
             onClick={() => setEditing(m.id)}
@@ -258,9 +333,12 @@ export function Lightbox() {
       </div>
 
       <div
-        className="relative flex min-h-0 w-full flex-1 touch-pan-y items-center justify-center px-14"
-        onClick={(e) => isBackdropClick(e) && close()}
-        onPointerDown={(e) => (swipe.current = e.clientX)}
+        ref={stage}
+        // 拡大したら、はみ出した所を下のフィルムストリップなどに重ねない
+        className={`relative flex min-h-0 w-full flex-1 touch-pan-y items-center justify-center px-14 ${zoomed ? "overflow-hidden" : ""}`}
+        onClick={(e) => isBackdropClick(e) && !zoomed && close()}
+        // 拡大中のドラッグは画像を動かす（前後の画像へのスワイプにしない）
+        onPointerDown={(e) => (swipe.current = zoomed ? null : e.clientX)}
         onPointerUp={(e) => {
           if (swipe.current === null) return;
           const dx = e.clientX - swipe.current;
@@ -276,13 +354,38 @@ export function Lightbox() {
             key={m.id}
             src={original}
             alt={m.name}
-            // 他のアプリ（デスクトップ・Photoshop など）へドラッグすると、元の画像のファイルとして渡す
+            // 他のアプリ（デスクトップ・Photoshop など）へドラッグすると、元の画像のファイルとして渡す。
+            // 拡大中は、ドラッグで画像を動かす
+            draggable={!zoomed}
             onDragStart={(e) => {
               swipe.current = null;
               startMediaDrag(e, m);
             }}
+            onPointerDown={(e) => {
+              if (!zoomed) return;
+              e.currentTarget.setPointerCapture(e.pointerId);
+              pan.current = { sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y };
+              setPanning(true);
+            }}
+            onPointerMove={(e) => {
+              const p = pan.current;
+              if (!p) return;
+              setViewState(clampView(view.zoom, p.ox + e.clientX - p.sx, p.oy + e.clientY - p.sy));
+            }}
+            onPointerUp={() => {
+              pan.current = null;
+              setPanning(false);
+            }}
+            onPointerCancel={() => {
+              pan.current = null;
+              setPanning(false);
+            }}
             onLoad={animateIn}
-            className="block max-h-full max-w-full rounded-[14px] object-contain shadow-[0_20px_60px_#0007]"
+            className={`block max-h-full max-w-full rounded-[14px] object-contain shadow-[0_20px_60px_#0007] ${zoomed ? `touch-none select-none ${panning ? "cursor-grabbing" : "cursor-grab"}` : ""}`}
+            style={{
+              transform: zoomed ? `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` : undefined,
+              transition: panning ? "none" : "transform 120ms ease-out",
+            }}
           />
         ) : (
           // 元の画像を取ってくる間は、小さい画像を薄く出し、その上にくるくるを出す（小さい画像の側のくるくるは重ねない）
