@@ -6,7 +6,7 @@ import { renameInFormula, withFormulas } from "@/lib/requests/formula";
 import { defaultsOf } from "@/lib/requests/props";
 import { stamp, today } from "@/lib/requests/logic";
 import { stageOf } from "@/lib/requests/stages";
-import { deleteNoteTree, deleteOwnedChats } from "./channels";
+import { deleteDatabase, deleteDatabasesIn, deleteNoteTree, deleteOwnedChats } from "./channels";
 import { copySubPages, deleteSubPages } from "./subPages";
 import { freshBlocks } from "./templates";
 import { db, newId, type CalEvent, type Database, type DbPage, type DbView, type Note, type PageTemplate, type Property, type StatusGroup, type TagColor, type Todo } from "./db";
@@ -14,8 +14,9 @@ import { pageNoteId } from "./notes";
 
 // ---- 読み込み ----
 
+/** ルームのデータベース（ゴミ箱に入れたノートの中のデータベースは除く） */
 export function useDatabases(roomId: string) {
-  return useLiveQuery(async () => (await db.databases.where("roomId").equals(roomId).toArray()).sort((a, b) => a.order - b.order), [roomId]);
+  return useLiveQuery(async () => (await db.databases.where("roomId").equals(roomId).filter((d) => !d.deletedAt).toArray()).sort((a, b) => a.order - b.order), [roomId]);
 }
 
 export function useDatabase(dbId: string) {
@@ -196,19 +197,24 @@ export async function restorePage(pageId: string) {
   await db.dbPages.update(pageId, { deletedAt: undefined });
 }
 
-/** ゴミ箱に入れてから TRASH_DAYS 日たったページ（データベースのページ・ノートの子のページ）を、完全に削除する（アプリを開いたときに呼ぶ） */
+/** ゴミ箱に入れてから TRASH_DAYS 日たったもの（データベースのページ・ノートの子のページ・ノートの中のデータベース）を、完全に削除する（アプリを開いたときに呼ぶ） */
 export async function purgeOldTrash() {
   const limit = Date.now() - TRASH_DAYS * 864e5;
   const old = await db.dbPages.filter((p) => !!p.deletedAt && p.deletedAt < limit).toArray();
   for (const p of old) await deletePageForever(p);
   const notes = await db.notes.filter((n) => !!n.deletedAt && n.deletedAt < limit).toArray();
   for (const n of notes) await deleteNoteTree(n.id);
+  const databases = await db.databases.filter((d) => !!d.deletedAt && d.deletedAt < limit).toArray();
+  for (const d of databases) await deleteDatabase(d.id);
 }
 
-/** ルームのゴミ箱のもの：ノートの子のページ（parent は親のノート）と、データベースのページ */
-export type RoomTrashItem = { kind: "note"; note: Note; parent?: Note; deletedAt: number } | { kind: "page"; page: DbPage; database?: Database; deletedAt: number };
+/** ルームのゴミ箱のもの：ノートの子のページ（parent は親のノート）、データベースのページ、ノートの中のデータベース（parent は持っていたノート） */
+export type RoomTrashItem =
+  | { kind: "note"; note: Note; parent?: Note; deletedAt: number }
+  | { kind: "page"; page: DbPage; database?: Database; deletedAt: number }
+  | { kind: "database"; database: Database; parent?: Note; deletedAt: number };
 
-/** ルームのゴミ箱（ノートの子のページと、すべてのデータベースのページ。新しく入れた順） */
+/** ルームのゴミ箱（ノートの子のページと、すべてのデータベースのページ、ノートの中のデータベース。新しく入れた順） */
 export function useRoomTrash(roomId: string) {
   return useLiveQuery(async () => {
     const [notes, pages, databases] = await Promise.all([
@@ -219,17 +225,20 @@ export function useRoomTrash(roomId: string) {
     const items: RoomTrashItem[] = [
       ...notes.filter((n) => !!n.deletedAt).map((n) => ({ kind: "note" as const, note: n, parent: notes.find((x) => x.id === n.parentId), deletedAt: n.deletedAt! })),
       ...pages.map((p) => ({ kind: "page" as const, page: p, database: databases.find((d) => d.id === p.dbId), deletedAt: p.deletedAt! })),
+      ...databases.filter((d) => !!d.deletedAt).map((d) => ({ kind: "database" as const, database: d, parent: notes.find((x) => x.id === d.noteId), deletedAt: d.deletedAt! })),
     ];
     return items.sort((a, b) => b.deletedAt - a.deletedAt);
   }, [roomId]);
 }
 
-/** ルームのゴミ箱を空にする（ノートの子のページは中のページごと） */
+/** ルームのゴミ箱を空にする（ノートの子のページは中のページごと、データベースは中のページごと） */
 export async function emptyRoomTrash(roomId: string) {
   const notes = await db.notes.where("roomId").equals(roomId).filter((n) => !!n.deletedAt).toArray();
   for (const n of notes) await deleteNoteTree(n.id);
   const pages = await db.dbPages.where("roomId").equals(roomId).filter((p) => !!p.deletedAt).toArray();
   for (const p of pages) await deletePageForever(p);
+  const databases = await db.databases.where("roomId").equals(roomId).filter((d) => !!d.deletedAt).toArray();
+  for (const d of databases) await deleteDatabase(d.id);
 }
 
 /** ゴミ箱を空にする */
@@ -241,9 +250,10 @@ export async function emptyTrash(dbId: string) {
 /** ページを完全に削除する。チャットの発言も消える（添付した画像はメディアに残る） */
 export async function deletePageForever(page: DbPage) {
   const chatIds = [page.chatId, page.reenactChatId].filter((x): x is string => !!x);
-  // 本文（ノート・ウィンドウ）に置いたチャットも消す
+  // 本文（ノート・ウィンドウ）に置いたチャットと、本文に作ったデータベースも消す
   const notes = await db.notes.where("pageId").equals(page.id).toArray();
   for (const n of notes) await deleteOwnedChats(`note:${n.id}`);
+  await deleteDatabasesIn(notes.map((n) => n.id));
   await deleteOwnedChats(`page:${page.id}`);
   // チャットの項目で作ったチャット（pageId がこのページ）も消す
   const own = (await db.chats.filter((c) => c.pageId === page.id).toArray()).map((c) => c.id);

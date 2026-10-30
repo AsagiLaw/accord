@@ -2,7 +2,7 @@
 
 import { useLiveQuery } from "dexie-react-hooks";
 import { deleteNoteTree } from "./channels";
-import { db, newId, type Note, type NoteCover, type NoteLook } from "./db";
+import { db, newId, type Database, type Note, type NoteCover, type NoteLook } from "./db";
 
 /** サイドバーに出すノート（依頼のメモ・テンプレート・ボタンの中のページ・子のページは除く） */
 export function useNotes(roomId: string) {
@@ -90,14 +90,18 @@ export async function deleteNote(noteId: string) {
 /** 子のページを開くブロックの種類 */
 export const SUB_PAGE = "subPage";
 
+/** ノートの中のデータベース（Notion のインライン・フルページのデータベース）のブロックの種類 */
+export const DB_BLOCK = "database";
+
 type Loose = { id?: string; type?: string; props?: Record<string, unknown>; content?: unknown; children?: Loose[] };
 
-/** 本文の「ページ」ブロックが開く子のページの ID（入れ子・列・タブの中も。本文の順） */
-export function subPageIds(blocks: unknown[]): string[] {
-  const out: string[] = [];
+/** 本文の「ページ」ブロック（子のページ）とデータベースのブロック（入れ子・列・タブの中も。本文の順） */
+function bodyRefs(blocks: unknown[]): { kind: "note" | "db"; id: string }[] {
+  const out: { kind: "note" | "db"; id: string }[] = [];
   const walk = (list: Loose[]) => {
     for (const b of list) {
-      if (b.type === SUB_PAGE && typeof b.props?.noteId === "string" && b.props.noteId) out.push(b.props.noteId);
+      if (b.type === SUB_PAGE && typeof b.props?.noteId === "string" && b.props.noteId) out.push({ kind: "note", id: b.props.noteId });
+      if (b.type === DB_BLOCK && typeof b.props?.dbId === "string" && b.props.dbId) out.push({ kind: "db", id: b.props.dbId });
       if (b.children?.length) walk(b.children);
     }
   };
@@ -105,31 +109,40 @@ export function subPageIds(blocks: unknown[]): string[] {
   return out;
 }
 
+/** 本文の「ページ」ブロックが開く子のページの ID（入れ子・列・タブの中も。本文の順） */
+export const subPageIds = (blocks: unknown[]) => bodyRefs(blocks).flatMap((r) => (r.kind === "note" ? [r.id] : []));
+
+/** 本文のデータベースのブロックのデータベースの ID（本文の順） */
+export const inlineDbIds = (blocks: unknown[]) => bodyRefs(blocks).flatMap((r) => (r.kind === "db" ? [r.id] : []));
+
 /** 子のページを作る。id は先に決めておく（「ページ」ブロックに入れる ID） */
 export async function createSubNote(id: string, parent: Pick<Note, "id" | "roomId">, userId: string) {
   const now = Date.now();
   await db.notes.add({ id, roomId: parent.roomId, title: "", blocks: [], pageId: null, order: 0, createdAt: now, updatedAt: now, updatedBy: userId, parentId: parent.id });
 }
 
-/** 子のページ（ゴミ箱のもの・ゴミ箱のページの中のものは除く）を、親ごとに。親の本文で「ページ」ブロックが並ぶ順 */
-export function useSubNotes(roomId: string) {
+/** ノートの下にサイドバーで並べるもの：子のページと、ノートの中のデータベース */
+export type NoteChild = { kind: "note"; id: string; note: Note } | { kind: "db"; id: string; database: Database };
+
+/**
+ * 子のページとノートの中のデータベース（ゴミ箱のもの・ゴミ箱のページの中のものは除く）を、親ごとに。
+ * 親の本文でブロックが並ぶ順（Notion と同じく、ページとデータベースは混ぜて並べる）
+ */
+export function useNoteChildren(roomId: string) {
   return useLiveQuery(async () => {
-    const notes = await db.notes.where("roomId").equals(roomId).toArray();
+    const [notes, databases] = await Promise.all([db.notes.where("roomId").equals(roomId).toArray(), db.databases.where("roomId").equals(roomId).toArray()]);
     const byId = new Map(notes.map((n) => [n.id, n]));
-    const out = new Map<string, Note[]>();
-    for (const n of notes) {
-      if (!n.parentId || n.deletedAt || !byId.has(n.parentId)) continue;
-      const list = out.get(n.parentId) ?? [];
-      list.push(n);
-      out.set(n.parentId, list);
-    }
+    const out = new Map<string, (NoteChild & { createdAt: number })[]>();
+    const add = (parentId: string, child: NoteChild & { createdAt: number }) => out.set(parentId, [...(out.get(parentId) ?? []), child]);
+    for (const n of notes) if (n.parentId && !n.deletedAt && byId.has(n.parentId)) add(n.parentId, { kind: "note", id: n.id, note: n, createdAt: n.createdAt });
+    for (const d of databases) if (d.noteId && !d.deletedAt && byId.has(d.noteId)) add(d.noteId, { kind: "db", id: d.id, database: d, createdAt: d.createdAt });
     for (const [parentId, list] of out) {
-      const order = subPageIds(byId.get(parentId)?.blocks ?? []);
+      const order = bodyRefs(byId.get(parentId)?.blocks ?? []).map((r) => r.id);
       // 本文にブロックが無いもの（ほかの人の保存と行き違ったときなど）は、後ろに作った順で
-      const at = (n: Note) => (order.includes(n.id) ? order.indexOf(n.id) : order.length);
+      const at = (c: NoteChild) => (order.includes(c.id) ? order.indexOf(c.id) : order.length);
       list.sort((a, b) => at(a) - at(b) || a.createdAt - b.createdAt);
     }
-    return out;
+    return out as Map<string, NoteChild[]>;
   }, [roomId]);
 }
 
@@ -186,30 +199,44 @@ export async function restoreSubNote(note: Note, userId: string) {
 }
 
 /**
- * 複製するブロックの中身（チャットは中身を引き継がず、新しい会話になる。ボタンの中のページも、押したときに新しく作る）。
- * 子のページは新しい ID にして、写す組（元・先）を pages に足す（中身は copySubNotes で写す）。keepId が false なら、ブロックに新しい id が付く
+ * ブロックを複製するときに、中身ごと写すもの。pages は子のページ（元・先）、dbs はデータベースのブロックのデータベース
+ * （元・先と、写したデータベースを持つノート。いちばん外のブロックのものは、写す側が決める）
  */
-export function copyBlockTree(b: Loose, pages: [string, string][], keepId = false): Loose {
+export type BlockCopies = { pages: [string, string][]; dbs: { from: string; to: string; noteId?: string }[] };
+
+/**
+ * 複製するブロックの中身（チャットは中身を引き継がず、新しい会話になる。ボタンの中のページも、押したときに新しく作る）。
+ * 子のページとデータベースは新しい ID にして、写す組を copies に足す（中身は copySubNotes と copyDatabases で写す）。keepId が false なら、ブロックに新しい id が付く
+ */
+export function copyBlockTree(b: Loose, copies: BlockCopies, keepId = false): Loose {
   let props = b.props;
   if (b.type === SUB_PAGE && typeof props?.noteId === "string" && props.noteId) {
     const id = newId();
-    pages.push([props.noteId, id]);
+    copies.pages.push([props.noteId, id]);
     props = { ...props, noteId: id };
+  } else if (b.type === DB_BLOCK && typeof props?.dbId === "string" && props.dbId) {
+    const id = newId();
+    copies.dbs.push({ from: props.dbId, to: id });
+    props = { ...props, dbId: id };
   } else if (props && ("chatId" in props || "noteId" in props)) props = { ...props, ...("chatId" in props ? { chatId: "" } : {}), ...("noteId" in props ? { noteId: "" } : {}) };
-  return { ...b, id: keepId ? b.id : undefined, ...(props ? { props } : {}), children: (b.children ?? []).map((c) => copyBlockTree(c, pages, keepId)) };
+  return { ...b, id: keepId ? b.id : undefined, ...(props ? { props } : {}), children: (b.children ?? []).map((c) => copyBlockTree(c, copies, keepId)) };
 }
 
-/** 子のページを、中身ごと写す（中の子のページも写す）。写したページの親は、元のページと同じ */
-export async function copySubNotes(pages: [string, string][], userId: string, parentId?: string) {
+/**
+ * 子のページを、中身ごと写す（中の子のページも写す）。写したページの親は、元のページと同じ。
+ * 中のデータベースのブロックは新しい ID にして、写す組（持つノートは写したページ）を dbs に足す（中身は copyDatabases で写す）
+ */
+export async function copySubNotes(pages: [string, string][], userId: string, parentId?: string, dbs: BlockCopies["dbs"] = []) {
   for (const [from, to] of pages) {
     const src = await db.notes.get(from);
     if (!src) continue;
-    const inner: [string, string][] = [];
+    const inner: BlockCopies = { pages: [], dbs: [] };
     const blocks = (src.blocks as Loose[]).map((b) => copyBlockTree(b, inner, true));
+    dbs.push(...inner.dbs.map((d) => ({ ...d, noteId: to })));
     const now = Date.now();
     const { id: _id, sourceId: _source, chatMap: _chats, deletedAt: _deleted, locked: _locked, ...rest } = src;
     void [_id, _source, _chats, _deleted, _locked];
     await db.notes.add({ ...rest, id: to, blocks, parentId: parentId ?? src.parentId, createdAt: now, updatedAt: now, updatedBy: userId });
-    await copySubNotes(inner, userId, to);
+    await copySubNotes(inner.pages, userId, to, dbs);
   }
 }

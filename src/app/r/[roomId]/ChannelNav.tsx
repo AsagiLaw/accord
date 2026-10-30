@@ -17,7 +17,7 @@ import { confirmAction, promptText } from "@/components/ui/overlay";
 import { openSourceEdit, pickTemplateForNew, SourceMenu, SourceName, type SourceTarget } from "@/components/window/channelSource";
 import { useUnreadCounts } from "@/lib/local/chat";
 import { hasUnseenUpdate, useNoteSeen } from "@/lib/local/noteSeen";
-import { useSubNotes } from "@/lib/local/notes";
+import { useNoteChildren, type NoteChild } from "@/lib/local/notes";
 import {
   CHANNEL_KINDS,
   channelHref,
@@ -37,7 +37,7 @@ import {
   type Channel,
   type ChannelKind,
 } from "@/lib/local/channels";
-import type { Category, Database, DbPage, DbView, Note } from "@/lib/local/db";
+import type { Category, Database, DbPage, DbView } from "@/lib/local/db";
 import { linkTemplate, useChannelTemplates, type TemplateKind } from "@/lib/local/channelTemplates";
 import { updateDatabase, useDatabase, useDatabases, usePages, useViews } from "@/lib/local/requests";
 import { useMembers } from "@/lib/local/rooms";
@@ -93,8 +93,8 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
   });
   const total = [...(unread?.values() ?? [])].reduce((a, b) => a + b, 0);
 
-  // ノートの子のページ（Notion の階層）：親の行の下に折りたたんで並べる。開いている親は、ルームごとに覚えておく
-  const subs = useSubNotes(roomId);
+  // ノートの子のページとノートの中のデータベース（Notion の階層）：親の行の下に折りたたんで並べる。開いている親は、ルームごとに覚えておく
+  const subs = useNoteChildren(roomId);
   const [openSubs, setOpenSubs] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem(`irai-note:subpages:${roomId}`) ?? "[]");
@@ -103,15 +103,17 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
     }
   });
   const parentOf = new Map<string, string>();
-  for (const [parentId, list] of subs ?? []) for (const n of list) parentOf.set(n.id, parentId);
-  const activeNote = pathname.startsWith(`/r/${roomId}/note/`) ? pathname.split("/")[4] : undefined;
-  // 今開いているページの上の階層（閉じたカテゴリーの中でも、ここまでの道は出す）
-  const path = new Set<string>();
-  for (let id = activeNote && parentOf.get(activeNote); id && !path.has(id); id = parentOf.get(id)) path.add(id);
+  for (const [parentId, list] of subs ?? []) for (const c of list) parentOf.set(c.id, parentId);
+  const [, , , kindNow, idNow, subNow] = pathname.split("/");
+  // 今開いているノート・ノートの中のデータベース
+  const active = (kindNow === "note" || kindNow === "db") && idNow ? idNow : undefined;
+  // 今開いているページの上の階層（閉じたカテゴリーの中でも、ここまでの道は出す）。ノートの中のデータベースのページなら、そのデータベースも開く
+  const path = new Set<string>(kindNow === "db" && subNow && active && parentOf.has(active) ? [active] : []);
+  for (let id = active && parentOf.get(active); id && !path.has(id); id = parentOf.get(id)) path.add(id);
   // 子のページを開いたら、上の階層を開いて見せる（あとで閉じられる）
   const [shownFor, setShownFor] = useState<string>();
-  if (subs && activeNote !== shownFor) {
-    setShownFor(activeNote);
+  if (subs && active !== shownFor) {
+    setShownFor(active);
     const more = [...path].filter((id) => !openSubs.includes(id));
     if (more.length) setOpenSubs([...openSubs, ...more]);
   }
@@ -124,7 +126,7 @@ export function ChannelNav({ roomId, userId }: { roomId: string; userId: string 
       // 保存できなくても、このページの間は効く
     }
   };
-  const subTree = { subs: subs ?? new Map<string, Note[]>(), open: openSubs, path, onToggle: toggleSub, roomId, userId, noteSeen, pathname };
+  const subTree = { subs: subs ?? new Map<string, NoteChild[]>(), open: openSubs, path, onToggle: toggleSub, roomId, userId, noteSeen, pathname };
 
   // ブラウザのタブにも未読の数を出す（取り込み中は出さない）
   const quiet = useDoNotDisturb();
@@ -774,7 +776,7 @@ function TreeToggle({ open, onToggle, depth }: { open: boolean; onToggle: () => 
 }
 
 type SubTree = {
-  subs: Map<string, Note[]>;
+  subs: Map<string, NoteChild[]>;
   open: string[];
   path: Set<string>;
   onToggle: (id: string) => void;
@@ -785,16 +787,19 @@ type SubTree = {
 };
 
 /**
- * ノートの子のページ（Notion の階層）。親の行の下に、1段ずつ下げて並べる（並びは親の本文の「ページ」ブロックの順）。
+ * ノートの子のページとノートの中のデータベース（Notion の階層）。親の行の下に、1段ずつ下げて並べる（並びは親の本文のブロックの順）。
  * onlyPath（閉じたカテゴリーの中）なら、今開いているページへの道だけ。右クリックは、ブラウザのメニュー（新しいタブで開くなど）
  */
 function SubNoteRows({ parentId, depth, onlyPath, ...tree }: SubTree & { parentId: string; depth: number; onlyPath: boolean }) {
   const { subs, open, path, onToggle, roomId, userId, noteSeen, pathname } = tree;
-  const list = (subs.get(parentId) ?? []).filter((n) => !onlyPath || path.has(n.id) || pathname === `/r/${roomId}/note/${n.id}`);
+  const hrefOf = (c: NoteChild) => (c.kind === "note" ? `/r/${roomId}/note/${c.id}` : `/r/${roomId}/db/${c.id}`);
+  const list = (subs.get(parentId) ?? []).filter((c) => !onlyPath || path.has(c.id) || pathname === hrefOf(c));
   return (
     <div className="mt-0.5 space-y-0.5">
-      {list.map((n) => {
-        const href = `/r/${roomId}/note/${n.id}`;
+      {list.map((c) => {
+        if (c.kind === "db") return <InlineDbRow key={c.id} database={c.database} depth={depth} onlyPath={onlyPath} {...tree} />;
+        const n = c.note;
+        const href = hrefOf(c);
         const active = pathname === href;
         const kids = subs.get(n.id);
         const isOpen = !!kids && (onlyPath ? path.has(n.id) : open.includes(n.id));
@@ -819,6 +824,40 @@ function SubNoteRows({ parentId, depth, onlyPath, ...tree }: SubTree & { parentI
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * ノートの中のデータベースの行（Notion と同じく、親のノートの下に出す）。押すとデータベースの画面、開くと中のページ。
+ * onlyPath（閉じたカテゴリーの中）では、今開いているページだけ
+ */
+function InlineDbRow({ database, depth, onlyPath, ...tree }: SubTree & { database: Database; depth: number; onlyPath: boolean }) {
+  const { open, path, onToggle, roomId, userId, pathname } = tree;
+  const href = `/r/${roomId}/db/${database.id}`;
+  const active = pathname === href;
+  const isOpen = onlyPath ? path.has(database.id) : open.includes(database.id);
+  const name = database.name || "無題";
+  return (
+    <div>
+      <div
+        onContextMenu={(e) => e.stopPropagation()}
+        data-name={`データベース「${name}」`}
+        className={`group relative flex min-h-[36px] items-center rounded-[10px] transition ${active ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"}`}
+      >
+        <Link href={href} className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2" style={{ paddingLeft: 12 + depth * SUB_INDENT }}>
+          <span className={`grid w-4 shrink-0 place-items-center ${TOGGLE_HIDES}`}>
+            <IconMark icon={database.icon} fallback={<Icon name="db" size={16} />} />
+          </span>
+          <span className={`truncate ${database.name ? "" : "text-muted"}`}>{name}</span>
+        </Link>
+        <TreeToggle open={isOpen} onToggle={() => onToggle(database.id)} depth={depth} />
+      </div>
+      {isOpen && (
+        <div className="mt-0.5">
+          <DbPages dbId={database.id} roomId={roomId} userId={userId} onlyActive={onlyPath} depth={depth + 1} />
+        </div>
+      )}
     </div>
   );
 }
@@ -920,7 +959,7 @@ function SidebarViewMenu({ dbId, close }: { dbId: string; close: () => void }) {
  * はじめは、依頼は終わっていない依頼を納期順、ほかはすべてのページ。onlyActive（カテゴリーを閉じているとき）は、今開いているページだけ。
  * ページを右クリックすると、編集（ウィンドウ型のページ）と削除
  */
-function DbPages({ dbId, roomId, userId, onlyActive }: { dbId: string; roomId: string; userId: string; onlyActive: boolean }) {
+function DbPages({ dbId, roomId, userId, onlyActive, depth }: { dbId: string; roomId: string; userId: string; onlyActive: boolean; depth?: number }) {
   const database = useDatabase(dbId);
   const pages = usePages(dbId) ?? [];
   const views = useViews(dbId) ?? [];
@@ -940,6 +979,14 @@ function DbPages({ dbId, roomId, userId, onlyActive }: { dbId: string; roomId: s
   else return null;
   const href = `/r/${roomId}/db/${dbId}`;
   if (onlyActive) shown = shown.filter((p) => pathname === `${href}/p/${p.id}`);
+  // ノートの中のデータベース（depth あり）は、親のノートの下に字下げして並べる
+  const indent = depth === undefined ? undefined : { paddingLeft: 12 + depth * SUB_INDENT };
+  if (indent && !shown.length && !onlyActive)
+    return (
+      <p className="py-1 text-sm text-muted" style={indent}>
+        ページはありません
+      </p>
+    );
   return (
     <div className="space-y-0.5">
       {shown.map((p) => {
@@ -956,6 +1003,7 @@ function DbPages({ dbId, roomId, userId, onlyActive }: { dbId: string; roomId: s
               menu.openAt(e);
             }}
             data-name={`ページ「${p.title || "無題"}」`}
+            style={indent}
             className={`flex min-h-[36px] items-center gap-2 rounded-[10px] py-1.5 pr-2 pl-3 transition ${on ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"} ${n && !on ? "font-bold" : ""}`}
           >
             <span className="w-4 shrink-0 text-center">

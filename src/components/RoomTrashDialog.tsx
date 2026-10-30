@@ -7,15 +7,17 @@ import { Icon } from "@/components/Icon";
 import { DEFAULT_PAGE_ICON, IconMark } from "@/components/IconMark";
 import { PopupDialog } from "@/components/ui/Dialog";
 import { confirmAction } from "@/components/ui/overlay";
-import { deleteNoteTree } from "@/lib/local/channels";
+import { deleteDatabase, deleteNoteTree } from "@/lib/local/channels";
+import { restoreInlineDb } from "@/lib/local/inlineDbs";
 import { restoreSubNote } from "@/lib/local/notes";
 import { TRASH_DAYS, deletePageForever, emptyRoomTrash, restorePage, useRoomTrash, type RoomTrashItem } from "@/lib/local/requests";
 
-const rawTitle = (item: RoomTrashItem) => (item.kind === "note" ? item.note.title : item.page.title);
+const rawTitle = (item: RoomTrashItem) => (item.kind === "note" ? item.note.title : item.kind === "page" ? item.page.title : item.database.name);
 const titleOf = (item: RoomTrashItem) => rawTitle(item) || "無題";
+const keyOf = (item: RoomTrashItem) => `${item.kind}:${item.kind === "note" ? item.note.id : item.kind === "page" ? item.page.id : item.database.id}`;
 
 /**
- * ルームのゴミ箱（ルーム名のメニューから開く。Notion のゴミ箱と同じ）：ノートの子のページと、データベースのページをまとめて出す。
+ * ルームのゴミ箱（ルーム名のメニューから開く。Notion のゴミ箱と同じ）：ノートの子のページと、データベースのページ、ノートの中のデータベースをまとめて出す。
  * 押すとそのページを開き（ゴミ箱の帯が出る）、戻すか完全に削除できる。入れてから TRASH_DAYS 日たったものは、アプリを開いたときに消える
  */
 export function RoomTrashDialog({ roomId, userId, onClose }: { roomId: string; userId: string; onClose: () => void }) {
@@ -27,13 +29,21 @@ export function RoomTrashDialog({ roomId, userId, onClose }: { roomId: string; u
 
   const open = (item: RoomTrashItem) => {
     onClose();
-    router.push(item.kind === "note" ? `/r/${roomId}/note/${item.note.id}` : `/r/${roomId}/db/${item.page.dbId}/p/${item.page.id}`);
+    router.push(
+      item.kind === "note" ? `/r/${roomId}/note/${item.note.id}` : item.kind === "page" ? `/r/${roomId}/db/${item.page.dbId}/p/${item.page.id}` : `/r/${roomId}/db/${item.database.id}`,
+    );
   };
-  const restore = (item: RoomTrashItem) => void (item.kind === "note" ? restoreSubNote(item.note, userId) : restorePage(item.page.id));
+  const restore = (item: RoomTrashItem) =>
+    void (item.kind === "note" ? restoreSubNote(item.note, userId) : item.kind === "page" ? restorePage(item.page.id) : restoreInlineDb(item.database, userId));
   const remove = async (item: RoomTrashItem) => {
-    const body = item.kind === "note" ? "中のページと、中に置いたチャットの発言も消えます。元に戻せません。" : "チャットの発言も消えます。元に戻せません。";
+    const body =
+      item.kind === "note"
+        ? "中のページと、中に置いたチャットの発言も消えます。元に戻せません。"
+        : item.kind === "database"
+          ? "中のページと、チャットの発言も消えます。元に戻せません。"
+          : "チャットの発言も消えます。元に戻せません。";
     if (!(await confirmAction(`「${titleOf(item)}」を完全に削除します`, "完全に削除", body))) return;
-    await (item.kind === "note" ? deleteNoteTree(item.note.id) : deletePageForever(item.page));
+    await (item.kind === "note" ? deleteNoteTree(item.note.id) : item.kind === "page" ? deletePageForever(item.page) : deleteDatabase(item.database.id));
   };
 
   return (
@@ -71,18 +81,24 @@ export function RoomTrashDialog({ roomId, userId, onClose }: { roomId: string; u
             {shown?.map((item) => {
               const title = titleOf(item);
               const where =
-                item.kind === "note"
+                item.kind !== "page"
                   ? item.parent
                     ? `ノート「${item.parent.title || "無題"}」`
                     : "ノート"
                   : item.database
-                    ? `データベース「${item.database.name}」`
+                    ? `データベース「${item.database.name || "無題"}」`
                     : "データベース";
               return (
-                <div key={`${item.kind}:${item.kind === "note" ? item.note.id : item.page.id}`} className="flex min-h-12 items-center gap-2 rounded-[10px] border border-line px-2 py-1">
+                <div key={keyOf(item)} className="flex min-h-12 items-center gap-2 rounded-[10px] border border-line px-2 py-1">
                   <button type="button" onClick={() => open(item)} title="開く" className="flex min-w-0 flex-1 items-center gap-2 rounded-[8px] px-1 py-1 text-left hover:bg-tint">
                     <span className="grid w-5 shrink-0 place-items-center text-base leading-none">
-                      {item.kind === "note" ? <IconMark icon={item.note.icon} fallback={<Icon name="note" size={16} />} /> : <IconMark icon={item.page.icon || DEFAULT_PAGE_ICON} />}
+                      {item.kind === "note" ? (
+                        <IconMark icon={item.note.icon} fallback={<Icon name="note" size={16} />} />
+                      ) : item.kind === "page" ? (
+                        <IconMark icon={item.page.icon || DEFAULT_PAGE_ICON} />
+                      ) : (
+                        <IconMark icon={item.database.icon} fallback={<Icon name="db" size={16} />} />
+                      )}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className={`block truncate ${rawTitle(item) ? "" : "text-muted"}`}>{title}</span>

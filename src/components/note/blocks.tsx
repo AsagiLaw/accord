@@ -3,10 +3,11 @@
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
 import { createReactBlockSpec } from "@blocknote/react";
 import { withMultiColumn } from "@blocknote/xl-multi-column";
-import { useEffect, useRef } from "react";
 import { BlockBody } from "@/components/embeds";
 import { FieldBlockView } from "@/components/pageBlocks";
+import { DatabaseBlock } from "./DatabaseBlock";
 import { CalloutBlock, MentionInline, TocBlock } from "./docBlocks";
+import { INSIDE_META, SelectInside } from "./selectInside";
 import { SubPageBlock } from "./subPage";
 import { TabsBlockView, type AnyBlock } from "./TabsBlock";
 
@@ -36,45 +37,14 @@ export const MediaImageBlock = createReactBlockSpec(
   },
 );
 
-// チャットのブロックは selectable: false。押したところをエディタに渡さず、ブラウザに任せるので、発言の文字をドラッグで選んでコピーできる
-// （選べるブロックのままだと、押すとブロックごと選ばれて、ドラッグがブロックを動かす操作になる）
-const CHAT_META = { selectable: false } as const;
-
-type NodeViewSpec = { ignoreMutation: (m: { type: string; target: Node }) => boolean };
-
-/**
- * チャットのブロックの中で選んだ文字を、エディタが自分の選択で上書きしないようにする。
- * TipTap は中身の無いブロックの中の選択もエディタに読ませるので、読んだエディタが近くのブロックを選び直してしまう
- */
-function ChatSelectable({ children }: { children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const box = ref.current;
-    const spec = (box?.closest(".react-renderer") as { pmViewDesc?: { spec?: NodeViewSpec } } | null)?.pmViewDesc?.spec;
-    if (!box || !spec) return;
-    const original = spec.ignoreMutation;
-    spec.ignoreMutation = function (m) {
-      return (m.type === "selection" && box.contains(m.target)) || original.call(this, m);
-    };
-    return () => {
-      spec.ignoreMutation = original;
-    };
-  }, []);
-  return (
-    <div ref={ref} className="contents">
-      {children}
-    </div>
-  );
-}
-
 export const ChatBlock = createReactBlockSpec(
   { type: "chatBlock", propSchema: { chatId: { default: "" }, propId: { default: "" } }, content: "none" },
   {
-    meta: CHAT_META,
+    meta: INSIDE_META,
     render: ({ block, editor }) => (
-      <ChatSelectable>
+      <SelectInside>
         <BlockBody type="chatBlock" props={block.props} blockId={block.id} onChange={(p) => editor.updateBlock(block, { props: p })} />
-      </ChatSelectable>
+      </SelectInside>
     ),
   },
 );
@@ -82,11 +52,11 @@ export const ChatBlock = createReactBlockSpec(
 export const ImageChatBlock = createReactBlockSpec(
   { type: "imageChatBlock", propSchema: { chatId: { default: "" }, seed: { default: "" }, propId: { default: "" } }, content: "none" },
   {
-    meta: CHAT_META,
+    meta: INSIDE_META,
     render: ({ block, editor }) => (
-      <ChatSelectable>
+      <SelectInside>
         <BlockBody type="imageChatBlock" props={block.props} blockId={block.id} onChange={(p) => editor.updateBlock(block, { props: p })} />
-      </ChatSelectable>
+      </SelectInside>
     ),
   },
 );
@@ -113,7 +83,15 @@ export const SingleViewBlock = createReactBlockSpec(
 export const DbViewBlock = createReactBlockSpec(
   // Notion のリンクされたビュー：ビューはブロックが持つ（views：ビューの並びの JSON、active：選んでいるビュー）
   { type: "dbView", propSchema: { dbId: { default: "" }, views: { default: "" }, active: { default: "" }, hideHead: { default: "" } }, content: "none" },
-  { render: ({ block, editor }) => <BlockBody type="dbView" props={block.props} onChange={(p) => editor.updateBlock(block, { props: p })} /> },
+  {
+    // 押してもブロックごと選ばれないようにする（Notion のデータベースと同じ）
+    meta: INSIDE_META,
+    render: ({ block, editor }) => (
+      <SelectInside>
+        <BlockBody type="dbView" props={block.props} onChange={(p) => editor.updateBlock(block, { props: p })} />
+      </SelectInside>
+    ),
+  },
 );
 
 // ---- 道具のブロック（ToDo・追加ボタン） ----
@@ -165,11 +143,11 @@ export const PagePropsBlock = createReactBlockSpec(
 export const PageChatBlock = createReactBlockSpec(
   { type: "pageChat", propSchema: { which: { default: "main" } }, content: "none" },
   {
-    meta: CHAT_META,
+    meta: INSIDE_META,
     render: ({ block, editor }) => (
-      <ChatSelectable>
+      <SelectInside>
         <BlockBody type="pageChat" props={block.props as Record<string, string>} onChange={(p) => editor.updateBlock(block, { props: p })} />
-      </ChatSelectable>
+      </SelectInside>
     ),
   },
 );
@@ -239,6 +217,7 @@ export const noteSchema = withMultiColumn(
     callout: CalloutBlock(),
     toc: TocBlock(),
     subPage: SubPageBlock(),
+    database: DatabaseBlock(),
   },
   // 文の中のメンション（@：メンバー・日付・ノート）
   inlineContentSpecs: { ...defaultInlineContentSpecs, mention: MentionInline },

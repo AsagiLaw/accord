@@ -68,7 +68,7 @@ async function checkDue(userId: string, force = false) {
     const day = today();
     const fresh: { title: string; body: string; href: string; tag: string }[] = [];
     for (const d of databases) {
-      if (!dueProp(d)) continue;
+      if (d.deletedAt || !dueProp(d)) continue;
       const pages = withFormulas(d, (await db.dbPages.where("dbId").equals(d.id).toArray()).filter((p) => !p.deletedAt));
       for (const p of pages) {
         const st = dueStatus(d, p);

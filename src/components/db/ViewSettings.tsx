@@ -352,6 +352,7 @@ export function ViewSettingsMenu({
   onSwitch,
   onClose,
   block,
+  titleToggle,
 }: {
   database: Database;
   view: DbView;
@@ -361,6 +362,8 @@ export function ViewSettingsMenu({
   onClose: () => void;
   /** オールビューのブロックから開いたとき（ビューの複製・削除はブロックの中。ソースを選べる） */
   block?: BlockViewSource;
+  /** ノートの中のデータベース：レイアウトの設定に「データベースのタイトルを表示」を出す（Notion と同じ） */
+  titleToggle?: { shown: boolean; onChange: (shown: boolean) => void };
 }) {
   const [screen, setScreen] = useState<Screen>("top");
   const saveView = useSaveView();
@@ -702,10 +705,11 @@ export function ViewSettingsMenu({
             </button>
           ))}
         </div>
-        {(opts.length > 0 || block?.onHideHead) && (
+        {(opts.length > 0 || block?.onHideHead || titleToggle) && (
           <>
             <MenuDivider />
             <SectionHead label={`${VIEW_TYPES[view.type].label}の設定`} />
+            {titleToggle && <ToggleRow icon="title" label="データベースのタイトルを表示" on={titleToggle.shown} onChange={titleToggle.onChange} />}
             {/* オールビュー：タイトルの行を隠して、縦の場所をビューに使う */}
             {block?.onHideHead && (
               <ToggleRow
@@ -782,7 +786,7 @@ export function ViewSettingsMenu({
       <ChoiceScreen
         title="ソース"
         section="データベースを選ぶ"
-        items={block.databases.map((d) => ({ id: d.id, label: d.name, icon: "db" as const, emoji: d.icon }))}
+        items={block.databases.map((d) => ({ id: d.id, label: d.name || "無題", icon: "db" as const, emoji: d.icon }))}
         selected={database.id}
         onPick={(id) => {
           if (id !== database.id) block.onPickDb(id);
@@ -823,7 +827,7 @@ export function ViewSettingsMenu({
       <NavRow icon="filter" label="フィルター" value={view.filters.length ? `${view.filters.length}件` : "なし"} onClick={() => setScreen("filters")} />
       {sortable && <NavRow icon="sort" label="並び替え" value={sortText(database, view)} onClick={() => setScreen("sort")} />}
       {/* オールビューのブロック：どのデータベースを出すかは一番下（シングルビューと同じ） */}
-      {block && <NavRow icon="db" label="ソース" value={database.name} onClick={() => setScreen("source")} />}
+      {block && <NavRow icon="db" label="ソース" value={database.name || "無題"} onClick={() => setScreen("source")} />}
         </>
       )}
       <MenuDivider />

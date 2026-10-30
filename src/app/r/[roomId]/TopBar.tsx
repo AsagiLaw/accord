@@ -12,12 +12,13 @@ import { setChannelIcon, type ChannelKind } from "@/lib/local/channels";
 import { renameChat, useChat } from "@/lib/local/chat";
 import { renameNote, useNote, useNoteAncestors } from "@/lib/local/notes";
 import { setDatabaseIcon, setPageIcon, updateDatabase, updatePageTitle, useDatabase, usePage } from "@/lib/local/requests";
-import type { PageTemplate } from "@/lib/local/db";
+import type { Note, PageTemplate } from "@/lib/local/db";
 import { updateTemplate } from "@/lib/local/templates";
 import { renameWindow, useWindowPage } from "@/lib/local/windows";
 
 /**
- * Discord のような、メイン画面の上の細いバー。今の画面のアイコンと名前を出す（データベースのページは「データベース › ページ」、ノートの子のページは「親 › 子」）。
+ * Discord のような、メイン画面の上の細いバー。今の画面のアイコンと名前を出す（データベースのページは「データベース › ページ」、ノートの子のページは「親 › 子」、
+ * ノートの中のデータベースは「ノート › データベース」）。
  * 今開いている画面のアイコン・名前は、押すとその場で変えられる。
  * 右には、画面ごとの操作（TopBarActions で入れる）と、いちばん右に Discord と同じメンバー一覧のボタン。
  * スマホでは、左のメニューのボタンの分をあける。前の階層は「‹」だけにし、テンプレートの印は出さない（1段に収めて、今の画面の名前を読めるように）
@@ -208,30 +209,34 @@ function WindowCrumb({ roomId, id }: { roomId: string; id: string }) {
 /** 上の階層を出す数。多いときは、いちばん上と、すぐ上の2つだけにして、間は「…」にする（Notion と同じ） */
 const MAX_CRUMBS = 3;
 
+/** 上の階層のノート（いちばん上から順に）。多いときは間を「…」にする。スマホでは、すぐ上の親だけ（戻るための「‹」） */
+function NoteTrail({ roomId, ancestors }: { roomId: string; ancestors: Note[] }) {
+  const hidden = ancestors.length > MAX_CRUMBS ? ancestors.slice(1, -2) : [];
+  const shown = hidden.length ? [ancestors[0], null, ...ancestors.slice(-2)] : ancestors;
+  return shown.map((a, i) => (
+    <Fragment key={a?.id ?? "more"}>
+      <span className={i < shown.length - 1 ? "contents max-md:hidden" : "contents"}>
+        {a ? (
+          <Crumb icon={<IconMark icon={a.icon} fallback={<Icon name="note" size={16} />} />} label={a.title || "無題"} href={`/r/${roomId}/note/${a.id}`} />
+        ) : (
+          <span className="shrink-0 px-1 text-muted" title={hidden.map((h) => h.title || "無題").join(" › ")}>
+            …
+          </span>
+        )}
+      </span>
+      <Sep />
+    </Fragment>
+  ));
+}
+
 function NoteCrumb({ roomId, id }: { roomId: string; id: string }) {
   const note = useNote(id);
   const source = useNote(note?.sourceId ?? undefined);
   const ancestors = useNoteAncestors(note?.parentId) ?? [];
   if (!note) return null;
-  const hidden = ancestors.length > MAX_CRUMBS ? ancestors.slice(1, -2) : [];
-  const shown = hidden.length ? [ancestors[0], null, ...ancestors.slice(-2)] : ancestors;
   return (
     <>
-      {shown.map((a, i) => (
-        <Fragment key={a?.id ?? "more"}>
-          {/* スマホでは、すぐ上の親だけ（戻るための「‹」） */}
-          <span className={i < shown.length - 1 ? "contents max-md:hidden" : "contents"}>
-            {a ? (
-              <Crumb icon={<IconMark icon={a.icon} fallback={<Icon name="note" size={16} />} />} label={a.title || "無題"} href={`/r/${roomId}/note/${a.id}`} />
-            ) : (
-              <span className="shrink-0 px-1 text-muted" title={hidden.map((h) => h.title || "無題").join(" › ")}>
-                …
-              </span>
-            )}
-          </span>
-          <Sep />
-        </Fragment>
-      ))}
+      <NoteTrail roomId={roomId} ancestors={ancestors} />
       <ChannelCrumb roomId={roomId} kind="note" id={id} name={note.title} icon={note.icon} template={note.template} />
       {source && <SourceChip name={source.title} />}
     </>
@@ -256,15 +261,20 @@ function ChatCrumb({ roomId, id }: { roomId: string; id: string }) {
 
 function DbCrumb({ roomId, dbId, pageId, templateId }: { roomId: string; dbId: string; pageId?: string; templateId?: string }) {
   const database = useDatabase(dbId);
+  // ノートの中のデータベース：前に持ち主のノート（とその上の階層）を出す。サイドバーに出るノートだけ
+  const owner = useNote(database?.noteId);
+  const ownerAncestors = useNoteAncestors(owner?.parentId);
   if (!database) return null;
+  const trail = owner && !owner.pageId && !owner.inner && !owner.template && ownerAncestors ? [...ownerAncestors, owner] : [];
   const href = `/r/${roomId}/db/${dbId}`;
   const icon = <IconMark icon={database.icon} fallback={<Icon name="db" size={16} />} />;
   const inner = !!(pageId || templateId);
   const template = templateId ? database.templates?.find((t) => t.id === templateId) : undefined;
   return (
     <>
+      <NoteTrail roomId={roomId} ancestors={trail} />
       {/* データベースの画面ではアイコンと名前を変えられる。ページの中では、押すとデータベースへ戻る */}
-      {inner ? <Crumb icon={icon} label={database.name} href={href} /> : <ChannelCrumb roomId={roomId} kind="db" id={dbId} name={database.name} icon={database.icon} />}
+      {inner ? <Crumb icon={icon} label={database.name || "無題"} href={href} /> : <ChannelCrumb roomId={roomId} kind="db" id={dbId} name={database.name} icon={database.icon} />}
       {pageId && (
         <>
           <Sep />

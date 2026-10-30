@@ -29,15 +29,17 @@ import { useRouter } from "next/navigation";
 import { createContext, useContext, useEffect } from "react";
 import { BLOCK_KINDS, MENU_KINDS } from "@/components/blockKinds";
 import { NoteContext } from "@/components/embeds";
-import { Icon } from "@/components/Icon";
+import { Icon, type IconName } from "@/components/Icon";
 import { toast } from "@/components/ui/overlay";
-import { newId } from "@/lib/local/db";
+import { newId, type ViewType } from "@/lib/local/db";
+import { copyDatabases, createInlineDatabase } from "@/lib/local/inlineDbs";
 import { uploadToRoom } from "@/lib/local/media";
-import { copyBlockTree, copySubNotes, createSubNote, SUB_PAGE } from "@/lib/local/notes";
+import { copyBlockTree, copySubNotes, createSubNote, DB_BLOCK, SUB_PAGE, type BlockCopies } from "@/lib/local/notes";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { isImageFile } from "@/lib/media/image";
 import { noteSchema, type NoteEditor as Editor } from "./blocks";
 import { ColumnTabsHost, columnTabsExtension } from "./columnTabs";
+import { focusDatabaseTitle } from "./DatabaseBlock";
 import { calloutDropTarget, containerKey, containersExtension, dropIntoCallout, moveOut } from "./containers";
 import { mentionItems } from "./docBlocks";
 import { newPanel, undockTab } from "./TabsBlock";
@@ -50,8 +52,29 @@ export type Blocks = PartialBlock<typeof noteSchema.blockSchema, typeof noteSche
 // 外した標準ブロック（画像・動画・音声・ファイル）の「/」メニュー項目も出さない
 const HIDDEN_ITEMS = new Set(["image", "video", "audio", "file"]);
 
-/** 「/」と「＋」のメニュー：文章のブロック（標準）・列（2列・3列）・BLOCK_KINDS のブロック。onSubPage を渡すと「ページ」（子のページ）も出す */
-export function slashItems(editor: Editor, onSubPage?: () => void): DefaultReactSuggestionItem[] {
+/**
+ * 「/」の、このノートの中に新しいデータベースを作る項目（Notion の「データベース」の項目と同じ並び）。
+ * ビューの形ごとの項目は、その形のビューを1つ持つインラインのデータベースを作る
+ */
+const DB_ITEMS: { title: string; type: ViewType; page?: boolean; icon: IconName; aliases: string[] }[] = [
+  { title: "テーブルビュー", type: "table", icon: "table", aliases: ["table", "database", "teeburu", "てーぶる", "テーブル", "でーたべーす"] },
+  { title: "ボードビュー", type: "board", icon: "board", aliases: ["board", "kanban", "database", "boodo", "ぼーど", "ボード", "かんばん"] },
+  { title: "ギャラリービュー", type: "gallery", icon: "gallery", aliases: ["gallery", "database", "gyararii", "ぎゃらりー", "ギャラリー"] },
+  { title: "リストビュー", type: "list", icon: "list", aliases: ["list", "database", "risuto", "りすと", "リスト"] },
+  { title: "カレンダービュー", type: "calendar", icon: "calendar", aliases: ["calendar", "database", "karenda", "かれんだー", "カレンダー"] },
+  { title: "タイムラインビュー", type: "timeline", icon: "timeline", aliases: ["timeline", "gantt", "database", "taimurain", "たいむらいん", "タイムライン", "ガント"] },
+  { title: "データベース（インライン）", type: "table", icon: "db", aliases: ["database", "inline", "db", "deetabeesu", "でーたべーす", "データベース", "インライン"] },
+  { title: "データベース（フルページ）", type: "table", page: true, icon: "db", aliases: ["database", "fullpage", "page", "db", "deetabeesu", "でーたべーす", "データベース", "フルページ"] },
+];
+
+/**
+ * 「/」と「＋」のメニュー：文章のブロック（標準）・列（2列・3列）・BLOCK_KINDS のブロック。onSubPage を渡すと「ページ」（子のページ）も、
+ * onDatabase を渡すと、このノートの中に新しいデータベースを作る項目（データのグループのいちばん上）も出す
+ */
+export function slashItems(editor: Editor, onSubPage?: () => void, onDatabase?: (type: ViewType, page: boolean) => void): DefaultReactSuggestionItem[] {
+  const dbItems: DefaultReactSuggestionItem[] = onDatabase
+    ? DB_ITEMS.map((d) => ({ title: d.title, aliases: d.aliases, group: BLOCK_KINDS.dbView.group, icon: <Icon name={d.icon} />, onItemClick: () => onDatabase(d.type, !!d.page) }))
+    : [];
   const ours: DefaultReactSuggestionItem[] = MENU_KINDS.map((k) => ({
     title: BLOCK_KINDS[k].label,
     aliases: BLOCK_KINDS[k].aliases,
@@ -104,7 +127,7 @@ export function slashItems(editor: Editor, onSubPage?: () => void): DefaultReact
     },
   ];
   // 同じグループ（「基本ブロック」など）は1か所にまとめる（分かれると、メニューの表示でエラーになる）
-  return combineByGroup(defaults, notion, getMultiColumnSlashMenuItems(editor), ours, [tabs]);
+  return combineByGroup(defaults, notion, getMultiColumnSlashMenuItems(editor), dbItems, ours, [tabs]);
 }
 
 /** 文字を選んだときのツールバー：標準のものに、インラインコードのボタンを足す（打ち消し線の右） */
@@ -127,22 +150,30 @@ type Loose = { id?: string; type?: string; props?: Record<string, unknown>; chil
 
 /**
  * すぐ下に同じブロックを足す（Ctrl+D と「⋮⋮」の「複製」）。チャットは中身を引き継がず、新しい会話になる。
- * 子のページ（「ページ」ブロック）は、中身ごと写したページを先に作ってから足す（Notion と同じ）
+ * 子のページ（「ページ」ブロック）とデータベースのブロックは、中身ごと写したページ・データベースを先に作ってから足す（Notion と同じ）。
+ * noteId は、写したデータベースを持つノート（このノート）
  */
-function duplicateBlocks(editor: Editor, blocks: Loose[], userId?: string) {
+function duplicateBlocks(editor: Editor, blocks: Loose[], userId?: string, noteId?: string) {
   if (!blocks.length) return;
-  const pages: [string, string][] = [];
-  const copies = blocks.map((b) => copyBlockTree(b, pages));
+  const copies: BlockCopies = { pages: [], dbs: [] };
+  const list = blocks.map((b) => copyBlockTree(b, copies));
   const insert = () => {
     const at = blocks[blocks.length - 1];
-    if (at.id && editor.getBlock(at.id)) editor.insertBlocks(copies as never, at as never, "after");
+    if (at.id && editor.getBlock(at.id)) editor.insertBlocks(list as never, at as never, "after");
   };
-  if (!pages.length) return insert();
-  void copySubNotes(pages, userId ?? "").then(insert);
+  if (!copies.pages.length && !copies.dbs.length) return insert();
+  // 子のページの中のデータベースも、写したページのものとして dbs に入る
+  const dbs = copies.dbs.map((d) => ({ ...d, noteId }));
+  void copySubNotes(copies.pages, userId ?? "", undefined, dbs)
+    .then(() => copyDatabases(dbs, userId ?? ""))
+    .then(insert);
 }
 
 /** ブロックへのリンクを出せるところ（ノートのチャンネル・データベースのページなど、URL でそのページを開けるところ） */
 const BlockLinkContext = createContext(false);
+
+/** ノートの中にデータベースを作れるとき、そのノートの ID（複製したデータベースの持ち主にする） */
+const DbHostContext = createContext<string | undefined>(undefined);
 
 /** 「⋮⋮」のメニューの「データベースと繋ぐ」：ふつうの段落・見出しを、データベースの項目と繋いだテキストにする */
 function BindFieldItem() {
@@ -276,9 +307,10 @@ function DuplicateItem() {
   const editor = useBlockNoteEditor<typeof noteSchema.blockSchema, typeof noteSchema.inlineContentSchema, typeof noteSchema.styleSchema>();
   const block = useExtensionState(SideMenuExtension, { editor, selector: (state) => state?.block });
   const ctx = useContext(NoteContext);
+  const host = useContext(DbHostContext);
   if (!block) return null;
   return (
-    <Components.Generic.Menu.Item className="bn-menu-item" onClick={() => duplicateBlocks(editor as unknown as Editor, [block as unknown as Loose], ctx?.userId)}>
+    <Components.Generic.Menu.Item className="bn-menu-item" onClick={() => duplicateBlocks(editor as unknown as Editor, [block as unknown as Loose], ctx?.userId, host)}>
       <span className="flex w-full items-center gap-3">
         <span className="flex-1">複製</span>
         <kbd className="text-xs text-muted">{formatKeyboardShortcut("Mod-d")}</kbd>
@@ -310,12 +342,34 @@ function CopyLinkItem() {
   );
 }
 
+/** 「⋮⋮」のメニューの「フルページで開く」「ページに変換」「インラインに変換」（データベースのブロック。Notion と同じ） */
+function DatabaseItems() {
+  const Components = useComponentsContext()!;
+  const editor = useBlockNoteEditor<typeof noteSchema.blockSchema, typeof noteSchema.inlineContentSchema, typeof noteSchema.styleSchema>();
+  const block = useExtensionState(SideMenuExtension, { editor, selector: (state) => state?.block });
+  const ctx = useContext(NoteContext);
+  const router = useRouter();
+  if (!block || block.type !== DB_BLOCK || !ctx) return null;
+  const props = block.props as { dbId: string; page: string };
+  return (
+    <>
+      <Components.Generic.Menu.Item className="bn-menu-item" onClick={() => router.push(`/r/${ctx.roomId}/db/${props.dbId}`)}>
+        フルページで開く
+      </Components.Generic.Menu.Item>
+      <Components.Generic.Menu.Item className="bn-menu-item" onClick={() => editor.updateBlock(block, { props: { page: props.page === "1" ? "" : "1" } } as never)}>
+        {props.page === "1" ? "インラインに変換" : "ページに変換"}
+      </Components.Generic.Menu.Item>
+    </>
+  );
+}
+
 function DocDragHandleMenu() {
   return (
     <DragHandleMenu>
       <ConvertItem />
       <BlockColorsItem>カラー</BlockColorsItem>
       <TextOptionItems />
+      <DatabaseItems />
       <DuplicateItem />
       <CopyLinkItem />
       <BindFieldItem />
@@ -626,7 +680,8 @@ function useDropBesideColumns(editor: Editor) {
  * textOnly：ふだんのウィンドウ。固定していない文章だけ直せる（「＋」「⋮⋮」「/」は出さない）。
  * separate：そのうえ、文章のブロックもそれぞれ別（足したり消したり、つなげたりしない）。
  * linkable：「⋮⋮」に「ブロックへのリンクをコピー」を出す（URL でそのページを開けるところ）。
- * subPageOf：ノートのチャンネルの本文のとき、そのノートの ID。「/」に「ページ」（子のページを作って開く）を出す
+ * subPageOf：ノートのチャンネルの本文のとき、そのノートの ID。「/」に「ページ」（子のページを作って開く）を出す。
+ * dbNoteId：ノートの本文のとき、そのノートの ID。「/」に、このノートの中に新しいデータベースを作る項目を出す
  */
 export function EditorMenus({
   editor,
@@ -636,6 +691,7 @@ export function EditorMenus({
   separate = false,
   linkable = false,
   subPageOf,
+  dbNoteId,
 }: {
   editor: Editor;
   textOptions?: TextOptions;
@@ -644,6 +700,7 @@ export function EditorMenus({
   separate?: boolean;
   linkable?: boolean;
   subPageOf?: string;
+  dbNoteId?: string;
 }) {
   const ctx = useContext(NoteContext);
   const router = useRouter();
@@ -660,7 +717,18 @@ export function EditorMenus({
           });
         }
       : undefined;
-  const items = async (query: string) => filterSuggestionItems(slashItems(editor, onSubPage), query);
+  // データベース：先に作ってからブロックを置く。インラインは名前の欄に入り、フルページはデータベースの画面を開く（置いた本文は、開くときに保存される）
+  const onDatabase =
+    dbNoteId && roomId
+      ? (type: ViewType, page: boolean) => {
+          void createInlineDatabase(roomId, dbNoteId, type).then((dbId) => {
+            if (!page) focusDatabaseTitle(dbId);
+            insertOrUpdateBlockForSlashMenu(editor, { type: DB_BLOCK, props: { dbId, page: page ? "1" : "" } } as never);
+            if (page) router.push(`/r/${roomId}/db/${dbId}`);
+          });
+        }
+      : undefined;
+  const items = async (query: string) => filterSuggestionItems(slashItems(editor, onSubPage, onDatabase), query);
   useSideMenuOnHover(editor, !textOnly);
   useDropBesideColumns(editor);
   useSuggestionMenuWheel(editor);
@@ -682,7 +750,7 @@ export function EditorMenus({
         return;
       }
       if (textOnly) return textOnlyEdgeKey(editor, e, separate);
-      if (notionKey(editor, e, userId) || containerKey(editor, e)) return;
+      if (notionKey(editor, e, userId, dbNoteId) || containerKey(editor, e)) return;
       columnBackspace(editor, e);
     };
     const onInput = (e: InputEvent) => {
@@ -698,7 +766,7 @@ export function EditorMenus({
       dom.removeEventListener("keydown", onKey, true);
       dom.removeEventListener("beforeinput", onInput, true);
     };
-  }, [editor, textOnly, separate, userId]);
+  }, [editor, textOnly, separate, userId, dbNoteId]);
   const menus = textOnly ? (
     // ふだんのウィンドウ：文字を選んだときのツールバーだけ（固定した文章などにかかるときは出さない。BlockNoteView の標準のものは止めておく）
     <FormattingToolbarController formattingToolbar={NoteTextOnlyToolbar} />
@@ -721,9 +789,11 @@ export function EditorMenus({
   return (
     <TextOptionsContext.Provider value={textOptions && onTextOptions ? { options: textOptions, onChange: onTextOptions } : null}>
       <BlockLinkContext.Provider value={linkable}>
-        {menus}
-        {/* 左右に並んだブロック（列）を、スマホの幅ではタブにする */}
-        <ColumnTabsHost editor={editor} textOnly={textOnly} />
+        <DbHostContext.Provider value={dbNoteId}>
+          {menus}
+          {/* 左右に並んだブロック（列）を、スマホの幅ではタブにする */}
+          <ColumnTabsHost editor={editor} textOnly={textOnly} />
+        </DbHostContext.Provider>
       </BlockLinkContext.Provider>
     </TextOptionsContext.Provider>
   );
@@ -733,14 +803,14 @@ export function EditorMenus({
  * Notion と同じキー。処理したら true。コールアウト・タブの中のキーは containerKey（containers.ts）
  * - Ctrl+D（Mac は ⌘D）：今のブロック（選んでいるブロック）を、すぐ下に複製する
  */
-function notionKey(editor: Editor, e: KeyboardEvent, userId?: string) {
+function notionKey(editor: Editor, e: KeyboardEvent, userId?: string, noteId?: string) {
   if (e.isComposing || e.keyCode === 229) return false;
   const mod = e.ctrlKey || e.metaKey;
   if (!mod || e.shiftKey || e.altKey || e.key.toLowerCase() !== "d") return false;
   e.preventDefault();
   e.stopPropagation();
   const selected = editor.getSelection()?.blocks;
-  duplicateBlocks(editor, (selected?.length ? selected : [editor.getTextCursorPosition().block]) as unknown as Loose[], userId);
+  duplicateBlocks(editor, (selected?.length ? selected : [editor.getTextCursorPosition().block]) as unknown as Loose[], userId, noteId);
   return true;
 }
 

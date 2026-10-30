@@ -1002,7 +1002,7 @@ export function DbViewEmbed({
                   title="データベースを開く"
                 >
                   <IconMark icon={database.icon} fallback={<Icon name="db" size={14} />} />
-                  {database.name}
+                  {database.name || "無題"}
                   <Icon name="open" size={12} />
                 </Link>
               )}

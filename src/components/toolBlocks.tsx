@@ -269,7 +269,7 @@ function AddButtonMenu({ props, databases, database, onChange }: { props: AddBut
       <ChoiceScreen
         title="ソース"
         section="ページを足すデータベース"
-        items={databases.map((d) => ({ id: d.id, label: d.name, icon: "db" as const, emoji: d.icon }))}
+        items={databases.map((d) => ({ id: d.id, label: d.name || "無題", icon: "db" as const, emoji: d.icon }))}
         selected={database?.id ?? ""}
         // データベースを変えたら、テンプレートはそのデータベースの既定に戻す
         onPick={(id) => {

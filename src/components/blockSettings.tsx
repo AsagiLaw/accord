@@ -79,7 +79,7 @@ export function PageSourceScreen({
       )}
       <SectionHead label={canThisPage ? "ほかのページ" : "データベースを押して、ページを選ぶ"} />
       {databases.map((d) => (
-        <NavRow key={d.id} icon="db" emoji={d.icon} label={d.name} value={!thisPage && dbId === d.id && current ? current.title || "無題" : ""} onClick={() => setOpenDb(d.id)} />
+        <NavRow key={d.id} icon="db" emoji={d.icon} label={d.name || "無題"} value={!thisPage && dbId === d.id && current ? current.title || "無題" : ""} onClick={() => setOpenDb(d.id)} />
       ))}
       {!databases.length && <EmptyNote>データベースがありません</EmptyNote>}
     </div>

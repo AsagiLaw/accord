@@ -62,7 +62,7 @@ export function DatabasePopup({ roomId, dbId, userId, onClose }: { roomId: strin
               <span className="grid w-4 shrink-0 place-items-center">
                 <IconMark icon={database.icon} fallback={<Icon name="db" size={16} />} />
               </span>
-              <span className="truncate">{database.name}</span>
+              <span className="truncate">{database.name || "無題"}</span>
             </span>
           ) : (
             <span className="loading text-sm text-muted">読み込み中…</span>

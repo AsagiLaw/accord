@@ -5,7 +5,8 @@ import { BlockNoteView } from "@blocknote/mantine";
 import { useEffect, useRef, useState } from "react";
 import { mergeBlocks } from "@/lib/note/mergeBlocks";
 import type { Note } from "@/lib/local/db";
-import { saveNoteBlocks, subPageIds, syncSubPages } from "@/lib/local/notes";
+import { syncInlineDbs } from "@/lib/local/inlineDbs";
+import { inlineDbIds, saveNoteBlocks, subPageIds, syncSubPages } from "@/lib/local/notes";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 import { useIsDark } from "@/lib/theme";
 import { NoteContext, type NoteEditor as Editor } from "./blocks";
@@ -22,7 +23,8 @@ import { dropImages, EditorMenus, useBlockEditor, type Blocks } from "./editorKi
  * テンプレートと繋いだノートでは、note はテンプレート、owner・linkedChats はこのノートのもの。editable が false なら読むだけ。
  * ノートのチャンネル（ページの頭にタイトルがあるとき）：editorRef でエディタを渡し、いちばん上の行の頭で ↑ を押すと onExitTop を呼ぶ（タイトルへ戻る）。
  * linkable なら「⋮⋮」に「ブロックへのリンクをコピー」を出し、URL の #block-（ID）のブロックへ移る。
- * subPages なら「/」で子のページ（「ページ」ブロック）を作れ、ブロックを消すと子のページはゴミ箱へ（元に戻すと戻る）
+ * subPages なら「/」で子のページ（「ページ」ブロック）を作れ、ブロックを消すと子のページはゴミ箱へ（元に戻すと戻る）。
+ * テンプレートやテンプレートと繋いだノートでなければ、「/」でこのノートの中にデータベースを作れ、ブロックを消すとデータベースはゴミ箱へ（元に戻すと戻る）
  */
 export function NoteEditor({
   note,
@@ -81,16 +83,28 @@ export function NoteEditor({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [saving, setSaving] = useState<"idle" | "pending" | "saved">("idle");
   const wrapper = useRef<HTMLDivElement>(null);
-  // 本文にある子のページ（「ページ」ブロック）。自分が消した・戻したものを見分けるのに使う
+  // 本文にある子のページ（「ページ」ブロック）とデータベース。自分が消した・戻したものを見分けるのに使う
   const pages = useRef<string[]>([]);
+  const dbs = useRef<string[]>([]);
   useEffect(() => {
     pages.current = subPageIds(editor.document);
+    dbs.current = inlineDbIds(editor.document);
   }, [editor]);
-  /** 自分の編集で「ページ」ブロックが消えたら子のページをゴミ箱へ、戻ったら（元に戻す・切り取って貼る）ゴミ箱から戻す */
+  // このノートの中にデータベースを作れるか（テンプレートは、使う先ごとにデータベースを分けられないので作らない）
+  const dbHost = !template && !linkedChats ? note.id : undefined;
+  /** 自分の編集で「ページ」・データベースのブロックが消えたらゴミ箱へ、戻ったら（元に戻す・切り取って貼る）ゴミ箱から戻す */
   const checkSubPages = () => {
     const now = subPageIds(editor.document);
     const before = pages.current;
     pages.current = now;
+    const nowDbs = inlineDbIds(editor.document);
+    const beforeDbs = dbs.current;
+    dbs.current = nowDbs;
+    if (dbHost) {
+      const removed = beforeDbs.filter((id) => !nowDbs.includes(id));
+      const added = nowDbs.filter((id) => !beforeDbs.includes(id));
+      if (removed.length || added.length) void syncInlineDbs(dbHost, removed, added);
+    }
     if (!subPages) return;
     const removed = before.filter((id) => !now.includes(id));
     const added = now.filter((id) => !before.includes(id));
@@ -148,8 +162,9 @@ export function NoteEditor({
     }
     lastSaved.current = remote.updatedAt;
     base.current = editor.document as Blocks;
-    // ほかの人が消した・足した「ページ」ブロックは、その人の側で済ませている
+    // ほかの人が消した・足した「ページ」・データベースのブロックは、その人の側で済ませている
     pages.current = subPageIds(editor.document);
+    dbs.current = inlineDbIds(editor.document);
     return merged;
   };
 
@@ -221,7 +236,7 @@ export function NoteEditor({
             timer.current = setTimeout(save, 700);
           }}
         >
-          <EditorMenus editor={editor} linkable={linkable} subPageOf={subPages ? note.id : undefined} />
+          <EditorMenus editor={editor} linkable={linkable} subPageOf={subPages ? note.id : undefined} dbNoteId={editable ? dbHost : undefined} />
         </BlockNoteView>
         <p className="mx-[54px] mt-2 h-4 text-right text-xs text-muted" aria-live="polite">
           {saving === "pending" ? "保存待ち…" : saving === "saved" ? "保存しました" : ""}

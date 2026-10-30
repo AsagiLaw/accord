@@ -177,8 +177,13 @@ export async function deleteChannel(ch: Pick<Channel, "kind" | "id">) {
   });
 }
 
-/** データベースを、出しているカテゴリーごと削除する。中のページ・チャット・ビューも消える（画像はメディアに残る） */
+/**
+ * データベースを、出しているカテゴリーごと削除する。中のページ・チャット・ビューも消える（画像はメディアに残る）。
+ * ページの本文に作ったデータベースも消す
+ */
 export async function deleteDatabase(dbId: string) {
+  const ofPages = (await db.dbPages.where("dbId").equals(dbId).primaryKeys()) as string[];
+  if (ofPages.length) await deleteDatabasesIn((await db.notes.where("pageId").anyOf(ofPages).primaryKeys()) as string[]);
   await db.transaction("rw", [db.databases, db.dbPages, db.dbViews, db.chats, db.messages, db.chatReads, db.events, db.notes, db.categories], async () => {
     const pages = await db.dbPages.where("dbId").equals(dbId).toArray();
     const pageIds = pages.map((p) => p.id);
@@ -216,12 +221,21 @@ export async function noteDescendants(noteId: string): Promise<string[]> {
   return out;
 }
 
-/** ノートを、中の子のページ（孫より下も）ごと完全に削除する。中に置いたチャットの発言も消える（画像はメディアに残る） */
+/** ノートを、中の子のページ（孫より下も）ごと完全に削除する。中に置いたチャットの発言と、中に作ったデータベースも消える（画像はメディアに残る） */
 export async function deleteNoteTree(noteId: string) {
-  for (const id of [noteId, ...(await noteDescendants(noteId))]) {
+  const ids = [noteId, ...(await noteDescendants(noteId))];
+  for (const id of ids) {
     await deleteOwnedChats(`note:${id}`);
     await db.notes.delete(id);
   }
+  await deleteDatabasesIn(ids);
+}
+
+/** そのノートたちの中に作ったデータベース（ノートの中のデータベース）を、完全に削除する */
+export async function deleteDatabasesIn(noteIds: string[]) {
+  if (!noteIds.length) return;
+  const ids = (await db.databases.filter((d) => !!d.noteId && noteIds.includes(d.noteId)).toArray()).map((d) => d.id);
+  for (const id of ids) await deleteDatabase(id);
 }
 
 export const channelHref = (roomId: string, ch: Pick<Channel, "kind" | "id">) => `/r/${roomId}/${ch.kind}/${ch.id}`;

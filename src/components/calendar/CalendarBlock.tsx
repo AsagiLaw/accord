@@ -880,7 +880,7 @@ function CalendarMenu({ props, sources, databases, onChange }: { props: Calendar
     const list = datePropsOf(db);
     return (
       <div>
-        <BackHead title={db.name} onBack={() => setOpenDb(null)} />
+        <BackHead title={db.name || "無題"} onBack={() => setOpenDb(null)} />
         <SectionHead label="カレンダーに出す項目" />
         {list.map((p) => {
           const on = sources.some((s) => s.dbId === db.id && s.propId === p.id);
@@ -906,7 +906,7 @@ function CalendarMenu({ props, sources, databases, onChange }: { props: Calendar
       <ToggleRow icon="calendar" label="このカレンダーの予定" note="このブロックだけの予定" on={props.own !== ""} onChange={(on) => onChange({ own: on ? "1" : "" })} />
       <ToggleRow icon="calendar" label="ルームの予定" note="データベースのカレンダーの「予定を追加」で入れた予定" on={props.room === "1"} onChange={(on) => onChange({ room: on ? "1" : "" })} />
       {databases.map((d) => (
-        <NavRow key={d.id} icon="db" emoji={d.icon} label={d.name} value={countOf(d) ? `${countOf(d)}個の項目` : "出さない"} onClick={() => setOpenDb(d.id)} />
+        <NavRow key={d.id} icon="db" emoji={d.icon} label={d.name || "無題"} value={countOf(d) ? `${countOf(d)}個の項目` : "出さない"} onClick={() => setOpenDb(d.id)} />
       ))}
       <MenuDivider />
       <SectionHead label="表示" />
