@@ -11,7 +11,6 @@ import {
   FormattingToolbarController,
   getDefaultReactSlashMenuItems,
   getFormattingToolbarItems,
-  RemoveBlockItem,
   SideMenu,
   SideMenuController,
   SuggestionMenuController,
@@ -37,6 +36,7 @@ import { uploadToRoom } from "@/lib/local/media";
 import { copyBlockTree, copySubNotes, createSubNote, DB_BLOCK, SUB_PAGE, type BlockCopies } from "@/lib/local/notes";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { isImageFile } from "@/lib/media/image";
+import { blockPickExtension, pickedBlocks, pickedKey, scrollAreaOf, useBlockMarquee } from "./blockPick";
 import { noteSchema, type NoteEditor as Editor } from "./blocks";
 import { ColumnTabsHost, columnTabsExtension } from "./columnTabs";
 import { focusDatabaseTitle } from "./DatabaseBlock";
@@ -139,6 +139,9 @@ function toolbarItems() {
 }
 
 function NoteToolbar(props: FormattingToolbarProps) {
+  const editor = useBlockNoteEditor<typeof noteSchema.blockSchema, typeof noteSchema.inlineContentSchema, typeof noteSchema.styleSchema>();
+  // ブロックを四角で選んでいるときは、文字のツールバーは出さない（選ぶのをやめた直後の消えていく間にも出さない）
+  if (pickedBlocks(editor as unknown as Editor) || editor.prosemirrorState.selection.empty) return null;
   return <FormattingToolbar {...props}>{toolbarItems()}</FormattingToolbar>;
 }
 
@@ -301,7 +304,33 @@ function ConvertItem() {
   );
 }
 
-/** 「⋮⋮」のメニューの「複製」：すぐ下に同じブロックを足す（チャットは中身を引き継がず、新しい会話になる） */
+/** 「⋮⋮」の操作の対象：押したブロックが選んでいるブロックの1つなら、選んでいるブロック全部 */
+function targetsOf(editor: Editor, block: { id: string }) {
+  const picked = pickedBlocks(editor);
+  return picked?.some((b) => b.id === block.id) ? picked : null;
+}
+
+/** 選んでいるブロックの「⋮⋮」では出さない項目（1つのブロックだけの操作）を包む */
+function SingleOnly({ children }: { children: React.ReactNode }) {
+  const editor = useBlockNoteEditor<typeof noteSchema.blockSchema, typeof noteSchema.inlineContentSchema, typeof noteSchema.styleSchema>();
+  const block = useExtensionState(SideMenuExtension, { editor, selector: (state) => state?.block });
+  return block && targetsOf(editor as unknown as Editor, block) ? null : <>{children}</>;
+}
+
+/** 「⋮⋮」のメニューの「削除」：選んでいるブロックの1つなら、選んでいるブロック全部 */
+function DeleteItem() {
+  const Components = useComponentsContext()!;
+  const editor = useBlockNoteEditor<typeof noteSchema.blockSchema, typeof noteSchema.inlineContentSchema, typeof noteSchema.styleSchema>();
+  const block = useExtensionState(SideMenuExtension, { editor, selector: (state) => state?.block });
+  if (!block) return null;
+  return (
+    <Components.Generic.Menu.Item className="bn-menu-item" onClick={() => editor.removeBlocks((targetsOf(editor as unknown as Editor, block) ?? [block]).map((b) => b.id))}>
+      削除
+    </Components.Generic.Menu.Item>
+  );
+}
+
+/** 「⋮⋮」のメニューの「複製」：すぐ下に同じブロックを足す（チャットは中身を引き継がず、新しい会話になる）。選んでいるブロックの1つなら、選んでいるブロック全部 */
 function DuplicateItem() {
   const Components = useComponentsContext()!;
   const editor = useBlockNoteEditor<typeof noteSchema.blockSchema, typeof noteSchema.inlineContentSchema, typeof noteSchema.styleSchema>();
@@ -310,7 +339,7 @@ function DuplicateItem() {
   const host = useContext(DbHostContext);
   if (!block) return null;
   return (
-    <Components.Generic.Menu.Item className="bn-menu-item" onClick={() => duplicateBlocks(editor as unknown as Editor, [block as unknown as Loose], ctx?.userId, host)}>
+    <Components.Generic.Menu.Item className="bn-menu-item" onClick={() => duplicateBlocks(editor as unknown as Editor, (targetsOf(editor as unknown as Editor, block) ?? [block]) as unknown as Loose[], ctx?.userId, host)}>
       <span className="flex w-full items-center gap-3">
         <span className="flex-1">複製</span>
         <kbd className="text-xs text-muted">{formatKeyboardShortcut("Mod-d")}</kbd>
@@ -366,15 +395,19 @@ function DatabaseItems() {
 function DocDragHandleMenu() {
   return (
     <DragHandleMenu>
-      <ConvertItem />
-      <BlockColorsItem>カラー</BlockColorsItem>
-      <TextOptionItems />
-      <DatabaseItems />
+      <SingleOnly>
+        <ConvertItem />
+        <BlockColorsItem>カラー</BlockColorsItem>
+        <TextOptionItems />
+        <DatabaseItems />
+      </SingleOnly>
       <DuplicateItem />
-      <CopyLinkItem />
-      <BindFieldItem />
-      <ContainerItems />
-      <RemoveBlockItem>削除</RemoveBlockItem>
+      <SingleOnly>
+        <CopyLinkItem />
+        <BindFieldItem />
+        <ContainerItems />
+      </SingleOnly>
+      <DeleteItem />
     </DragHandleMenu>
   );
 }
@@ -430,7 +463,43 @@ function blockUnder(dom: HTMLElement, x: number, y: number): HTMLElement | null 
 }
 
 /**
+ * ノートで、その高さの行にあるブロック（いちばん内側。列の中は、横の位置でいちばん近い列）。ブロックの間では近いほう。
+ * いちばん上のブロックより上・いちばん下のブロックより下なら無し
+ */
+function rowBlock(dom: HTMLElement, x: number, y: number): HTMLElement | null {
+  const visible = (el: Element) => el.getBoundingClientRect().height > 0;
+  const nearest = (list: Element[], to: number, side: "y" | "x") => {
+    let best: Element | undefined;
+    let dist = Infinity;
+    for (const el of list) {
+      const r = el.getBoundingClientRect();
+      const [a, b] = side === "y" ? [r.top, r.bottom] : [r.left, r.right];
+      const d = to < a ? a - to : to > b ? to - b : 0;
+      if (d < dist) [best, dist] = [el, d];
+    }
+    return best;
+  };
+  const inList = (list: Element[]): HTMLElement | null => {
+    const el = nearest(list.filter(visible), y, "y");
+    if (!el) return null;
+    if (el.matches(".bn-block-column-list")) {
+      const column = nearest([...el.children].filter(visible), x, "x");
+      return column ? inList([...column.children]) : null;
+    }
+    const group = el.querySelector(":scope > .bn-block > .bn-block-group");
+    if (group && visible(group) && y >= group.getBoundingClientRect().top) return inList([...group.children]) ?? (el as HTMLElement);
+    return el as HTMLElement;
+  };
+  const root = dom.querySelector(":scope > .bn-block-group");
+  if (!root) return null;
+  const r = root.getBoundingClientRect();
+  return y < r.top || y > r.bottom ? null : inList([...root.children]);
+}
+
+/**
  * 「＋」「⋮⋮」の出し方。
+ * rows（ノート）：Notion と同じく、ノートの画面の中なら、マウスの高さの行のブロックに出す（本文の外の余白でも）。
+ * ほか（ウィンドウ）：
  * - 出すのは、マウスをブロック本体に乗せたとき（小さい範囲）。
  * - 出たあとは、大きい範囲にいる間は出し続ける。大きい範囲＝そのブロックの行（ボタンの左端から行の右端まで、ブロックと同じ高さ）と、ボタンの下の同じ幅の帯。
  *   この間は、ボタンが左の列のブロックにかぶっていても、そちらには切り替えない。
@@ -438,7 +507,7 @@ function blockUnder(dom: HTMLElement, x: number, y: number): HTMLElement | null 
  * BlockNote のままだと、ブロックの近く・列では右に50pxずれた所でも出るので、BlockNote の判定のあとで、出すブロックを BlockNote に知らせ直す。
  * on が false（ふだんのウィンドウ）のときは出さない
  */
-function useSideMenuOnHover(editor: Editor, on: boolean) {
+function useSideMenuOnHover(editor: Editor, on: boolean, rows: boolean) {
   useEffect(() => {
     if (!on) return;
     const ours = new WeakSet<Event>();
@@ -474,6 +543,16 @@ function useSideMenuOnHover(editor: Editor, on: boolean) {
       const t = e.target instanceof Element ? e.target : null;
       // メニューの上（「＋」「⋮⋮」や開いたメニュー）では、そのまま
       if (t?.closest(".bn-side-menu, .bn-menu-dropdown, [role=menu], .bn-suggestion-menu")) return;
+      if (rows) {
+        // 文字の選択やブロックの四角の選択の途中は、動かさない
+        if (e.buttons) return;
+        const area = scrollAreaOf(dom);
+        // ポップアップなど、ノートの上に重なったものの上では出さない
+        const block = t && area?.contains(t) ? rowBlock(dom, e.clientX, e.clientY) : null;
+        if (block) return show(dom, block, e);
+        editor.getExtension(SideMenuExtension)?.hideMenuIfNotFrozen();
+        return;
+      }
       // 出ている間は、大きい範囲にいる限りそのブロックのまま
       if (current?.isConnected && inBigZone(dom, current, e.clientX, e.clientY)) return show(dom, current, e);
       // 大きい範囲の外：ブロック本体に乗せていれば、そのブロックで出す。どこにも乗っていなければ消す
@@ -491,7 +570,7 @@ function useSideMenuOnHover(editor: Editor, on: boolean) {
     };
     window.addEventListener("mousemove", onMoveAfter);
     return () => window.removeEventListener("mousemove", onMoveAfter);
-  }, [editor, on]);
+  }, [editor, on, rows]);
 }
 
 /**
@@ -717,7 +796,8 @@ function useDropBesideColumns(editor: Editor) {
  * separate：そのうえ、文章のブロックもそれぞれ別（足したり消したり、つなげたりしない）。
  * linkable：「⋮⋮」に「ブロックへのリンクをコピー」を出す（URL でそのページを開けるところ）。
  * subPageOf：ノートのチャンネルの本文のとき、そのノートの ID。「/」に「ページ」（子のページを作って開く）を出す。
- * dbNoteId：ノートの本文のとき、そのノートの ID。「/」に、このノートの中に新しいデータベースを作る項目を出す
+ * dbNoteId：ノートの本文のとき、そのノートの ID。「/」に、このノートの中に新しいデータベースを作る項目を出す。
+ * noteMode：スクロールする本文（ノート）のとき。「＋」「⋮⋮」は行のどこでも出し、本文の外からのドラッグでブロックを複数選択できる（Notion と同じ）
  */
 export function EditorMenus({
   editor,
@@ -728,6 +808,7 @@ export function EditorMenus({
   linkable = false,
   subPageOf,
   dbNoteId,
+  noteMode = false,
 }: {
   editor: Editor;
   textOptions?: TextOptions;
@@ -737,6 +818,7 @@ export function EditorMenus({
   linkable?: boolean;
   subPageOf?: string;
   dbNoteId?: string;
+  noteMode?: boolean;
 }) {
   const ctx = useContext(NoteContext);
   const router = useRouter();
@@ -765,7 +847,8 @@ export function EditorMenus({
         }
       : undefined;
   const items = async (query: string) => filterSuggestionItems(slashItems(editor, onSubPage, onDatabase), query);
-  useSideMenuOnHover(editor, !textOnly);
+  useSideMenuOnHover(editor, !textOnly, noteMode);
+  useBlockMarquee(editor, noteMode && !textOnly);
   useDropBesideColumns(editor);
   useSuggestionMenuWheel(editor);
   useTextOptions(editor, textOptions, textOnly, separate);
@@ -775,11 +858,12 @@ export function EditorMenus({
     if (!dom) return;
     // チャットなどのブロックを選んでいる（ブロックごと選択）ときに文字を打っても、ブロックが文字に置き換わって消えないようにする。
     // 消すのは Delete・Backspace か「⋮⋮」の「削除」で
-    const blockSelected = () => "node" in editor.prosemirrorState.selection;
+    const blockSelected = () => "node" in editor.prosemirrorState.selection || "nodes" in editor.prosemirrorState.selection;
     // ブロックの中の入力欄（チャット・ToDo・ビューの検索など）で打った文字は止めない
     const inField = (e: Event) => e.target instanceof HTMLElement && e.target !== dom && !!e.target.closest("input, textarea, select");
     const onKey = (e: KeyboardEvent) => {
       if (inField(e)) return;
+      if (pickedKey(editor, e)) return;
       if (blockSelected() && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key.length === 1 || e.key === "Enter" || e.key === "Process")) {
         e.preventDefault();
         e.stopPropagation();
@@ -845,7 +929,7 @@ function notionKey(editor: Editor, e: KeyboardEvent, userId?: string, noteId?: s
   if (!mod || e.shiftKey || e.altKey || e.key.toLowerCase() !== "d") return false;
   e.preventDefault();
   e.stopPropagation();
-  const selected = editor.getSelection()?.blocks;
+  const selected = pickedBlocks(editor) ?? editor.getSelection()?.blocks;
   duplicateBlocks(editor, (selected?.length ? selected : [editor.getTextCursorPosition().block]) as unknown as Loose[], userId, noteId);
   return true;
 }
@@ -891,7 +975,8 @@ export function useBlockEditor(initial: unknown[], roomId: string, userId: strin
       // 左右に並んだブロック（列）を、スマホの幅ではタブにして1列ずつ見せる
       // ウィンドウの文章のブロックの枠・固定
       // コールアウト・タブの中のブロック（タブの形を整える）
-      extensions: [columnTabsExtension, textOptionsExtension, containersExtension],
+      // ノートのブロックの複数選択の印
+      extensions: [columnTabsExtension, textOptionsExtension, containersExtension, blockPickExtension],
       initialContent: initial.length ? (initial as Blocks) : undefined,
       // 画像を貼り付けたときは、まずメディアに入れてから「画像（メディアから）」ブロックにする（ふだんのウィンドウでは、ブロックは足せないので貼らない）
       pasteHandler: ({ event, editor, defaultPasteHandler }) => {

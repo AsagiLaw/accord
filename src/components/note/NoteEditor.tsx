@@ -236,7 +236,7 @@ export function NoteEditor({
             timer.current = setTimeout(save, 700);
           }}
         >
-          <EditorMenus editor={editor} linkable={linkable} subPageOf={subPages ? note.id : undefined} dbNoteId={editable ? dbHost : undefined} />
+          <EditorMenus editor={editor} linkable={linkable} subPageOf={subPages ? note.id : undefined} dbNoteId={editable ? dbHost : undefined} noteMode />
         </BlockNoteView>
         <p className="mx-[54px] mt-2 h-4 text-right text-xs text-muted" aria-live="polite">
           {saving === "pending" ? "保存待ち…" : saving === "saved" ? "保存しました" : ""}

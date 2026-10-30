@@ -537,6 +537,12 @@ body {
 /* ショートカット：アプリのメニューの右の小さな文字と同じ（箱にせず、大文字にもしない） */
 .bn-mantine .bn-suggestion-menu-item .mantine-Badge-root.mantine-Badge-root { height: auto; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 400; letter-spacing: 0; text-transform: none; }
 
+/* ノートのブロックの複数選択：選んだブロックに色を重ねる（文字の選択の色は消す） */
+.bn-editor .block-picked { position: relative; }
+.bn-editor .block-picked::after { content: ""; position: absolute; inset: 0; z-index: 2; border-radius: 4px; background: color-mix(in srgb, var(--accent) 22%, transparent); pointer-events: none; }
+.bn-editor .block-picked ::selection { background: transparent; }
+.block-marquee-box { position: fixed; z-index: 50; border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); border-radius: 2px; background: color-mix(in srgb, var(--accent) 12%, transparent); pointer-events: none; }
+
 /* ---- ノートのチャンネル（Notion と同じページ）：カバー・アイコン・タイトルと、本文の文字組み ---- */
 /* 本文の幅：Notion と同じ 708px（左右の「＋」「⋮⋮」の分 54px ずつを足す）。全幅なら画面いっぱい */
 .note-page { --note-font: var(--font-sans); --note-width: 816px; }

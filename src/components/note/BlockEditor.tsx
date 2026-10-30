@@ -177,7 +177,7 @@ export function BlockEditor({
           timer.current = setTimeout(save, 700);
         }}
       >
-        <EditorMenus editor={editor} textOptions={textOptions} onTextOptions={onTextOptions} textOnly={textOnly} separate={separate} />
+        <EditorMenus editor={editor} textOptions={textOptions} onTextOptions={onTextOptions} textOnly={textOnly} separate={separate} noteMode={mode === "note"} />
       </BlockNoteView>
     </div>
   );
