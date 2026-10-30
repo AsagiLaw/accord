@@ -23,7 +23,7 @@ import {
   type DefaultReactSuggestionItem,
   type FormattingToolbarProps,
 } from "@blocknote/react";
-import { offset } from "@floating-ui/react";
+import { offset, shift, size, type Middleware } from "@floating-ui/react";
 import { getMultiColumnSlashMenuItems, locales as multiColumnLocales, multiColumnDropCursor } from "@blocknote/xl-multi-column";
 import { useRouter } from "next/navigation";
 import { createContext, useContext, useEffect } from "react";
@@ -593,6 +593,42 @@ const dropCursor: { hooks: DropCursorHooks } = {
   },
 };
 
+/** 「/」「@」のメニューを下に出すとき、これより低くしか入らなければ、上のほうが広いときは上に出す（px） */
+const MENU_ROOM = 320;
+
+/**
+ * 「/」「@」のメニューの出す側。ふだんは下で、画面の下のほうで開いて下に MENU_ROOM も無いときは、上のほうが広ければ上に出す（Notion と同じ）。
+ * BlockNote のままだと、先に下の高さに合わせて縮めてから入るかを見るので、縮んだメニューが入ってしまい、いつも下に出る。
+ * 中身の数では決めない（文字を打って絞り込んでいる間に、上と下を行き来しないように）
+ */
+const roomyPlacement: Middleware = {
+  name: "roomyPlacement",
+  fn({ placement, elements }) {
+    const ref = elements.reference.getBoundingClientRect();
+    const below = window.innerHeight - ref.bottom;
+    const above = ref.top;
+    const want = below < MENU_ROOM && above > below ? "top-start" : "bottom-start";
+    return want === placement ? {} : { reset: { placement: want } };
+  },
+};
+
+/** 「/」「@」のメニューの位置（BlockNote の決まりのうち、上下を選ぶところだけを roomyPlacement に替える） */
+const suggestionFloating = {
+  useFloatingOptions: {
+    middleware: [
+      offset(10),
+      roomyPlacement,
+      shift(),
+      size({
+        apply({ elements, availableHeight }) {
+          elements.floating.style.maxHeight = `${Math.max(0, availableHeight)}px`;
+        },
+        padding: 10,
+      }),
+    ],
+  },
+};
+
 /**
  * 「/」「@」のメニューは、ホイールでいつもメニュー自身を動かす（後ろのページは動かさない。Notion と同じ）。
  * メニューはノートのスクロールする枠の中に置かれるが、位置の基準は画面なので、ページをスクロールしてあると、
@@ -774,11 +810,11 @@ export function EditorMenus({
     <>
       {/* 文字を選んだときのツールバー（BlockNoteView の標準のものは止めておく） */}
       <FormattingToolbarController formattingToolbar={NoteToolbar} />
-      <SuggestionMenuController triggerCharacter="/" getItems={items} />
-      <SuggestionMenuController triggerCharacter="／" getItems={items} />
+      <SuggestionMenuController triggerCharacter="/" getItems={items} floatingUIOptions={suggestionFloating} />
+      <SuggestionMenuController triggerCharacter="／" getItems={items} floatingUIOptions={suggestionFloating} />
       {/* 「@」（全角の「＠」でも）：メンバー・日付・ルームのノートを文の中に入れる */}
-      <SuggestionMenuController triggerCharacter="@" getItems={(query) => mentionItems(editor as never, ctx, query)} />
-      <SuggestionMenuController triggerCharacter="＠" getItems={(query) => mentionItems(editor as never, ctx, query)} />
+      <SuggestionMenuController triggerCharacter="@" getItems={(query) => mentionItems(editor as never, ctx, query)} floatingUIOptions={suggestionFloating} />
+      <SuggestionMenuController triggerCharacter="＠" getItems={(query) => mentionItems(editor as never, ctx, query)} floatingUIOptions={suggestionFloating} />
       <SideMenuController
         sideMenu={(props) => <SideMenu {...props} dragHandleMenu={DocDragHandleMenu} />}
         // 「＋」「⋮⋮」を、そのブロックの1行目の真ん中にそろえる（BlockNote の決まった値は、見出しの大きさが違うとずれるので、実際の文字から測る）

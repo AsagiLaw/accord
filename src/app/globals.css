@@ -525,6 +525,18 @@ body {
   display: none;
 }
 
+/* 「/」「@」のメニュー：アプリのメニュー（データベースの「どの形で表示しますか」など）と同じ文字の大きさと余白にする。
+   BlockNote のままだと1行が 52px と高く、アイコンが箱に入り、文字も太い。BlockNote の CSS はあとから読まれるので、クラスを重ねて強くする */
+.bn-mantine .bn-suggestion-menu.bn-suggestion-menu { padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); font-size: 14px; }
+.bn-mantine .bn-suggestion-menu-label.bn-suggestion-menu-label { padding: 8px 8px 4px; color: var(--muted); font-size: 12px; font-weight: 400; line-height: 16px; }
+.bn-mantine .bn-suggestion-menu-item.bn-suggestion-menu-item:not(.bn-suggestion-menu-item-small) { min-height: 34px; padding: 0 8px; border-radius: 8px; font-size: 14px; }
+.bn-mantine .bn-suggestion-menu-item .bn-mt-suggestion-menu-item-section[data-position="left"] { width: 20px; margin-inline-end: 8px; padding: 0; background: transparent; color: var(--muted); }
+.bn-mantine .bn-suggestion-menu-item .bn-mt-suggestion-menu-item-section[data-position="left"] svg { width: 16px; height: 16px; }
+.bn-mantine .bn-suggestion-menu-item .bn-mt-suggestion-menu-item-body { padding-right: 8px; }
+.bn-mantine .bn-suggestion-menu-item .bn-mt-suggestion-menu-item-title { color: var(--ink); font-size: 14px; font-weight: 400; line-height: 20px; }
+/* ショートカット：アプリのメニューの右の小さな文字と同じ（箱にせず、大文字にもしない） */
+.bn-mantine .bn-suggestion-menu-item .mantine-Badge-root.mantine-Badge-root { height: auto; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 400; letter-spacing: 0; text-transform: none; }
+
 /* ---- ノートのチャンネル（Notion と同じページ）：カバー・アイコン・タイトルと、本文の文字組み ---- */
 /* 本文の幅：Notion と同じ 708px（左右の「＋」「⋮⋮」の分 54px ずつを足す）。全幅なら画面いっぱい */
 .note-page { --note-font: var(--font-sans); --note-width: 816px; }
