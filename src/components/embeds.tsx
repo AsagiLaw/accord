@@ -279,7 +279,7 @@ export function ChatBlockView({
         ) : kind === "image" ? (
           <ImageChatView key={chat.id} chat={chat} me={me} fixedUsers={fixedUsers} readOnlyNotice={canTalk ? undefined : "このイメージチャットに書き込めるのは、選ばれた人だけです"} />
         ) : (
-          <ChatView chat={chat} me={me} members={members} readOnlyNotice={canTalk ? undefined : "このチャットで話せるのは、選ばれた人だけです"} />
+          <ChatView key={chat.id} chat={chat} me={me} members={members} readOnlyNotice={canTalk ? undefined : "このチャットで話せるのは、選ばれた人だけです"} />
         )}
       </div>
     </div>

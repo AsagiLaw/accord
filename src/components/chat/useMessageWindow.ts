@@ -6,7 +6,7 @@ import type { Message } from "@/lib/local/db";
 
 /** 一度に読み込む発言の数 */
 const PAGE = 50;
-const JUMP_EVENT = "irai-note:chat-jump";
+export const JUMP_EVENT = "irai-note:chat-jump";
 type JumpDetail = { chatId: string; id: string; createdAt: number };
 
 /**
@@ -34,6 +34,8 @@ export function useMessageWindow(chatId: string, meId: string) {
 
   // 開いたときの最初の未読（開いている間は、読んでも線を残す。自分が発言したら消す）
   const [unread, setUnread] = useState<{ chatId: string; id: string }>();
+  // 未読を調べ直し終えた回数
+  const [located, setLocated] = useState(0);
 
   useEffect(() => {
     void (async () => {
@@ -102,8 +104,15 @@ export function useMessageWindow(chatId: string, meId: string) {
   const unreadId = unread?.chatId === chatId ? unread.id : null;
   /** 「ここから未読」の線を消す（自分が発言したとき） */
   const dismissUnread = () => setUnread(undefined);
+  /** 未読を調べ直す（隠れていたチャットが見えるようになったとき） */
+  const relocate = () => {
+    void firstUnread(chatId, meId).then((first) => {
+      setUnread(first ? { chatId, id: first.id } : undefined);
+      setLocated((n) => n + 1);
+    });
+  };
 
-  return { messages, hasOlder, loadOlder, onScroll, unreadId, dismissUnread };
+  return { messages, hasOlder, loadOlder, onScroll, unreadId, dismissUnread, located, relocate };
 }
 
 /** 開いているチャットの、その発言まで動いて、少しのあいだ光らせる（読み込んでいなければ読み込む） */

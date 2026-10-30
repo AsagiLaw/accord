@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { UserCardButton } from "@/components/account/UserCard";
 import { Avatar } from "@/components/Avatar";
 import { Icon } from "@/components/Icon";
@@ -32,6 +32,7 @@ import { EmojiPicker } from "./EmojiPicker";
 import { recentEmoji } from "./emoji";
 import { DayDivider, EditBox, EditedMark, MenuDots, MessageMenu, MessageTime, previewOf, sameDay, useMessageGestures, type MenuState } from "./messageParts";
 import { emojiOnly, MentionProvider, mentions } from "./RichText";
+import { useChatPosition } from "./useChatPosition";
 import { jumpToMessage, useMessageWindow } from "./useMessageWindow";
 import { useReadProgress } from "./useReadProgress";
 import { ChatSkeleton } from "@/components/Skeleton";
@@ -106,31 +107,10 @@ export function ChatView({
   const [reactPick, setReactPick] = useState<MenuState | null>(null);
   // よく使う絵文字（発言のメニューの上に出す）
   const [quick, setQuick] = useState(() => recentEmoji());
-  // 一番下から遠くまで戻ったか（「最新の発言へ」を出す）
-  const [far, setFar] = useState(false);
-  const stick = useRef(true);
-  const placed = useRef(false);
-  const last = messages?.at(-1);
   const ready = !!messages && !!byId;
   // 既読は、画面に出た発言の分だけ付ける
   const read = useReadProgress(chat.id, me.id, list, ready ? messages : undefined);
-
-  // 開いたとき：読んでいない発言が溜まっていれば「ここから未読」の線を上の方に出す。無ければ一番下から。
-  // そのあとは、一番下を見ているときだけ、新しい発言が来ても一番下に付いていく
-  useLayoutEffect(() => {
-    const el = list.current;
-    if (!el || !ready) return;
-    if (!placed.current) {
-      placed.current = true;
-      const line = el.querySelector<HTMLElement>("[data-unread-line]");
-      if (line) {
-        el.scrollTop += line.getBoundingClientRect().top - el.getBoundingClientRect().top - 40;
-        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-        return;
-      }
-    }
-    if (stick.current || last?.authorId === me.id) el.scrollTop = el.scrollHeight;
-  }, [ready, last?.id, last?.authorId, me.id]);
+  const { content, far, onScroll: followScroll } = useChatPosition(list, ready, messages?.at(-1), me.id, win.located, win.relocate);
 
   if (!messages || !byId) return <ChatSkeleton />;
 
@@ -177,15 +157,13 @@ export function ChatView({
             data-name="発言一覧"
             onScroll={(e) => {
               const el = e.currentTarget;
-              const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
-              stick.current = gap < 80;
-              const isFar = gap > el.clientHeight * 1.5;
-              if (isFar !== far) setFar(isFar);
+              followScroll(el);
               win.onScroll(el);
               read.measure();
             }}
             className={`min-h-0 flex-1 overflow-x-hidden overflow-y-auto pt-3 pb-2 ${reenact ? "rounded-[14px] bg-tint/40 px-3 pt-0" : ""}`}
           >
+            <div ref={content}>
             {reenact && (
               <p
                 title="依頼者とのやり取りを写して残す場所です。名前を押すと話者を、編集ボタンで文章を直せます"
@@ -196,7 +174,7 @@ export function ChatView({
               </p>
             )}
             {win.hasOlder && (
-              <button type="button" onClick={(e) => void win.loadOlder(e.currentTarget.parentElement)} className="mx-auto my-2 block rounded-full px-3 py-1 text-xs text-muted hover:bg-tint hover:text-ink">
+              <button type="button" onClick={() => void win.loadOlder(list.current)} className="mx-auto my-2 block rounded-full px-3 py-1 text-xs text-muted hover:bg-tint hover:text-ink">
                 さらに前の発言を読み込む
               </button>
             )}
@@ -256,6 +234,7 @@ export function ChatView({
                 </div>
               );
             })}
+            </div>
           </div>
           {read.newBelow > 0 ? <NewBelowButton count={read.newBelow} list={list} /> : far && <NewBelowButton count={0} list={list} />}
         </div>

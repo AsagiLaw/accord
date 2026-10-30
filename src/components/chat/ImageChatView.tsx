@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { ImageViewer } from "@/components/ImageViewer";
 import { MediaPicker } from "@/components/MediaPicker";
@@ -21,6 +21,7 @@ import { NewBelowButton, UnreadLine } from "./ChatView";
 import { Composer } from "./Composer";
 import { DayDivider, EditBox, EditedMark, MenuDots, MessageMenu, MessageTime, sameDay, useMessageGestures, type MenuState } from "./messageParts";
 import { emojiOnly } from "./RichText";
+import { useChatPosition } from "./useChatPosition";
 import { useMessageWindow } from "./useMessageWindow";
 import { useReadProgress } from "./useReadProgress";
 import { ChatSkeleton } from "@/components/Skeleton";
@@ -90,31 +91,10 @@ export function ImageChatView({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [viewer, setViewer] = useState<{ items: Media[]; start: number } | null>(null);
-  // 一番下から遠くまで戻ったか（「最新の発言へ」を出す）
-  const [far, setFar] = useState(false);
-  const last = messages?.at(-1);
-  const stick = useRef(true);
-  const placed = useRef(false);
   const ready = !!messages;
   // 既読は、画面に出た発言の分だけ付ける
   const read = useReadProgress(chat.id, me.id, list, messages);
-
-  // 開いたとき：読んでいない発言が溜まっていれば「ここから未読」の線を上の方に出す。無ければ一番下から。
-  // そのあとは、一番下を見ているときだけ、新しい発言が来ても一番下に付いていく
-  useLayoutEffect(() => {
-    const el = list.current;
-    if (!el || !ready) return;
-    if (!placed.current) {
-      placed.current = true;
-      const line = el.querySelector<HTMLElement>("[data-unread-line]");
-      if (line) {
-        el.scrollTop += line.getBoundingClientRect().top - el.getBoundingClientRect().top - 40;
-        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-        return;
-      }
-    }
-    if (stick.current || last?.authorId === me.id) el.scrollTop = el.scrollHeight;
-  }, [ready, last?.id, last?.authorId, me.id]);
+  const { content, far, onScroll: followScroll } = useChatPosition(list, ready, messages?.at(-1), me.id, win.located, win.relocate);
 
   if (!messages) return <ChatSkeleton />;
   const userOf = (m: Message) => users.find((u) => u.id === m.speaker);
@@ -142,17 +122,15 @@ export function ImageChatView({
           data-name="発言一覧"
           onScroll={(e) => {
             const el = e.currentTarget;
-            const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
-            stick.current = gap < 80;
-            const isFar = gap > el.clientHeight * 1.5;
-            if (isFar !== far) setFar(isFar);
+            followScroll(el);
             win.onScroll(el);
             read.measure();
           }}
           className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pt-3 pb-2"
         >
+          <div ref={content}>
           {win.hasOlder && (
-            <button type="button" onClick={(e) => void win.loadOlder(e.currentTarget.parentElement)} className="mx-auto my-2 block rounded-full px-3 py-1 text-xs text-muted hover:bg-tint hover:text-ink">
+            <button type="button" onClick={() => void win.loadOlder(list.current)} className="mx-auto my-2 block rounded-full px-3 py-1 text-xs text-muted hover:bg-tint hover:text-ink">
               さらに前の発言を読み込む
             </button>
           )}
@@ -188,6 +166,7 @@ export function ImageChatView({
               </div>
             );
           })}
+          </div>
         </div>
         {read.newBelow > 0 ? <NewBelowButton count={read.newBelow} list={list} /> : far && <NewBelowButton count={0} list={list} />}
       </div>
