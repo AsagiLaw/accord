@@ -66,6 +66,15 @@
 - [ ] Vercel を Pro（月20ドル）に切り替える
 - [ ] 必要なら Supabase も Pro（月25ドル）にする（無料プランは、しばらく使われないと一時停止される）
 
+## デスクトップ版（今は Windows だけ）
+
+`desktop/` が Tauri の入れ物で、Windows の WebView2 で公開中のサイトを窓の中に開く（インストーラーは約 1.4 MB）。ルームの列のボタンから `/api/download` を通して、R2 の `desktop/` に置いた配布物を配る。サイトを更新すれば画面の中身も新しくなるので、作り直すのは `desktop/` を変えたときと、開く先の URL を変えたとき（独自ドメインにするときなど）だけ。URL は `desktop/src-tauri/src/main.rs` の `APP_URL` と `capabilities/main.json` の2か所。
+
+- [x] Windows 版を作って R2 に置く（手元で `cd desktop`、`npm ci`、`npm run dist`、`node --env-file=../.env.local upload.mjs`。Rust と Visual Studio の C++ ツールが要る）
+- [ ] 警告なしで開けるようにする（任意）：コード署名の証明書を使う。無いうちは初回に警告が出る
+
+Mac 版は、2026-10-31 にとりあえず作らないと決めた。始めるときは、Tauri の Mac 版は WebView2 ではなく WebKit で動くので、サービスワーカーでの画像の表示と通知を先に確かめる。`Accord.dmg` を R2 の `desktop/` に置くと、ダウンロードの画面に macOS が出る。
+
 ## 公開したあとの更新のしかた
 
 1. コードを変えて、手元（`npm run dev`）で確かめる

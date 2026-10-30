@@ -7,7 +7,8 @@ import type { AppNotice } from "@/lib/notify";
 // 通知をオンにした端末を届け先にし、自分が発言したら /api/push に頼んで、ほかの人の端末に届けてもらう
 
 const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
-const usable = () => supa && !!publicKey && typeof navigator !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
+// デスクトップ版はプッシュを使わない（トレイに隠れている間も動いているので、発言の通知はページから出す）
+const usable = () => supa && !!publicKey && typeof navigator !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && !window.accordDesktop;
 
 /** 公開鍵（base64url）を、ブラウザに渡す形にする */
 function keyBytes(key: string) {

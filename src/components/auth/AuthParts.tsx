@@ -6,6 +6,7 @@ import { BrandMark } from "@/components/BrandMark";
 import { Icon } from "@/components/Icon";
 import { authMode } from "@/lib/auth/mode";
 import { PASSWORD_MIN } from "@/lib/auth/validate";
+import { useIsDesktopApp } from "@/lib/desktop";
 import { LEGAL_LINKS, SITE } from "@/lib/site";
 
 /** ログイン・新規登録などの画面の入れ物：まんなかにアプリの名前と、白いカード */
@@ -118,6 +119,8 @@ export function FormNotice({ children }: { children: React.ReactNode }) {
 
 /** 「または」の区切り */
 export function OrDivider() {
+  // Google のボタンと一緒に隠す
+  if (useIsDesktopApp()) return null;
   return (
     <div className="flex items-center gap-3 text-xs text-muted">
       <span className="h-px flex-1 bg-line" />
@@ -130,6 +133,8 @@ export function OrDivider() {
 /** Google でログイン（ローカル版では押せない。Supabase につなぐと使える） */
 export function GoogleButton({ label, onClick, busy }: { label: string; onClick: () => void; busy?: boolean }) {
   const off = authMode === "local";
+  // Google はアプリの中の画面でのログインを断るので、デスクトップ版ではメールとパスワードだけにする
+  if (useIsDesktopApp()) return null;
   return (
     // 押せない理由は、カーソルを乗せてしばらくすると出す（押せないボタンには出ないので、外側に付ける）
     <div title={off ? "Google でのログインは、Supabase につなぐと使えます" : undefined}>

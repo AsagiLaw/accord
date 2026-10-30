@@ -1,0 +1,14 @@
+{
+  "name": "accord",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Accord",
+  "scripts": {
+    "dist": "tauri build",
+    "upload": "node upload.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4",
+    "aws4fetch": "1.0.20"
+  }
+}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { BrandShape } from "@/components/BrandMark";
 import { CreateRoomDialog } from "@/components/CreateRoomDialog";
+import { DownloadAppButton } from "@/components/DownloadAppButton";
 import { Icon } from "@/components/Icon";
 import { useRoomUnreadTotals } from "@/lib/local/chat";
 import { useMyDms } from "@/lib/local/dm";
@@ -132,6 +133,7 @@ export function RoomRail({
       >
         <Icon name="add" size={24} />
       </button>
+      <DownloadAppButton />
       {creating && (
         <CreateRoomDialog userId={userId} onClose={() => setCreating(false)} />
       )}

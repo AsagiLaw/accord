@@ -15,6 +15,11 @@ export const r2 =
 /** バケットの中の、その置き場所の URL（key が無ければバケットそのもの） */
 export const objectUrl = (key = "") => new URL(`https://${account}.r2.cloudflarestorage.com/${bucket}/${key}`);
 
+/** デスクトップ版の配布物の名前（desktop/upload.mjs が R2 の desktop/ に置く） */
+export const DESKTOP_FILES = { windows: "Accord-Setup.exe", mac: "Accord.dmg" } as const;
+export type DesktopPlatform = keyof typeof DESKTOP_FILES;
+export const desktopFileUrl = (platform: DesktopPlatform) => objectUrl(`desktop/${DESKTOP_FILES[platform]}`);
+
 /** その画像のファイルの置き場所（「media/画像の ID/rev/種類」）を全部 */
 export async function listMediaKeys(id: string): Promise<string[] | null> {
   if (!r2) return null;

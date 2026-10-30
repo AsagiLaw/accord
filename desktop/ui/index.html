@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>Accord</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f2f2f2;
+        --ink: #1e1f22;
+        --muted: #6b6f76;
+        --accent: #00757f;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1e1f22;
+          --ink: #f2f2f2;
+          --muted: #a0a4ab;
+          --accent: #4fb3bd;
+        }
+      }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 12px;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+      }
+      [hidden] {
+        display: none;
+      }
+      h1 {
+        margin: 0;
+        font-size: 18px;
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      button {
+        margin-top: 8px;
+        padding: 8px 20px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--accent);
+        color: #fff;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 hidden>Accord に接続できません</h1>
+    <p hidden>インターネットの接続を確かめてください</p>
+    <button type="button" hidden>もう一度</button>
+    <script>
+      // アプリの最初の画面。サイトにつながるか確かめて、つながったら開く。つながらなければ案内を出す
+      const failure = document.querySelectorAll("[hidden]");
+      async function open() {
+        try {
+          await fetch(window.__ACCORD_URL__, { mode: "no-cors", cache: "no-store" });
+          location.replace(window.__ACCORD_URL__);
+        } catch {
+          for (const el of failure) el.hidden = false;
+        }
+      }
+      document.querySelector("button").addEventListener("click", open);
+      // 接続が戻ったら、自動で開き直す
+      window.addEventListener("online", open);
+      open();
+    </script>
+  </body>
+</html>

@@ -10,6 +10,11 @@
 !.yarn/releases
 !.yarn/versions
 
+# desktop app
+/desktop/node_modules
+/desktop/src-tauri/target
+/desktop/src-tauri/gen
+
 # testing
 /coverage
 

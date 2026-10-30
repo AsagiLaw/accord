@@ -3,9 +3,17 @@
 // ブラウザの通知（チャット・納期で共通）。
 // Android の Chrome などは、ページから直接 new Notification() を出せず、サービスワーカー（public/media-sw.js）から出す必要がある。
 // なので、サービスワーカーがあればそこから出し、押したときもそこで受けてアプリの画面を開く（無いときだけ、ページから出す）
+// デスクトップ版は隠れた窓を前に出す必要があるので、いつもページから出す（押されたら窓を前に出して、アプリの中で画面を移る）
+
+import { desktopApp } from "@/lib/desktop";
 
 /** 通知を出すのに使うサービスワーカー（メディアのファイルを返すものと同じ） */
 const WORKER = "/media-sw.js";
+
+/** アプリの中で画面を移る手段（onNotificationOpen で受け取る） */
+let openInApp: ((href: string) => void) | null = null;
+/** 出している通知（参照が無くなると、押されても onclick が呼ばれない） */
+const shownNotices = new Set<Notification>();
 
 /** ブラウザの通知の許可の様子（使えない・まだ聞いていない・許可・拒否） */
 export const notifyPermission = (): NotificationPermission | "unsupported" =>
@@ -25,15 +33,22 @@ export function registerAppWorker() {
 
 /** 通知を押したときに開く画面を、アプリの側で受け取る（サービスワーカーから知らせが来る）。戻り値で受け取りをやめる */
 export function onNotificationOpen(open: (href: string) => void) {
+  openInApp = open;
   const sw = navigator.serviceWorker;
-  if (!sw) return () => {};
+  if (!sw)
+    return () => {
+      openInApp = null;
+    };
   const on = (e: MessageEvent) => {
     if (e.data?.type === "irai-note:open" && typeof e.data.href === "string") open(e.data.href);
   };
   sw.addEventListener("message", on);
   // addEventListener のときは、これを呼ぶまで知らせが届かない
   sw.startMessages();
-  return () => sw.removeEventListener("message", on);
+  return () => {
+    openInApp = null;
+    sw.removeEventListener("message", on);
+  };
 }
 
 export type AppNotice = {
@@ -51,16 +66,21 @@ export type AppNotice = {
 export async function showAppNotice(n: AppNotice) {
   if (notifyPermission() !== "granted") return;
   const options = { body: n.body, tag: n.tag, icon: n.icon, data: { href: n.href } };
-  const reg = await navigator.serviceWorker?.getRegistration().catch(() => undefined);
+  const desktop = desktopApp();
+  const reg = desktop ? undefined : await navigator.serviceWorker?.getRegistration().catch(() => undefined);
   if (reg?.active) {
     await reg.showNotification(n.title, options);
     return;
   }
   try {
     const shown = new Notification(n.title, options);
+    shownNotices.add(shown);
+    shown.onclose = () => shownNotices.delete(shown);
     shown.onclick = () => {
       window.focus();
-      window.location.href = n.href;
+      desktop?.show();
+      if (desktop && openInApp) openInApp(n.href);
+      else window.location.href = n.href;
       shown.close();
     };
   } catch {
