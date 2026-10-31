@@ -421,6 +421,24 @@ export function writeMediaLocally(write: () => Promise<unknown>) {
   });
 }
 
+/**
+ * 1つのトランザクションで書いた行の、最後の形。書き終わってから、行ごとに1回だけ送る。
+ * trans.on("complete") はあとから付けたものが先に動くので、行を書くたびに付けると、同じ行を2回書いたときに古い形が残る
+ * （並べ替えたライブラリーが元の位置に戻る・「元に戻す」でライブラリーが全部消える：2026-10-31 に直した）
+ */
+const written = new WeakMap<Transaction, Map<string, { tbl: Tbl; id: string; row: Row | null }>>();
+
+function wrote(trans: Transaction, tbl: Tbl, id: string, row: Row | null) {
+  const rows = written.get(trans) ?? new Map<string, { tbl: Tbl; id: string; row: Row | null }>();
+  if (!written.has(trans)) {
+    written.set(trans, rows);
+    trans.on("complete", () => {
+      for (const it of rows.values()) enqueue(it.tbl, it.id, it.row);
+    });
+  }
+  rows.set(`${tbl}:${id}`, { tbl, id, row });
+}
+
 let hooked = false;
 
 /** ブラウザの中の書き込みを拾うフック（Supabase 版のときだけ、1回だけ付ける） */
@@ -434,19 +452,18 @@ function hookTables() {
     table.hook("creating", function (_key, obj, trans) {
       if (!me || isRemote(trans)) return;
       const row = Dexie.deepClone(obj);
-      trans.on("complete", () => enqueue(tbl, idOf(tbl, row), row));
+      wrote(trans, tbl, idOf(tbl, row), row);
     });
     table.hook("updating", function (mods, _key, obj, trans) {
       if (!me || isRemote(trans)) return;
       const row = Dexie.deepClone(obj);
       for (const [path, value] of Object.entries(mods)) Dexie.setByKeyPath(row, path, value);
-      trans.on("complete", () => enqueue(tbl, idOf(tbl, row), row));
+      wrote(trans, tbl, idOf(tbl, row), row);
     });
     table.hook("deleting", function (_key, obj, trans) {
       // obj が無い：ブラウザの中に無い行を消そうとした（何も消えていない）
       if (!me || !obj || isRemote(trans)) return;
-      const id = idOf(tbl, obj);
-      trans.on("complete", () => enqueue(tbl, id, null));
+      wrote(trans, tbl, idOf(tbl, obj), null);
     });
   }
 }
