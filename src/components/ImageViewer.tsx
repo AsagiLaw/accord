@@ -8,8 +8,10 @@ import { ensureMyMedia, useBoxAccess, useRoomBox } from "@/lib/local/boxes";
 import type { Media } from "@/lib/local/db";
 import { ensureInBox } from "@/lib/local/media";
 import { useCurrentUser } from "@/lib/local/session";
-import { useBlobUrl } from "@/lib/media/blob-url";
+import { useBlobState } from "@/lib/media/blob-url";
 import { downloadOriginals } from "@/lib/media/export";
+import { useIsTouchDevice } from "@/lib/touch-device";
+import { TouchStage } from "@/components/media/TouchStage";
 import { isBackdropClick } from "@/components/ui/backdrop";
 
 /** 拡大の上限（画面に合わせた大きさの何倍まで） */
@@ -21,11 +23,13 @@ const FIT = { zoom: 1, x: 0, y: 0 };
  * チャットなどで添付画像を大きく見る、シンプルな表示画面。
  * ホイール・ダブルクリック・＋／−で拡大し、拡大中はドラッグで動かす。
  * 完全に削除して小さい画像だけ残した画像（gone）も、それを広げて見せる（保存やメディアで見るは出さない）
+ * 指で触る端末では、左右になぞって前後の画像へ移り、ピンチとダブルタップで拡大する（TouchStage）。＋／−と矢印は出さない
  */
 export function ImageViewer({ items, start, roomId, onClose }: { items: Media[]; start: number; roomId: string; onClose: () => void }) {
   const [i, setI] = useState(start);
   const m = items[i];
-  const url = useBlobUrl(m?.id, "original");
+  const { url, loading } = useBlobState(m?.id, "original");
+  const touch = useIsTouchDevice();
   // 「メディアで見る」：ルームのボックスの画像ならルームのメディア、ほかのボックス（マイメディアなど）なら DM のボックスの画面
   const roomBox = useRoomBox(roomId);
   const mediaHref = m && roomBox?.box.id === m.boxId ? `/r/${roomId}/media/all` : `/dm/media/${m?.boxId}/all`;
@@ -81,7 +85,7 @@ export function ImageViewer({ items, start, roomId, onClose }: { items: Media[];
   if (!m) return null;
   return (
     <div role="dialog" aria-modal="true" aria-label={m.name} className="fixed inset-0 z-50 flex flex-col bg-black/95 text-white">
-      <div className="flex items-center gap-2 px-3 py-2">
+      <div className="flex items-center gap-2 px-3 pt-[calc(env(safe-area-inset-top,0px)+8px)] pb-2">
         {/* 自動で名前を付けた画像は、タイトルだけ */}
         <span className="min-w-0 truncate font-bold">{m.title || m.name}</span>
         {items.length > 1 && (
@@ -94,24 +98,28 @@ export function ImageViewer({ items, start, roomId, onClose }: { items: Media[];
             縮小版
           </span>
         )}
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           {view.zoom > 1 && (
             <button className="rounded-full px-3 py-1.5 text-sm tabular-nums hover:bg-white/15" title="画面に合わせる（0）" onClick={() => zoomTo(1)}>
               {Math.round(view.zoom * 100)}%
             </button>
           )}
-          <button aria-label="縮小" title="縮小（−）" disabled={view.zoom <= 1} onClick={() => zoomTo(view.zoom / 1.25)} className="grid h-10 w-10 place-items-center rounded-full text-xl hover:bg-white/15 disabled:opacity-40">
-            −
-          </button>
-          <button aria-label="拡大" title="拡大（＋・ホイール・ダブルクリック）" disabled={view.zoom >= MAX_ZOOM} onClick={() => zoomTo(view.zoom * 1.25)} className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/15 disabled:opacity-40">
-            <Icon name="add" />
-          </button>
+          {!touch && (
+            <>
+              <button aria-label="縮小" title="縮小（−）" disabled={view.zoom <= 1} onClick={() => zoomTo(view.zoom / 1.25)} className="grid h-10 w-10 place-items-center rounded-full text-xl hover:bg-white/15 disabled:opacity-40">
+                −
+              </button>
+              <button aria-label="拡大" title="拡大（＋・ホイール・ダブルクリック）" disabled={view.zoom >= MAX_ZOOM} onClick={() => zoomTo(view.zoom * 1.25)} className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/15 disabled:opacity-40">
+                <Icon name="add" />
+              </button>
+            </>
+          )}
           {m.gone ? null : access ? (
-            <Link href={mediaHref} className="rounded-full px-3 py-1.5 text-sm hover:bg-white/15" onClick={onClose}>
+            <Link href={mediaHref} className="rounded-full px-3 py-1.5 text-sm whitespace-nowrap hover:bg-white/15" onClick={onClose}>
               メディアで見る
             </Link>
           ) : access === null && me ? (
-            <button className="rounded-full px-3 py-1.5 text-sm hover:bg-white/15 disabled:opacity-60" disabled={saved.includes(m.id)} onClick={save}>
+            <button className="rounded-full px-3 py-1.5 text-sm whitespace-nowrap hover:bg-white/15 disabled:opacity-60" disabled={saved.includes(m.id)} onClick={save}>
               {saved.includes(m.id) ? "保存しました" : "マイメディアに保存"}
             </button>
           ) : null}
@@ -126,6 +134,11 @@ export function ImageViewer({ items, start, roomId, onClose }: { items: Media[];
           </button>
         </div>
       </div>
+      {touch ? (
+        <div className="relative min-h-0 flex-1">
+          <TouchStage id={m.id} alt={m.name} url={url} loading={loading} prevId={items[i - 1]?.id} nextId={items[i + 1]?.id} onGo={(step) => go((x) => x + step)} onBackdropTap={onClose} />
+        </div>
+      ) : (
       <div
         ref={area}
         className="relative min-h-0 flex-1 overflow-hidden"
@@ -170,6 +183,7 @@ export function ImageViewer({ items, start, roomId, onClose }: { items: Media[];
           </button>
         )}
       </div>
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { Icon } from "@/components/Icon";
 import { MenuDivider, MenuItem, Popover, type Anchor } from "@/components/ui/Popover";
 import { editMessage } from "@/lib/local/chat";
 import type { Message } from "@/lib/local/db";
+import { isTouchDevice } from "@/lib/touch-device";
 import { copyText } from "./LongText";
 import { plainText } from "./RichText";
 import { useAutoGrow } from "./useAutoGrow";
@@ -244,7 +245,8 @@ export function EditBox({ m, onDone, onDelete }: { m: Message; onDone: () => voi
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+          // 指で触る端末では Enter は改行。下の「保存」で決める
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !isTouchDevice()) {
             e.preventDefault();
             void save();
           }

@@ -53,7 +53,7 @@ export function NoteHeader({
         )}
         {iconPop.anchor && <IconPicker anchor={iconPop.anchor} roomId={roomId} hasIcon={!!note.icon} removeLabel="アイコンを外す" onPick={setIcon} onClose={iconPop.close} />}
         {/* アイコン・カバーを足すボタン。いつもは隠し、頭にカーソルを乗せたときに出す（場所は取っておき、出ても文字が動かないように） */}
-        <div className="flex h-8 items-end gap-0.5 pb-1 opacity-0 transition-opacity group-hover/head:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+        <div className="phone-hide flex h-8 items-end gap-0.5 pb-1 opacity-0 transition-opacity group-hover/head:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
           {editable && !note.icon && (
             <HeadButton icon="smile" onClick={iconPop.toggle}>
               アイコンを追加
@@ -225,7 +225,7 @@ function Cover({ note, cover, roomId, userId, editable }: { note: Note; cover: N
       )}
       {editable && (
         <div
-          className={`absolute right-[clamp(16px,4vw,40px)] bottom-3 flex overflow-hidden rounded-[8px] bg-card/90 text-xs shadow-sm backdrop-blur transition-opacity ${moving !== null || pop.anchor ? "opacity-100" : "opacity-0 group-hover/cover:opacity-100 [@media(hover:none)]:opacity-100"}`}
+          className={`phone-hide absolute right-[clamp(16px,4vw,40px)] bottom-3 flex overflow-hidden rounded-[8px] bg-card/90 text-xs shadow-sm backdrop-blur transition-opacity ${moving !== null || pop.anchor ? "opacity-100" : "opacity-0 group-hover/cover:opacity-100 [@media(hover:none)]:opacity-100"}`}
         >
           {moving !== null ? (
             <>

@@ -134,7 +134,8 @@ function EditCrumb({
   };
   return (
     <span className="flex min-w-0 items-center gap-0.5 font-bold">
-      <button onClick={iconPop.toggle} aria-label="アイコンを変える" title="アイコンを変える" className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] text-[15px] leading-none hover:bg-tint">
+      {/* スマホでは、アイコンも名前も変えない（押しても何も起きない） */}
+      <button onClick={iconPop.toggle} aria-label="アイコンを変える" title="アイコンを変える" className="phone-inert grid h-6 w-6 shrink-0 place-items-center rounded-[6px] text-[15px] leading-none hover:bg-tint">
         {icon}
       </button>
       {iconPop.anchor && <IconPicker anchor={iconPop.anchor} roomId={roomId} hasIcon={!!iconValue} removeLabel={removeLabel} onPick={(i) => void onIcon(i)} onClose={iconPop.close} />}
@@ -161,7 +162,7 @@ function EditCrumb({
           {suffix && <span className="shrink-0 font-normal text-muted">{suffix}</span>}
         </span>
       ) : (
-        <button onClick={() => setDraft(name)} title="名前を変える" className="flex min-w-0 items-center rounded-[6px] px-1 py-0.5 hover:bg-tint">
+        <button onClick={() => setDraft(name)} title="名前を変える" className="phone-inert flex min-w-0 items-center rounded-[6px] px-1 py-0.5 hover:bg-tint">
           {prefix && <span className="shrink-0 font-normal text-muted">{prefix}</span>}
           <span className={`truncate ${name ? "" : "text-muted"}`}>{name || placeholder}</span>
           {suffix && <span className="shrink-0 font-normal text-muted">{suffix}</span>}

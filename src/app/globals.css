@@ -234,6 +234,24 @@ body {
     height: max(100%, 44px);
     transform: translate(-50%, -50%);
   }
+  /* 上の広げた範囲は、スクロールする枠のはみ出しに数えられて、縦に流す一覧が横にも少し動いてしまう。横に流すと決めた枠のほかは、横には動かさない */
+  .overflow-y-auto:not(.overflow-x-auto, .overflow-x-scroll) {
+    overflow-x: hidden;
+  }
+  /* iPhone は文字が 16px より小さい入力欄を押すと画面を拡大し、そのまま横に動くようになるので、指で触る端末では 16px にする */
+  :is(input, textarea, select) {
+    font-size: 16px;
+  }
+}
+
+/* スマホ（指で触る端末で、短い辺が 600px 未満。touch-device.ts と同じ）：編集の機能は出さない。パソコンで行う */
+@media (hover: none) and (pointer: coarse) and (max-width: 599.98px), (hover: none) and (pointer: coarse) and (max-height: 599.98px) {
+  .phone-hide {
+    display: none !important;
+  }
+  .phone-inert {
+    pointer-events: none;
+  }
 }
 
 /* マウスやタッチパッドが1つも無い、指だけで触る端末（iPad・スマホ）だけ。
@@ -349,6 +367,15 @@ body {
 @media (max-width: 640px) {
   .note-editor .bn-editor {
     padding-inline: 42px;
+  }
+}
+/* 指で触る端末のスマホの幅では、左右の「＋」「⋮⋮」は出さず（ブロックの整理はパソコンで行う）、その場所を空けずに本文を広く見せる */
+@media (hover: none) and (pointer: coarse) and (max-width: 640px) {
+  .note-editor .bn-editor {
+    padding-inline: 4px;
+  }
+  .note-editor .bn-side-menu {
+    display: none;
   }
 }
 
@@ -553,6 +580,7 @@ body {
 .note-head-inner, .note-body { max-width: var(--note-width); margin-inline: auto; }
 .note-head-inner { padding-inline: 54px; }
 @media (max-width: 640px) { .note-head-inner { padding-inline: 42px; } }
+@media (hover: none) and (pointer: coarse) and (max-width: 640px) { .note-head-inner { padding-inline: 4px; } }
 /* カバー：メイン画面の左右と上の余白まで広げる。高さは Notion の3分の2くらい（本文を早く見せる） */
 .note-cover { position: relative; height: 20vh; min-height: 80px; max-height: 186px; margin: -16px calc(-1 * clamp(16px, 4vw, 40px)) 0; overflow: hidden; }
 .note-head-icon { position: relative; display: grid; place-items: center; width: 84px; height: 84px; margin-left: -4px; border-radius: 8px; font-size: 72px; line-height: 1; transition: background-color .2s; }

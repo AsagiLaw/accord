@@ -30,6 +30,7 @@ import {
   THUMB_SIZES,
 } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
+import { isTouchPhone } from "@/lib/touch-device";
 import {
   autoNameFlow,
   cancelCut,
@@ -280,7 +281,8 @@ export function MediaView({ view }: { view: MediaViewKind }) {
     };
     // 編集（iPhone の写真と同じ編集画面）。編集してある画像は、オリジナルに戻せる
     const editItems = (m: Media) => (
-      <>
+      // スマホでは編集しない（パソコンで行う）
+      isTouchPhone() ? null : <>
         <MenuItem
           icon={<Icon name="tune" size={16} />}
           onClick={run(() => s.setEditing(m.id))}

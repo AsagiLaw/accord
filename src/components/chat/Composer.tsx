@@ -13,6 +13,7 @@ import { ensureMyMedia } from "@/lib/local/boxes";
 import { ensureInBox, uploadToRoom } from "@/lib/local/media";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { IMAGE_ACCEPT, isImageFile } from "@/lib/media/image";
+import { isTouchDevice } from "@/lib/touch-device";
 import { EmojiPicker } from "./EmojiPicker";
 import { previewOf } from "./messageParts";
 import { useAutoGrow } from "./useAutoGrow";
@@ -311,7 +312,8 @@ export function Composer({
                   return;
                 }
               }
-              if (e.key === "Enter" && !e.shiftKey && !composing) {
+              // 指で触る端末のキーボードには Shift＋Enter が無いので、Enter は改行にして、送るのは送信ボタンにする
+              if (e.key === "Enter" && !e.shiftKey && !composing && !isTouchDevice()) {
                 e.preventDefault();
                 void send();
                 return;

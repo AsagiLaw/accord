@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
+import { MenuItem, Popover, usePopover } from "@/components/ui/Popover";
 import { Spinner } from "@/components/ui/Spinner";
 import { startMediaDrag, useOriginalState } from "@/lib/media/export";
 import {
@@ -11,10 +12,12 @@ import {
   libraryView,
 } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
+import { useIsTouchDevice, useIsTouchPhone } from "@/lib/touch-device";
 import { copyMediaFlow } from "./flows";
 import { useMediaState } from "./MediaContext";
 import { useMediaRouter } from "./MediaLink";
 import { ThumbImage } from "./Thumb";
+import { TouchStage } from "./TouchStage";
 import { isBackdropClick } from "@/components/ui/backdrop";
 
 /** 拡大の上限（画面に収めた大きさの何倍まで） */
@@ -36,6 +39,7 @@ export function rememberOpenedFrom(el: Element | null) {
  * 下にフィルムストリップと、画像が入っているライブラリーのカード。
  * カードを押すとフィルムストリップがそのライブラリーの並びに、ダブルクリックでそのライブラリーを開く。
  * 画像はホイール（トラックパッドのピンチも）で拡大・縮小し、拡大中はドラッグで動かす。
+ * 指で触る端末では画面全体に出し（TouchStage）、ライブラリーは左上の小さなボタンにまとめる。隣の画像の並びはタブレットだけ。画像を押すと、上下の部品を隠す。
  */
 export function Lightbox() {
   const { viewing, setViewing, byId, media, libs, base, setOrganizing, setEditing, canEdit } =
@@ -43,6 +47,11 @@ export function Lightbox() {
   const prefs = useMediaPrefs();
   const pathname = usePathname();
   const router = useMediaRouter();
+  const touch = useIsTouchDevice();
+  const phone = useIsTouchPhone();
+  const libPop = usePopover();
+  /** 指で触る端末で、上下の部品を出しているか */
+  const [chrome, setChrome] = useState(true);
   const [ctxLib, setCtxLib] = useState<string | null>(null);
   const [box, setBox] = useState<{
     left: number;
@@ -96,11 +105,11 @@ export function Lightbox() {
   const [panning, setPanning] = useState(false);
   // 名前付きの URL で表示する（ドラッグして他のアプリに渡したとき、その名前のファイルになる）
   const { url: original, loading: loadingOriginal } = useOriginalState(m);
-  const inLibPage = pathname.includes("/media/lib/");
 
   // 入っているライブラリー
   const related = m ? libs.filter((l) => m.libIds.includes(l.id)) : [];
-  const currentPageLib = inLibPage ? pathname.split("/media/lib/")[1] : null;
+  // 開いているライブラリー（ルームは /media/lib/…、DM のボックスは /media/ボックス/lib/…）
+  const currentPageLib = pathname.match(/\/media\/(?:[^/]+\/)?lib\/([^/]+)/)?.[1] ?? null;
   // 下の並び：カードで選んだライブラリー → 開いているライブラリー → 開いた一覧（すべて・お気に入りなど）の順。
   // 画像が入っているライブラリーの並びにするのは、カードを押したときだけ
   const cur = ctxLib ?? currentPageLib ?? null;
@@ -119,6 +128,9 @@ export function Lightbox() {
     const next = list[i + step];
     if (next) setViewing(next, viewing!.list);
   };
+  // 下の並びで前後にある画像。今の画像が並びに無ければ、前後は無い
+  const prevInList = i > 0 ? list[i - 1] : undefined;
+  const nextInList = i >= 0 ? list[i + 1] : undefined;
 
   // メイン画面のうち、上の細いバー（場所と操作）より下を覆う（右のプレビュー欄も、この後ろのぼかしに透けて見える）
   useLayoutEffect(() => {
@@ -212,8 +224,7 @@ export function Lightbox() {
   }, [m?.id, cur, placed]);
 
   // 開いたとき：サムネイルの位置から拡大して出てくる。切り替えたとき：ふわっと出る
-  const animateIn = () => {
-    const el = img.current;
+  const animateIn = (el: HTMLImageElement | null = img.current) => {
     if (!el || !el.animate) return;
     const r = el.getBoundingClientRect();
     if (!prevId.current && opened.from && r.width) {
@@ -227,7 +238,8 @@ export function Lightbox() {
         ],
         { duration: 480, easing: "cubic-bezier(.3,1.25,.5,1)" },
       );
-    } else if (prevId.current && prevId.current !== m?.id) {
+    } else if (!touch && prevId.current && prevId.current !== m?.id) {
+      // 指で触る端末では、なぞった動きのまま切り替わるので、ふわっと出さない
       el.animate(
         [
           { opacity: 0, transform: "scale(.97)" },
@@ -256,6 +268,141 @@ export function Lightbox() {
       <Icon name={side} size={22} />
     </button>
   );
+  const stripItems = (
+    <>
+      <span className="w-[calc(50%-40px)] shrink-0" />
+      {list.map((id) => (
+        <button
+          key={id}
+          aria-current={id === stripId}
+          aria-label={byId.get(id)?.name}
+          onClick={() => setViewing(id, viewing.list)}
+          className={`h-16 w-16 shrink-0 overflow-hidden rounded-[12px] border border-line bg-card transition hover:-translate-y-0.5 ${id === stripId ? "outline-[3px] -outline-offset-1 outline-accent" : ""}`}
+        >
+          <ThumbImage id={id} alt="" />
+        </button>
+      ))}
+      <span className="w-[calc(50%-40px)] shrink-0" />
+    </>
+  );
+
+  if (touch) {
+    const shownLib = related.find((l) => l.id === cur) ?? related[0];
+    const miniCover = (id: string | undefined) => (
+      <span className="block h-7 w-7 shrink-0 overflow-hidden rounded-[7px] bg-white/15 [&_[role=status]]:hidden">{id && <ThumbImage id={id} alt="" />}</span>
+    );
+    const onDark = "bg-black/45 backdrop-blur-md";
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        data-lightbox
+        aria-label={m.name}
+        data-name="画像の大きな表示"
+        className="fixed inset-0 z-[35] animate-[fade_.3s] bg-black text-white"
+      >
+        <TouchStage
+          id={m.id}
+          alt={m.name}
+          url={original}
+          loading={loadingOriginal}
+          prevId={prevInList}
+          nextId={nextInList}
+          onGo={go}
+          onImageTap={() => setChrome((c) => !c)}
+          onBackdropTap={close}
+          onImageLoad={animateIn}
+        />
+        <div
+          data-name="画像の上の部品"
+          // 押せるのはボタンだけにして、間をなぞっても画像が動くようにする。隠している間はボタンも押せない
+          className={`pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 pt-[calc(env(safe-area-inset-top,0px)+8px)] pr-[max(12px,env(safe-area-inset-right,0px))] pb-2 pl-[max(12px,env(safe-area-inset-left,0px))] transition-opacity duration-200 ${chrome ? "[&_button]:pointer-events-auto" : "opacity-0"}`}
+        >
+          <button
+            type="button"
+            data-name="入っているライブラリー"
+            aria-label="入っているライブラリー"
+            aria-expanded={!!libPop.anchor}
+            onClick={libPop.toggle}
+            className={`flex h-10 max-w-[55vw] min-w-0 items-center gap-1.5 rounded-full py-1 pr-2.5 pl-1.5 text-sm font-bold ${onDark}`}
+          >
+            {miniCover(shownLib ? coverOf(media, libs, shownLib)[0]?.id : undefined)}
+            <span className="min-w-0 truncate">{shownLib?.name ?? "未整理"}</span>
+            {related.length > 1 && <span className="shrink-0 text-xs font-normal text-white/70">+{related.length - 1}</span>}
+          </button>
+          {list.length > 1 && i >= 0 && (
+            <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs tabular-nums ${onDark}`}>
+              {i + 1} / {list.length}
+            </span>
+          )}
+          <span className="flex-1" />
+          {!m.trashed && canEdit && !phone && (
+            <button type="button" onClick={() => setEditing(m.id)} className={`flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm ${onDark}`}>
+              <Icon name="tune" size={16} />
+              編集
+            </button>
+          )}
+          <button type="button" aria-label="閉じる" onClick={close} className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${onDark}`}>
+            <Icon name="x" />
+          </button>
+        </div>
+        {!phone && (
+          <div
+            ref={strip}
+            data-name="フィルムストリップ"
+            className={`absolute inset-x-0 bottom-0 flex items-center gap-2 overflow-x-auto pt-2 pb-[calc(env(safe-area-inset-bottom,0px)+8px)] transition-opacity duration-200 [scrollbar-width:none] ${chrome ? "" : "pointer-events-none opacity-0"}`}
+          >
+            {stripItems}
+          </div>
+        )}
+        {libPop.anchor && (
+          <Popover anchor={libPop.anchor} onClose={libPop.close} width={280} label="入っているライブラリー">
+            {related.map((l) => (
+              <div key={l.id} className={`flex items-center gap-1 rounded-[8px] ${l.id === cur ? "bg-tint" : ""}`}>
+                {/* 押すと、左右に移る画像の並びをこのライブラリーにする。「›」でライブラリーへ移動 */}
+                <button
+                  type="button"
+                  aria-pressed={l.id === cur}
+                  onClick={() => {
+                    setCtxLib(l.id);
+                    libPop.close();
+                  }}
+                  className="flex min-h-11 min-w-0 flex-1 items-center gap-2 px-2 text-left"
+                >
+                  {miniCover(coverOf(media, libs, l)[0]?.id)}
+                  <span className="min-w-0 truncate">{l.name}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={`${l.name}を開く`}
+                  onClick={() => {
+                    libPop.close();
+                    close();
+                    router.push(`${base}/lib/${l.id}`);
+                  }}
+                  className="grid h-11 w-11 shrink-0 place-items-center text-muted"
+                >
+                  <Icon name="r" size={18} />
+                </button>
+              </div>
+            ))}
+            {canEdit && (
+              <MenuItem
+                icon={<Icon name="add" size={16} />}
+                onClick={() => {
+                  libPop.close();
+                  setOrganizing([m.id]);
+                }}
+              >
+                ライブラリーに整理
+              </MenuItem>
+            )}
+            {!related.length && !canEdit && <p className="px-2 py-1 text-muted">未整理</p>}
+          </Popover>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -355,7 +502,7 @@ export function Lightbox() {
               pan.current = null;
               setPanning(false);
             }}
-            onLoad={animateIn}
+            onLoad={() => animateIn()}
             className={`block max-h-full max-w-full rounded-[14px] object-contain shadow-[0_20px_60px_#0007] ${zoomed ? `touch-none select-none ${panning ? "cursor-grabbing" : "cursor-grab"}` : ""}`}
             style={{
               transform: zoomed ? `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` : undefined,
@@ -381,19 +528,7 @@ export function Lightbox() {
         className="relative z-10 flex h-[72px] w-full shrink-0 items-center gap-2 overflow-hidden"
         onClick={(e) => isBackdropClick(e) && close()}
       >
-        <span className="w-[calc(50%-40px)] shrink-0" />
-        {list.map((id) => (
-          <button
-            key={id}
-            aria-current={id === stripId}
-            aria-label={byId.get(id)?.name}
-            onClick={() => setViewing(id, viewing.list)}
-            className={`h-16 w-16 shrink-0 overflow-hidden rounded-[12px] border border-line bg-card transition hover:-translate-y-0.5 ${id === stripId ? "outline-[3px] -outline-offset-1 outline-accent" : ""}`}
-          >
-            <ThumbImage id={id} alt="" />
-          </button>
-        ))}
-        <span className="w-[calc(50%-40px)] shrink-0" />
+        {stripItems}
       </div>
 
       <div

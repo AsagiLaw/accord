@@ -56,7 +56,8 @@ function blocks(text: string, ctx: Ctx): ReactNode[] {
     out.push(
       <pre
         key={`c${out.length}`}
-        className={`my-1 overflow-x-auto rounded-[8px] px-2.5 py-1.5 font-mono text-[13px] leading-relaxed whitespace-pre ${ctx.tone === "accent" ? "bg-black/20" : "border border-line bg-bg"}`}
+        // スマホの幅では横に流さず、折り返す
+        className={`my-1 overflow-x-auto rounded-[8px] px-2.5 py-1.5 font-mono text-[13px] leading-relaxed whitespace-pre max-md:wrap-anywhere max-md:whitespace-pre-wrap ${ctx.tone === "accent" ? "bg-black/20" : "border border-line bg-bg"}`}
       >
         {body.replace(/\n$/, "")}
       </pre>,
