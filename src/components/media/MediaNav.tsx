@@ -251,7 +251,7 @@ export function MediaNav({
             dropMoveDrag(target);
           })
         }
-        className={`group flex min-h-[26px] items-center rounded-[6px] text-sm transition pointer-coarse:min-h-[38px] pointer-coarse:rounded-[10px] pointer-coarse:text-base ${active ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"} ${
+        className={`group flex min-h-7 items-center rounded-[6px] transition pointer-coarse:min-h-[38px] pointer-coarse:rounded-[10px] ${active ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"} ${
           z === "before"
             ? "shadow-[inset_0_3px_0_var(--accent)]"
             : z === "after"
@@ -266,7 +266,7 @@ export function MediaNav({
         <MediaLink
           href={href}
           draggable={false}
-          className="min-w-0 flex-1 truncate py-0.5 pointer-coarse:py-1.5"
+          className="min-w-0 flex-1 truncate pointer-coarse:py-1.5"
         >
           {label}
         </MediaLink>
