@@ -488,7 +488,7 @@ export function MediaGrid({
   return (
     <div
       data-name="画像一覧"
-      className="grid gap-2.5"
+      className="grid gap-[5px]"
       onDragStartCapture={startDrag}
       // 画像は決めた大きさちょうどで並べる（子ライブラリーのタイルも同じ大きさ）
       style={{ gridTemplateColumns: `repeat(auto-fill, ${size}px)` }}
@@ -548,7 +548,7 @@ export function MediaGrid({
   );
 }
 
-const GAP = 10; // 画像の間（gap-2.5）
+const GAP = 5; // 画像の間（gap-[5px]）
 
 /**
  * 最初は画面に入るぶんの画像だけを描き、残りは画面を出したあとで、裏で描く。
