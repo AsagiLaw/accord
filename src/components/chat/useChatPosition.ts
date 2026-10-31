@@ -32,9 +32,14 @@ export function useChatPosition(
   const hold = useRef<"line" | "bottom" | null>(null);
   const hidden = useRef(false);
   const height = useRef(0);
+  // 位置を決める前に、人が触ったか（そのときは、位置を決めても保たない）
+  const touchedEarly = useRef(false);
+  // 前に見たスクロールの位置（人が動かしたことを知るため）
+  const top = useRef(0);
 
   const toBottom = (el: HTMLElement) => {
     el.scrollTop = el.scrollHeight;
+    top.current = el.scrollTop;
     stick.current = true;
     hold.current = "bottom";
   };
@@ -42,10 +47,24 @@ export function useChatPosition(
   const place = (el: HTMLElement) => {
     placed.current = true;
     const line = el.querySelector<HTMLElement>("[data-unread-line]");
-    if (!line) return toBottom(el);
-    el.scrollTop += line.getBoundingClientRect().top - el.getBoundingClientRect().top - 40;
-    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    hold.current = "line";
+    if (line) {
+      el.scrollTop += line.getBoundingClientRect().top - el.getBoundingClientRect().top - 40;
+      top.current = el.scrollTop;
+      stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      hold.current = "line";
+    } else toBottom(el);
+    // 位置を決めたときの高さを覚える（このあとの見張りが「高さが変わった」と思って、一番下に戻さないように）
+    height.current = el.clientHeight;
+    if (touchedEarly.current) hold.current = null;
+    touchedEarly.current = false;
+  };
+
+  /** 保っている位置から、人が動かしたか。高さが変わっただけでは上へは動かない（縮んだときは一番下のまま）ので、区別できる */
+  const movedAway = (el: HTMLElement, gap: number) => {
+    if (hold.current === "bottom") return el.scrollTop < top.current - 1 && gap > 8;
+    if (hold.current !== "line") return false;
+    const line = el.querySelector<HTMLElement>("[data-unread-line]");
+    return !line || Math.abs(line.getBoundingClientRect().top - el.getBoundingClientRect().top - 40) > 24;
   };
 
   /** 見えているか確かめる。隠れていたものが見えるようになったときは、開き直す（false を返す） */
@@ -75,7 +94,8 @@ export function useChatPosition(
   useEffect(() => {
     const el = list.current;
     const inner = content.current;
-    if (!ready || !el || !inner) return;
+    // 発言を読み込んでいる間から受け取る（読み込み中に指を置いたときも、人が動かしたと分かるように）
+    if (!el || !inner) return;
     const check = () => {
       if (!visible(el) || !placed.current) return;
       if (hold.current === "line") place(el);
@@ -90,6 +110,7 @@ export function useChatPosition(
     // 人が動かしたら、保つのをやめる（一覧の上に重なるボタンを押したとき・検索やピンから飛んだときも）
     const release = () => {
       hold.current = null;
+      if (!placed.current) touchedEarly.current = true;
     };
     const area = el.parentElement ?? el;
     for (const type of ACTIONS) area.addEventListener(type, release, { passive: true });
@@ -107,6 +128,9 @@ export function useChatPosition(
   /** 発言一覧の onScroll に付ける */
   const onScroll = (el: HTMLElement) => {
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // 指を置いた知らせが届かなかったときも、動かしたら保つのをやめる
+    if (movedAway(el, gap)) hold.current = null;
+    top.current = el.scrollTop;
     stick.current = gap < 80;
     const isFar = gap > el.clientHeight * 1.5;
     if (isFar !== far) setFar(isFar);

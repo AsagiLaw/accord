@@ -11,7 +11,7 @@ import { MenuDivider, MenuItem, MenuLabel, Popover, usePopover } from "@/compone
 import { confirmAction } from "@/components/ui/overlay";
 import { deleteImageUser, deleteMessage, changeSpeaker, saveImageUser, chatImageScope, useScopedImageUsers } from "@/lib/local/chat";
 import type { Chat, ImageUser, Media, Message, Profile } from "@/lib/local/db";
-import { useMediaByIds } from "@/lib/local/media";
+import { useMediaIndex } from "@/lib/local/media";
 import { useAllProfiles } from "@/lib/local/rooms";
 import { useTyping } from "@/lib/local/typing";
 import { LongText } from "./LongText";
@@ -24,7 +24,7 @@ import { emojiOnly } from "./RichText";
 import { useChatPosition } from "./useChatPosition";
 import { useMessageWindow } from "./useMessageWindow";
 import { useReadProgress } from "./useReadProgress";
-import { ChatSkeleton } from "@/components/Skeleton";
+import { ChatSkeletonRows } from "@/components/Skeleton";
 import { isBackdropClick } from "@/components/ui/backdrop";
 
 /** イメージユーザーのアイコン（絵文字かメディアの画像。無ければ名前の1文字目） */
@@ -65,7 +65,7 @@ export function ImageChatView({
   const list = useRef<HTMLDivElement>(null);
   const composerInput = useRef<HTMLTextAreaElement>(null);
   // 添付した画像は、どのボックスに入っていても ID で引く
-  const media = useMediaByIds(useMemo(() => (messages ?? []).flatMap((m) => m.mediaIds), [messages]));
+  const { byId: media, settled: mediaSettled } = useMediaIndex(useMemo(() => (messages ?? []).flatMap((m) => m.mediaIds), [messages]));
   const byId = useMemo(() => media ?? new Map<string, Media>(), [media]);
   const [speakerState, setSpeakerState] = useState<string | null>(() => {
     try {
@@ -91,12 +91,15 @@ export function ImageChatView({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [viewer, setViewer] = useState<{ items: Media[]; start: number } | null>(null);
-  const ready = !!messages;
+  // 最初は、発言の画像の情報も揃ってから発言を出す（あとから画像が入って高さが大きく変わらないように）。発言一覧と入力欄は読み込み中も出しておく
+  const [opened, setOpened] = useState(false);
+  if (!opened && messages && mediaSettled) setOpened(true);
+  const shown = opened ? messages : undefined;
+  const ready = !!shown;
   // 既読は、画面に出た発言の分だけ付ける
-  const read = useReadProgress(chat.id, me.id, list, messages);
+  const read = useReadProgress(chat.id, me.id, list, shown);
   const { content, far, onScroll: followScroll } = useChatPosition(list, ready, messages?.at(-1), me.id, win.located, win.relocate);
 
-  if (!messages) return <ChatSkeleton />;
   const userOf = (m: Message) => users.find((u) => u.id === m.speaker);
   const remove = async (m: Message, skipConfirm?: boolean) => {
     if (skipConfirm || (await confirmAction("この発言を削除します", "削除", "添付した画像はメディアに残ります。"))) await deleteMessage(m.id);
@@ -107,7 +110,7 @@ export function ImageChatView({
   };
   /** 入力欄が空のときに ↑ で、最後の発言を直す（ふつうのチャットと同じ。イメージチャットの発言はメンバーの誰でも直せる） */
   const editLast = () => {
-    const m = messages.at(-1);
+    const m = shown?.at(-1);
     if (!m || !canEdit) return false;
     setEditingId(m.id);
     requestAnimationFrame(() => document.querySelector(`[data-msg="${CSS.escape(m.id)}"]`)?.scrollIntoView({ block: "nearest" }));
@@ -128,15 +131,16 @@ export function ImageChatView({
           }}
           className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pt-3 pb-2"
         >
-          <div ref={content}>
-          {win.hasOlder && (
+          <div ref={content} className={shown ? "" : "h-full"}>
+          {!shown && <ChatSkeletonRows />}
+          {shown && win.hasOlder && (
             <button type="button" onClick={() => void win.loadOlder(list.current)} className="mx-auto my-2 block rounded-full px-3 py-1 text-xs text-muted hover:bg-tint hover:text-ink">
               さらに前の発言を読み込む
             </button>
           )}
-          {!messages.length && <p className="py-8 text-center text-sm text-muted">イメージユーザーを選んで、会話を書いていきましょう。</p>}
-          {messages.map((m, i) => {
-            const prev = messages[i - 1];
+          {shown && !shown.length && <p className="py-8 text-center text-sm text-muted">イメージユーザーを選んで、会話を書いていきましょう。</p>}
+          {shown?.map((m, i) => {
+            const prev = shown[i - 1];
             const newDay = !prev || !sameDay(prev.createdAt, m.createdAt);
             const firstUnread = m.id === win.unreadId;
             const grouped = !newDay && !firstUnread && prev?.speaker === m.speaker;

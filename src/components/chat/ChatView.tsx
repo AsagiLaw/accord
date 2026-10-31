@@ -20,7 +20,7 @@ import {
   type ReactionGroup,
 } from "@/lib/local/chat";
 import type { Chat, Media, Message, Profile, RoomRole } from "@/lib/local/db";
-import { useMediaByIds } from "@/lib/local/media";
+import { useMediaIndex } from "@/lib/local/media";
 import { useAllProfiles, type MemberWithProfile } from "@/lib/local/rooms";
 import { useTyping } from "@/lib/local/typing";
 import { InviteCard } from "./InviteCard";
@@ -35,7 +35,9 @@ import { emojiOnly, MentionProvider, mentions } from "./RichText";
 import { useChatPosition } from "./useChatPosition";
 import { jumpToMessage, useMessageWindow } from "./useMessageWindow";
 import { useReadProgress } from "./useReadProgress";
-import { ChatSkeleton } from "@/components/Skeleton";
+import { ChatSkeletonRows } from "@/components/Skeleton";
+
+const NO_MEDIA = new Map<string, Media>();
 
 export function ChatView({
   chat,
@@ -58,7 +60,8 @@ export function ChatView({
   const loadedIds = useMemo(() => new Set((messages ?? []).map((m) => m.id)), [messages]);
   const replies = useMessagesByIds(useMemo(() => [...new Set((messages ?? []).flatMap((m) => (m.replyTo && !loadedIds.has(m.replyTo) ? [m.replyTo] : [])))], [messages, loadedIds]));
   // 添付した画像は、どのボックスに入っていても ID で引く（チャットを見られる人なら必ず見られる）
-  const byId = useMediaByIds(useMemo(() => (messages ?? []).flatMap((m) => m.mediaIds), [messages]));
+  const { byId: mediaById, settled: mediaSettled } = useMediaIndex(useMemo(() => (messages ?? []).flatMap((m) => m.mediaIds), [messages]));
+  const byId = mediaById ?? NO_MEDIA;
   const reactions = useReactions(chat.id);
   const nameOf = (id: string) => members.find((m) => m.userId === id)?.displayName ?? "退出した人";
   // やり取り再現チャット：話者を選んで、依頼者とのやり取りを写して記録する
@@ -107,12 +110,14 @@ export function ChatView({
   const [reactPick, setReactPick] = useState<MenuState | null>(null);
   // よく使う絵文字（発言のメニューの上に出す）
   const [quick, setQuick] = useState(() => recentEmoji());
-  const ready = !!messages && !!byId;
+  // 最初は、発言の画像の情報も揃ってから発言を出す（あとから画像が入って高さが大きく変わらないように）。発言一覧と入力欄は読み込み中も出しておく
+  const [opened, setOpened] = useState(false);
+  if (!opened && messages && mediaSettled) setOpened(true);
+  const shown = opened ? messages : undefined;
+  const ready = !!shown;
   // 既読は、画面に出た発言の分だけ付ける
-  const read = useReadProgress(chat.id, me.id, list, ready ? messages : undefined);
+  const read = useReadProgress(chat.id, me.id, list, shown);
   const { content, far, onScroll: followScroll } = useChatPosition(list, ready, messages?.at(-1), me.id, win.located, win.relocate);
-
-  if (!messages || !byId) return <ChatSkeleton />;
 
   const open = (ids: string[], i: number) => {
     const items = ids.map((id) => byId.get(id)).filter((m): m is Media => !!m);
@@ -141,7 +146,7 @@ export function ChatView({
   };
   /** 入力欄が空のときに ↑ で、自分の最後の発言を直す（Discord と同じ） */
   const editLast = () => {
-    const m = [...messages].reverse().find((x) => canEditOf(x) && !x.inviteId);
+    const m = [...(shown ?? [])].reverse().find((x) => canEditOf(x) && !x.inviteId);
     if (!m) return false;
     setEditingId(m.id);
     requestAnimationFrame(() => document.querySelector(`[data-msg="${CSS.escape(m.id)}"]`)?.scrollIntoView({ block: "nearest" }));
@@ -163,8 +168,9 @@ export function ChatView({
             }}
             className={`min-h-0 flex-1 overflow-x-hidden overflow-y-auto pt-3 pb-2 ${reenact ? "rounded-[14px] bg-tint/40 px-3 pt-0" : ""}`}
           >
-            <div ref={content}>
-            {reenact && (
+            <div ref={content} className={shown ? "" : "h-full"}>
+            {!shown && <ChatSkeletonRows />}
+            {shown && reenact && (
               <p
                 title="依頼者とのやり取りを写して残す場所です。名前を押すと話者を、編集ボタンで文章を直せます"
                 className="sticky top-0 z-10 -mx-3 mb-2 flex items-center gap-1.5 border-b border-dashed border-accent bg-bg/90 px-3 py-1.5 text-xs text-muted backdrop-blur"
@@ -173,19 +179,19 @@ export function ChatView({
                 やり取り再現
               </p>
             )}
-            {win.hasOlder && (
+            {shown && win.hasOlder && (
               <button type="button" onClick={() => void win.loadOlder(list.current)} className="mx-auto my-2 block rounded-full px-3 py-1 text-xs text-muted hover:bg-tint hover:text-ink">
                 さらに前の発言を読み込む
               </button>
             )}
-            {!messages.length && <p className="py-10 text-center text-sm text-muted">まだ発言はありません。最初のメッセージを送ってみましょう。</p>}
-            {messages.map((m, i) => {
-              const prev = messages[i - 1];
+            {shown && !shown.length && <p className="py-10 text-center text-sm text-muted">まだ発言はありません。最初のメッセージを送ってみましょう。</p>}
+            {shown?.map((m, i) => {
+              const prev = shown[i - 1];
               const newDay = !prev || !sameDay(prev.createdAt, m.createdAt);
               const firstUnread = m.id === win.unreadId;
               const grouped = !newDay && !firstUnread && who(prev) === who(m) && prev.authorId === m.authorId && m.createdAt - prev.createdAt < 5 * 60_000 && !m.replyTo;
               const mine = reenact ? who(m) === "自分" : m.authorId === me.id;
-              const r = m.replyTo ? (messages.find((x) => x.id === m.replyTo) ?? replies?.get(m.replyTo)) : undefined;
+              const r = m.replyTo ? (shown.find((x) => x.id === m.replyTo) ?? replies?.get(m.replyTo)) : undefined;
               return (
                 <div key={m.id} data-msg={m.id} data-at={m.createdAt}>
                   {newDay && <DayDivider at={m.createdAt} />}

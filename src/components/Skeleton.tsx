@@ -23,21 +23,34 @@ export function ChatSkeleton({ composer = true }: { composer?: boolean }) {
   return (
     <div role="status" aria-label="読み込み中" data-name="チャットの読み込み中" className="skeleton flex h-full min-h-0 flex-col">
       <div className="flex min-h-0 flex-1 flex-col justify-end overflow-hidden pb-2">
-        {CHAT_ROWS.map((row, i) => (
-          <div key={i} className={`mt-3 flex gap-2 ${row.mine ? "justify-end" : "justify-start"}`}>
-            {!row.mine && <Bone className="mt-0.5 h-9 w-9 shrink-0 rounded-full" />}
-            <div className={`flex min-w-0 flex-1 flex-col gap-1 ${row.mine ? "items-end" : "items-start"}`}>
-              {!row.mine && <Bone className="mx-1 mb-0.5 h-3 w-24 rounded-full" />}
-              {row.widths.map((w, j) => (
-                <Bone key={j} className="h-9 max-w-[560px] rounded-[16px]" style={{ width: `${w}%` }} />
-              ))}
-            </div>
-          </div>
-        ))}
+        <ChatRows />
       </div>
       {composer && <Bone className="h-11 w-full shrink-0 rounded-[14px]" />}
     </div>
   );
+}
+
+/** 発言の読み込み中：発言一覧の中に出す、形だけの発言。一覧と入力欄はもう出ている */
+export function ChatSkeletonRows() {
+  return (
+    <div role="status" aria-label="読み込み中" data-name="発言の読み込み中" className="skeleton flex h-full flex-col justify-end overflow-hidden">
+      <ChatRows />
+    </div>
+  );
+}
+
+function ChatRows() {
+  return CHAT_ROWS.map((row, i) => (
+    <div key={i} className={`mt-3 flex gap-2 ${row.mine ? "justify-end" : "justify-start"}`}>
+      {!row.mine && <Bone className="mt-0.5 h-9 w-9 shrink-0 rounded-full" />}
+      <div className={`flex min-w-0 flex-1 flex-col gap-1 ${row.mine ? "items-end" : "items-start"}`}>
+        {!row.mine && <Bone className="mx-1 mb-0.5 h-3 w-24 rounded-full" />}
+        {row.widths.map((w, j) => (
+          <Bone key={j} className="h-9 max-w-[560px] rounded-[16px]" style={{ width: `${w}%` }} />
+        ))}
+      </div>
+    </div>
+  ));
 }
 
 // 文章の行の幅（段落ごと）

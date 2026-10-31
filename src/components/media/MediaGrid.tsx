@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import type { Library, Media } from "@/lib/local/db";
 import { renameMedia, setFav } from "@/lib/local/media";
@@ -176,17 +176,12 @@ export function MediaGrid({
   const [overRow, setOverRow] = useState<string | null>(null);
   const anchor = useRef<string | null>(null);
   const ids = list.map((m) => m.id);
-  // 最初は画面に入るぶんだけ描く（リスト表示は1行 24px、並べる表示は1枚の大きさから数える）
-  const shown = useShownCount(
-    list.length,
-    typeof window === "undefined"
-      ? 60
-      : prefs.imageView === "list"
-        ? Math.ceil(window.innerHeight / 24) + 10
-        : Math.floor((window.innerWidth + GAP) / (size + GAP)) * (Math.ceil(window.innerHeight / (size + GAP)) + 1),
-  );
   // ライブラリーの中では、子ライブラリーを画像の前に並べる（検索の結果には出さない）
   const folders = lib ? childrenOf(libs, lib.id) : [];
+  // 枚数が多いときは、画面の近くの画像だけを描く。リスト表示は画像の行だけを数え、並べる表示は子ライブラリーのタイルも一緒に数える
+  const asRows = prefs.imageView === "list";
+  const [rangeEl, setRangeEl] = useState<HTMLElement | null>(null);
+  const range = useVisibleRange(rangeEl, asRows ? list.length : folders.length + list.length, asRows ? 0 : size);
   const parentRep = lib?.parentId ? repOf(media, libs, lib) : undefined;
   // 切り取っている画像は、元のライブラリーの一覧で薄く出す
   const cut = useCutMedia();
@@ -479,7 +474,9 @@ export function MediaGrid({
             ))}
           </div>
           {folders.map((k) => folderRow(k))}
-          {list.slice(0, shown).map((m) => imageRow(m, 0, ids))}
+          <div ref={setRangeEl} style={{ paddingTop: range.before, paddingBottom: range.after }} className="[overflow-anchor:none]">
+            {list.slice(range.start, range.end).map((m) => imageRow(m, 0, ids))}
+          </div>
         </div>
       </div>
     );
@@ -487,20 +484,22 @@ export function MediaGrid({
 
   return (
     <div
+      ref={setRangeEl}
       data-name="画像一覧"
-      className="grid gap-[5px]"
+      // 一部だけ描くときは、どの行も同じ高さにする（Windows 風の名前は2行ぶん取る）
+      className={`grid gap-[5px] [overflow-anchor:none] ${range.partial ? "[&_.line-clamp-2]:min-h-8" : ""}`}
       onDragStartCapture={startDrag}
-      // 画像は決めた大きさちょうどで並べる（子ライブラリーのタイルも同じ大きさ）
-      style={{ gridTemplateColumns: `repeat(auto-fill, ${size}px)` }}
+      // 画像は決めた大きさちょうどで並べる（子ライブラリーのタイルも同じ大きさ）。描いていない行の分は上下に空ける
+      style={{ gridTemplateColumns: `repeat(auto-fill, ${size}px)`, paddingTop: range.before, paddingBottom: range.after }}
       onClick={(e) => {
         // 何もないところをクリックしたら選択を外す（マウス操作のとき）
         if (e.target === e.currentTarget && isPointerFine()) setSelected([]);
       }}
     >
-      {folders.map((k) => (
+      {folders.slice(range.start, range.end).map((k) => (
         <FolderTile key={k.id} lib={k} />
       ))}
-      {list.slice(0, shown).map((m) => (
+      {list.slice(Math.max(0, range.start - folders.length), Math.max(0, range.end - folders.length)).map((m) => (
         <Thumb
           key={m.id}
           m={m}
@@ -550,20 +549,63 @@ export function MediaGrid({
 
 const GAP = 5; // 画像の間（gap-[5px]）
 
+/** これより多いときだけ、画面の近くだけを描く（少なければ全部描いても軽い） */
+const PARTIAL_FROM = 120;
+/** 画面の上下に、余分に描いておく量（画面の高さの何倍か）。速くスクロールしても、空いた所が見えにくいように */
+const OVERSCAN = 1.5;
+/** リスト表示の1行の高さ（h-6） */
+const ROW_HEIGHT = 24;
+
 /**
- * 最初は画面に入るぶんの画像だけを描き、残りは画面を出したあとで、裏で描く。
- * 何百枚もある場所でも、押したらすぐ切り替わる（残りを描いている間も操作できる）
+ * 枚数が多いときは、画面の近くの行だけを描く。描かない行の分は上下に空けて、スクロールできる長さは全部描いたときと同じにする。
+ * 小さい画像も描いた分だけ読み込むので、何千枚ある場所でも開く・選ぶ・スクロールが重くならない。
+ * el：並べている所。size：画像の一辺（0 ならリスト表示で、1行に1つ）。行の高さはどれも同じとする
  */
-function useShownCount(total: number, perScreen: number) {
-  const [all, setAll] = useState(false);
-  const rest = !all && total > perScreen;
-  useEffect(() => {
-    if (!rest) return;
-    // 一度画面に出してから残りを描く（裏で少しずつ描くので、その間に画面が出る）
-    const timer = setTimeout(() => startTransition(() => setAll(true)));
-    return () => clearTimeout(timer);
-  }, [rest]);
-  return rest ? perScreen : total;
+function useVisibleRange(el: HTMLElement | null, total: number, size: number) {
+  const partial = total > PARTIAL_FROM;
+  // 測るまでは、画面に入りそうな分だけ
+  const [range, setRange] = useState(() => {
+    const perRow = size && typeof window !== "undefined" ? Math.max(1, Math.floor((window.innerWidth + GAP) / (size + GAP))) : 1;
+    return { first: 0, rows: Math.ceil(((typeof window !== "undefined" ? window.innerHeight : 800) * (1 + OVERSCAN)) / (size ? size + GAP : ROW_HEIGHT)), perRow, rowHeight: size ? size + GAP : ROW_HEIGHT };
+  });
+  useLayoutEffect(() => {
+    if (!el || !partial) return;
+    const scroller = el.closest('[data-name="メイン画面の中身"]');
+    if (!scroller) return;
+    const measure = () => {
+      const width = el.clientWidth;
+      // 隠れているときは測らない
+      if (!width) return;
+      const perRow = size ? Math.max(1, Math.floor((width + GAP) / (size + GAP))) : 1;
+      const rowHeight = size ? ((el.firstElementChild as HTMLElement | null)?.offsetHeight || size) + GAP : ROW_HEIGHT;
+      const box = scroller.getBoundingClientRect();
+      const top = box.top - el.getBoundingClientRect().top;
+      const margin = box.height * OVERSCAN;
+      const first = Math.max(0, Math.floor((top - margin) / rowHeight));
+      const rows = Math.ceil((top + box.height + margin) / rowHeight) - first;
+      setRange((r) => (r.first === first && r.rows === rows && r.perRow === perRow && r.rowHeight === rowHeight ? r : { first, rows, perRow, rowHeight }));
+    };
+    measure();
+    scroller.addEventListener("scroll", measure, { passive: true });
+    const ro = new ResizeObserver(measure);
+    ro.observe(scroller);
+    ro.observe(el);
+    return () => {
+      scroller.removeEventListener("scroll", measure);
+      ro.disconnect();
+    };
+  }, [el, partial, size, total]);
+  if (!partial) return { partial, start: 0, end: total, before: 0, after: 0 };
+  const allRows = Math.ceil(total / range.perRow);
+  const first = Math.min(range.first, allRows);
+  const last = Math.min(first + range.rows, allRows);
+  return {
+    partial,
+    start: first * range.perRow,
+    end: Math.min(total, last * range.perRow),
+    before: first * range.rowHeight,
+    after: (allRows - last) * range.rowHeight,
+  };
 }
 
 /**

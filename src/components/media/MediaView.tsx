@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import {
   MenuDivider,
@@ -146,6 +146,15 @@ export function MediaView({ view }: { view: MediaViewKind }) {
           : [];
     }
   }, [view, media, lib, prefs]);
+
+  // 場所を移ったら、いちばん上から見せる（メディアの中の移動は URL だけを変えるので、スクロールの位置は自動では戻らない。場所ごとに作り直している）
+  useLayoutEffect(() => {
+    const scroller = document.querySelector('[data-name="メイン画面の中身"]');
+    if (!scroller?.scrollTop) return;
+    scroller.scrollTop = 0;
+    // 画像の一覧が、描く範囲をすぐ測り直せるように知らせる
+    scroller.dispatchEvent(new Event("scroll"));
+  }, []);
 
   // 画面を移ったら選択を外す
   const viewKey = view.kind === "lib" ? `lib:${view.id}` : view.kind;

@@ -244,6 +244,15 @@ body {
   }
 }
 
+/* 指で触る端末では、画像の一覧の名前の札をすりガラスにしない（1枚ごとにぼかすと、スマホでは重い）。少し濃い半透明にして読めるようにする */
+@media (hover: none) and (pointer: coarse) {
+  [data-name="画像一覧"] .backdrop-blur-md {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-color: rgb(0 0 0 / 0.45);
+  }
+}
+
 /* スマホ（指で触る端末で、短い辺が 600px 未満。touch-device.ts と同じ）：編集の機能は出さない。パソコンで行う */
 @media (hover: none) and (pointer: coarse) and (max-width: 599.98px), (hover: none) and (pointer: coarse) and (max-height: 599.98px) {
   .phone-hide {

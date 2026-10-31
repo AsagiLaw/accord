@@ -53,19 +53,25 @@ export function useBoxSummaries(boxIds: string[]) {
  * ボックスからではなく ID で引く。消された画像は入らない
  */
 export function useMediaByIds(ids: string[]) {
+  return useMediaIndex(ids).byId;
+}
+
+/** useMediaByIds と同じ。ids が変わっても新しく調べ終わるまでは前の結果を返すので、今の ids を調べ終えたかも返す（settled） */
+export function useMediaIndex(ids: string[]) {
   const key = ids.join(",");
   const found = useLiveQuery(async () => {
     const rows = await db.media.bulkGet([...new Set(ids)]);
-    return new Map(rows.flatMap((m) => (m ? [[m.id, m] as const] : [])));
+    return { key, byId: new Map(rows.flatMap((m) => (m ? [[m.id, m] as const] : []))) };
   }, [key]); // ids は中身（key）で比べる
+  const settled = found?.key === key;
   // Supabase 版：ブラウザの中に無い画像（DM で送られた画像など）は、貼られている発言やノートを見られるなら引いてくる
   useEffect(() => {
-    if (!found) return;
-    const missing = [...new Set(ids)].filter((id) => id && !found.has(id));
+    if (!found || !settled) return;
+    const missing = [...new Set(ids)].filter((id) => id && !found.byId.has(id));
     if (missing.length) void fetchReferencedMedia(missing);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [found, key]);
-  return found;
+  }, [found, key, settled]);
+  return { byId: found?.byId, settled };
 }
 
 export function useLibraries(boxId: string) {
