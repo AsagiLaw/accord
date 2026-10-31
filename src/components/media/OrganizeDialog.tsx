@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { Icon } from "@/components/Icon";
-import { choose, toast } from "@/components/ui/overlay";
+import { toast } from "@/components/ui/overlay";
 import { Segmented } from "@/components/ui/Segmented";
 import type { Library } from "@/lib/local/db";
 import { organize } from "@/lib/local/media";
-import { chain, childrenOf, coverOf, descendants } from "@/lib/media/logic";
+import { chain, childrenOf, coverOf } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
 import { newLibraryFlow } from "./flows";
 import { CoverCard } from "./LibraryCard";
@@ -69,35 +69,8 @@ export function OrganizeDialog({ ids }: { ids: string[] }) {
 
   const close = () => setOrganizing(null);
 
-  const toggle = async (lib: Library) => {
-    if (!chosen.includes(lib.id)) {
-      setChosen([...chosen, lib.id]);
-      return;
-    }
-    // もともと入っていたライブラリーを外すと、その子ライブラリーからも外れる
-    const affected = descendants(libs, lib.id)
-      .filter((x) => x !== lib.id && items.some((m) => m.libIds.includes(x)))
-      .map((x) => libs.find((l) => l.id === x)!)
-      .filter(Boolean);
-    if (before.includes(lib.id) && affected.length) {
-      const i = await choose(
-        `「${lib.name}」から外します`,
-        [
-          {
-            label: "外す",
-            detail: `「${lib.name}」と、その子ライブラリーから画像を外します`,
-            danger: true,
-          },
-        ],
-        `「${affected.map((l) => l.name).join("」「")}」からも外れますが、よろしいですか？`,
-      );
-      if (i !== 0) return;
-      const drop = [lib.id, ...affected.map((l) => l.id)];
-      setChosen(chosen.filter((x) => !drop.includes(x)));
-      return;
-    }
-    setChosen(chosen.filter((x) => x !== lib.id));
-  };
+  const toggle = (lib: Library) =>
+    setChosen(chosen.includes(lib.id) ? chosen.filter((x) => x !== lib.id) : [...chosen, lib.id]);
 
   const addLib = async (parent: Library | null) => {
     const lib = await newLibraryFlow(boxId, parent?.id ?? null, parent?.name);
@@ -111,7 +84,7 @@ export function OrganizeDialog({ ids }: { ids: string[] }) {
       <div key={lib.id} className="w-36 shrink-0">
         <CoverCard
           name={lib.name}
-          covers={coverOf(media, lib)}
+          covers={coverOf(media, libs, lib)}
           active={on}
           onClick={() => toggle(lib)}
         >
@@ -159,7 +132,7 @@ export function OrganizeDialog({ ids }: { ids: string[] }) {
         const on = chosen.includes(l.id);
         const kids = childrenOf(libs, l.id).length;
         const expanded = listOpen.includes(l.id);
-        const cover = coverOf(media, l)[0];
+        const cover = coverOf(media, libs, l)[0];
         return (
           <li key={l.id}>
             <div

@@ -7,15 +7,11 @@ import { Spinner } from "@/components/ui/Spinner";
 import { startMediaDrag, useOriginalState } from "@/lib/media/export";
 import {
   arrange,
-  chain,
-  childrenOf,
   coverOf,
-  descendants,
   libraryView,
-  repOf,
 } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
-import { copyImageFlow } from "./flows";
+import { copyMediaFlow } from "./flows";
 import { useMediaState } from "./MediaContext";
 import { useMediaRouter } from "./MediaLink";
 import { ThumbImage } from "./Thumb";
@@ -102,17 +98,8 @@ export function Lightbox() {
   const { url: original, loading: loadingOriginal } = useOriginalState(m);
   const inLibPage = pathname.includes("/media/lib/");
 
-  // 入っているライブラリー（一番深いものと、その親たち）
-  const inLibs = m ? libs.filter((l) => m.libIds.includes(l.id)) : [];
-  const leaves = inLibs.filter(
-    (l) =>
-      !inLibs.some((o) => o !== l && descendants(libs, l.id).includes(o.id)),
-  );
-  const related = [
-    ...new Map(
-      leaves.flatMap((l) => chain(libs, l.id)).map((l) => [l.id, l]),
-    ).values(),
-  ];
+  // 入っているライブラリー
+  const related = m ? libs.filter((l) => m.libIds.includes(l.id)) : [];
   const currentPageLib = inLibPage ? pathname.split("/media/lib/")[1] : null;
   // 下の並び：カードで選んだライブラリー → 開いているライブラリー → 開いた一覧（すべて・お気に入りなど）の順。
   // 画像が入っているライブラリーの並びにするのは、カードを押したときだけ
@@ -123,22 +110,10 @@ export function Lightbox() {
     : cur &&
         !(cur === currentPageLib && !ctxLib) &&
         libs.some((l) => l.id === cur)
-      ? // ライブラリーの並びは、一覧と同じ「ライブラリーの配置」（基本なら子ライブラリーは代表の画像だけ）
-        arrange(libraryView(media, libs, cur, prefs.libMode), prefs).map(
-          (x) => x.id,
-        )
+      ? // ライブラリーの並びは、一覧と同じ（直接入っている画像だけ）
+        arrange(libraryView(media, cur), prefs).map((x) => x.id)
       : viewing.list.filter((id) => byId.has(id));
-  // 並びの中で今の画像に当たるもの。今の画像が並びに無い（子ライブラリーの代表でない画像）ときは、
-  // その画像が入っている子ライブラリーの代表を、今の位置として扱う
-  const stripId =
-    m && !list.includes(m.id) && cur
-      ? (childrenOf(libs, cur)
-          .filter((k) =>
-            m.libIds.some((x) => descendants(libs, k.id).includes(x)),
-          )
-          .map((k) => repOf(media, k))
-          .find((id) => id && list.includes(id)) ?? m.id)
-      : m?.id;
+  const stripId = m?.id;
   const i = stripId ? list.indexOf(stripId) : -1;
   const go = (step: number) => {
     const next = list[i + step];
@@ -182,7 +157,7 @@ export function Lightbox() {
       // Ctrl+C：表示している画像をコピー（Discord などに Ctrl+V で貼れる）
       if ((e.ctrlKey || e.metaKey) && e.key === "c" && !window.getSelection()?.toString()) {
         e.preventDefault();
-        copyImageFlow([m]);
+        void copyMediaFlow(m.boxId, [m]);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -441,7 +416,7 @@ export function Lightbox() {
           </button>
         )}
         {related.map((l) => {
-          const covers = coverOf(media, l);
+          const covers = coverOf(media, libs, l);
           return (
             <button
               key={l.id}

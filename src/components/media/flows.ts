@@ -1,8 +1,10 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { choose, confirmAction, promptText, toast } from "@/components/ui/overlay";
 import type { Library, Media } from "@/lib/local/db";
 import {
+  addToLibrary,
   applyAutoName,
   createLibrary,
   deleteForever,
@@ -11,7 +13,10 @@ import {
   groupIntoLibrary,
   mergeLibrary,
   moveLibrary,
+  moveToLibrary,
   moveToTrash,
+  movableMedia,
+  pastableMedia,
   removeFromLibrary,
   renameLibrary,
   reorderLibrary,
@@ -112,25 +117,19 @@ const zipBaseName = (name: string) => `${new Date().toLocaleDateString("sv-SE")}
 
 /**
  * ライブラリーの画像を全て、1つの ZIP にまとめて書き出す（「名前を付けて保存」の画面）。ゴミ箱の画像は入れない。
- * 子ライブラリーの画像は、ZIP の中の子ライブラリーの名前のフォルダに入れる（いくつかの子ライブラリーに入っている画像は、それぞれに入れる）
+ * 子ライブラリーの画像は、ZIP の中の子ライブラリーの名前のフォルダに入れる（いくつかの場所に入っている画像は、それぞれに入れる）
  */
 export async function exportLibraryFlow(lib: Library, libs: Library[], media: Media[]) {
-  const sub = descendants(libs, lib.id).filter((id) => id !== lib.id);
   const depth = chain(libs, lib.id).length;
   const items: ZipItem[] = [];
-  for (const m of media) {
-    if (m.trashed || !m.libIds.includes(lib.id)) continue;
-    // 入っている子ライブラリーのうち、一番深いもの（親たちにも入っているので、それは除く）
-    const inSub = m.libIds.filter((id) => sub.includes(id));
-    const leaves = inSub.filter((id) => !inSub.some((o) => o !== id && descendants(libs, id).includes(o)));
-    if (!leaves.length) items.push({ m });
-    for (const id of leaves)
-      items.push({
-        m,
-        folder: chain(libs, id)
-          .slice(depth)
-          .map((l) => l.name),
-      });
+  for (const id of descendants(libs, lib.id)) {
+    const folder = chain(libs, id)
+      .slice(depth)
+      .map((l) => l.name);
+    for (const m of media) {
+      if (m.trashed || !m.libIds.includes(id)) continue;
+      items.push(folder.length ? { m, folder } : { m });
+    }
   }
   const n = new Set(items.map((x) => x.m.id)).size;
   if (!n) return toast(`「${lib.name}」に画像がありません`);
@@ -222,6 +221,113 @@ export async function removeFromLibraryFlow(boxId: string, lib: Library, ids: st
   undoable(`${ids.length}枚を「${lib.name}」から出しました`, await removeFromLibrary(boxId, lib.id, ids));
 }
 
+/**
+ * Delete キー。2か所以上に入っている画像があれば、ここから出すか全部の場所から消すかを確かめる。
+ * 「ここ」が無い所（lib が無い：すべて・検索の結果など）と、1か所だけの画像は、そのままゴミ箱へ入れる。やめなければ true
+ */
+export async function deleteKeyFlow(boxId: string, list: Media[], lib?: Library) {
+  const ids = list.map((m) => m.id);
+  const shared = list.filter((m) => m.libIds.length > 1).map((m) => m.id);
+  if (!lib || !shared.length) {
+    await trashFlow(boxId, ids);
+    return true;
+  }
+  const only = ids.filter((id) => !shared.includes(id));
+  const i = await choose(`${ids.length}枚を消します`, [
+    { label: "ここから出す", detail: `ほかのライブラリーには残ります${only.length ? `（1か所だけの${only.length}枚はゴミ箱へ）` : ""}` },
+    { label: "全部の場所から消す", detail: "ゴミ箱へ移動します", danger: true },
+  ]);
+  if (i === null) return false;
+  if (i === 1) {
+    await trashFlow(boxId, ids);
+    return true;
+  }
+  const undoOut = await removeFromLibrary(boxId, lib.id, shared);
+  const undoTrash = only.length ? await moveToTrash(boxId, only) : null;
+  undoable(
+    `${shared.length}枚を「${lib.name}」から出しました${only.length ? `（${only.length}枚はゴミ箱へ）` : ""}`,
+    async () => {
+      await undoTrash?.();
+      await undoOut();
+    },
+  );
+  return true;
+}
+
+/** 画像をドラッグしてライブラリーへ移す。from が無ければ（元のライブラリーが無い所から）入れるだけ */
+export async function moveMediaFlow(boxId: string, ids: string[], from: string | null, to: Library) {
+  const undo = await moveToLibrary(boxId, ids, from, to.id);
+  undoable(`${ids.length}枚を「${to.name}」${from ? "へ移動しました" : "に入れました"}`, undo);
+}
+
+/** 左のライブラリーの印を押した：選んだ画像を入れる（全部入っていれば出す） */
+export async function toggleInLibraryFlow(boxId: string, ids: string[], lib: Library, allIn: boolean) {
+  if (allIn) undoable(`${ids.length}枚を「${lib.name}」から出しました`, await removeFromLibrary(boxId, lib.id, ids));
+  else undoable(`${ids.length}枚を「${lib.name}」に入れました`, await addToLibrary(boxId, lib.id, ids));
+}
+
+// Ctrl+C・Ctrl+X で覚えた画像。ページやライブラリーを移っても貼り付けられるように、ここで持つ。
+// cutFrom：切り取った画像なら、元のライブラリー（元のライブラリーが無い所なら null）。コピーなら undefined
+type Clip = { boxId: string; ids: string[]; cutFrom?: string | null };
+let clip: Clip | null = null;
+const clipListeners = new Set<() => void>();
+function setClip(next: Clip | null) {
+  clip = next;
+  clipListeners.forEach((fn) => fn());
+}
+
+/** 切り取っている画像（元のライブラリーの一覧で薄く出す） */
+export function useCutMedia() {
+  return useSyncExternalStore(
+    (fn) => {
+      clipListeners.add(fn);
+      return () => clipListeners.delete(fn);
+    },
+    () => (clip?.cutFrom ? clip : null),
+    () => null,
+  );
+}
+
+/** Ctrl+C：画像を覚える（Ctrl+V でライブラリーに貼り付ける）。1枚なら、Discord などに貼れるようにクリップボードにも入れる */
+export async function copyMediaFlow(boxId: string, list: Media[]) {
+  if (!list.length) return;
+  setClip({ boxId, ids: list.map((m) => m.id) });
+  if (list.length === 1) await copyImage(list[0]).catch(() => {});
+  toast(list.length === 1 ? "画像をコピーしました" : `${list.length}枚をコピーしました`);
+}
+
+/** Ctrl+X：画像を切り取る（Ctrl+V で、元のライブラリーから貼り付け先へ移す）。from が無い所（すべて・検索の結果など）からは入れるだけ */
+export async function cutMediaFlow(boxId: string, list: Media[], from: string | null) {
+  if (!list.length) return;
+  setClip({ boxId, ids: list.map((m) => m.id), cutFrom: from });
+  if (list.length === 1) await copyImage(list[0]).catch(() => {});
+  toast(`${list.length}枚を切り取りました`);
+}
+
+/** 切り取りをやめる（Esc） */
+export function cancelCut() {
+  if (clip && clip.cutFrom !== undefined) setClip(null);
+}
+
+/** Ctrl+V：コピーした画像は今開いているライブラリーにも入れ（同じ画像なのでデータは増えない）、切り取った画像は移す */
+export async function pasteMediaFlow(boxId: string, lib: Library | undefined) {
+  if (!clip) return;
+  if (clip.boxId !== boxId) return toast("別のボックスには貼り付けられません");
+  if (!lib) return toast("ライブラリーを開いてから貼り付けてください");
+  if (clip.cutFrom !== undefined) {
+    if (clip.cutFrom === lib.id) return toast("切り取った場所と同じライブラリーです");
+    const { ids, cutFrom } = clip;
+    // 切り取りの貼り付けは1回だけ（Windows と同じ）
+    setClip(null);
+    const alive = await movableMedia(boxId, ids);
+    if (alive.length) await moveMediaFlow(boxId, alive, cutFrom, lib);
+    return;
+  }
+  const ids = await pastableMedia(boxId, lib.id, clip.ids);
+  if (!ids.length) return toast(`「${lib.name}」にすでに入っています`);
+  undoable(`${ids.length}枚を「${lib.name}」に貼り付けました`, await addToLibrary(boxId, lib.id, ids));
+}
+
 /** 右クリックの「まとめる」：選んだ画像でライブラリーを作る。ライブラリーの中なら、その子ライブラリーにする */
 export async function groupFlow(boxId: string, ids: string[], current: Library | undefined) {
   const name = (
@@ -244,39 +350,6 @@ export async function renameLibraryFlow(lib: Library) {
   if (name && name !== lib.name) await renameLibrary(lib.id, name);
 }
 
-/** 画像を元の親から外すかを確かめてから、ライブラリーの場所を変える */
-async function moveWithAsk(
-  boxId: string,
-  lib: Library,
-  libs: Library[],
-  media: Media[],
-  newParentId: string | null,
-  done: string,
-  place?: { targetId: string; after: boolean },
-) {
-  const sub = descendants(libs, lib.id);
-  const n = media.filter((m) => !m.trashed && m.libIds.some((x) => sub.includes(x))).length;
-  // 移った先でも親（その親）として残るライブラリーからは、画像は外れない。
-  // 外れる可能性があるのは、今の親たちのうち、移り先の親たちに入っていないものだけ
-  const newChain = newParentId ? chain(libs, newParentId).map((l) => l.id) : [];
-  const leaving = lib.parentId ? chain(libs, lib.parentId).filter((l) => !newChain.includes(l.id)) : [];
-  const names = leaving.map((l) => `「${l.name}」`).join("");
-  let removeFromOld = false;
-  if (leaving.length && n) {
-    const i = await choose(
-      `「${lib.name}」を${names}から外します`,
-      [
-        { label: "画像も外す", detail: `画像${n}枚も${names}から外れます`, danger: true },
-        { label: "画像は残す", detail: `画像は${names}にも残ります` },
-      ],
-      `子ライブラリーに入っている画像（${n}枚）を、${names}からも外しますか？`,
-    );
-    if (i === null) return;
-    removeFromOld = i === 0;
-  }
-  undoable(done, await moveLibrary(boxId, lib.id, newParentId, removeFromOld, place));
-}
-
 /**
  * サイドバーでライブラリーをドラッグして落としたとき（試作と同じ動き）。
  * before / after：その前・後ろに並べる（親が変わるなら移る）
@@ -286,23 +359,22 @@ async function moveWithAsk(
 export async function dropLibraryFlow(
   boxId: string,
   libs: Library[],
-  media: Media[],
   id: string,
   drop: { zone: "before" | "after" | "inside"; targetId: string } | { zone: "root" },
 ) {
   const lib = libs.find((l) => l.id === id);
   if (!lib) return;
-  if (drop.zone === "root") return moveWithAsk(boxId, lib, libs, media, null, `「${lib.name}」を一番上に移しました`);
+  if (drop.zone === "root") return undoable(`「${lib.name}」を一番上に移しました`, await moveLibrary(boxId, lib.id, null));
   const target = libs.find((l) => l.id === drop.targetId);
   if (!target || descendants(libs, id).includes(target.id)) return;
   if (drop.zone !== "inside") {
-    return moveWithAsk(boxId, lib, libs, media, target.parentId, `「${lib.name}」を移動しました`, { targetId: target.id, after: drop.zone === "after" });
+    return undoable(`「${lib.name}」を移動しました`, await moveLibrary(boxId, lib.id, target.parentId, { targetId: target.id, after: drop.zone === "after" }));
   }
   const i = await choose(`「${lib.name}」を「${target.name}」へ`, [
-    { label: "子ライブラリーにする", detail: `「${lib.name}」の画像は「${target.name}」にも入ります` },
+    { label: "子ライブラリーにする", detail: `「${lib.name}」を「${target.name}」の中に入れます` },
     { label: "合体する", detail: `「${lib.name}」の画像と子ライブラリーを「${target.name}」にまとめ、「${lib.name}」は削除します` },
   ]);
-  if (i === 0) return moveWithAsk(boxId, lib, libs, media, target.id, `「${lib.name}」を「${target.name}」の子ライブラリーにしました`);
+  if (i === 0) return undoable(`「${lib.name}」を「${target.name}」の子ライブラリーにしました`, await moveLibrary(boxId, lib.id, target.id));
   if (i === 1) undoable(`「${lib.name}」を「${target.name}」と合体しました`, await mergeLibrary(boxId, lib.id, target.id));
 }
 
@@ -344,7 +416,7 @@ export async function libraryAction(i: number, boxId: string, lib: Library, libs
       );
       if (j === null) return;
       const to = targets[j];
-      return moveWithAsk(boxId, lib, libs, media, to ? to.id : null, `「${lib.name}」を移動しました`);
+      return undoable(`「${lib.name}」を移動しました`, await moveLibrary(boxId, lib.id, to ? to.id : null));
     }
     case 5: {
       if (!others.length) return toast("合体できるライブラリーがありません");

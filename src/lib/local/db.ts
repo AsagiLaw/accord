@@ -157,8 +157,13 @@ export type Media = {
   createdAt: number;
   fav: boolean;
   trashed: boolean;
-  /** 入っているライブラリー。子ライブラリーに入れたら、その親たちも必ず含む */
+  /** 直接入っているライブラリー。子ライブラリーに入れても、親には入らない */
   libIds: string[];
+  /**
+   * 親と子の両方に、わざと入れてある印。前は子に入れると親にも入る形だったので、
+   * 印の無い「親と子の両方に入っている」画像は前の形として子だけに直す（lib/media/logic.ts の hasOldLibIds）
+   */
+  libsDirect?: boolean;
   /** 編集してある（元の画像に戻せる） */
   edited?: boolean;
   /** 画像の中身を変えた回数。表示用の URL を作り直すのに使う */

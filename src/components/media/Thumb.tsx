@@ -8,11 +8,8 @@ import { startMediaDrag, useOriginalUrl } from "@/lib/media/export";
 import { useUploadProgress } from "@/lib/media/remote";
 import { editableName, labelOf } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
-import { toast } from "@/components/ui/overlay";
 
 export { ThumbImage };
-
-let warnedMulti = false;
 
 /**
  * R2 に置いている途中の画像のゲージ。置き終わっている画像には何も出さない。
@@ -45,15 +42,9 @@ export function UploadGauge({ id, className = "" }: { id: string; className?: st
 /**
  * 画像の上に重ねる、透明な元の画像。これをドラッグすると、他のアプリ（Photoshop・デスクトップなど）に元の画像のファイルとして渡る。
  * 元の画像は大きいので、カーソルを乗せたときに読み込む。ドラッグ中に見せる絵は、重ねている下の見た目（親の要素）にする。
- * 親には relative を付けておくこと。multiSelected：複数選んでいる中の1枚か（渡せるのは1枚だけなので、最初の1回だけ知らせる）
+ * 親には relative を付けておくこと。アプリの中のライブラリーへ落とすと、ライブラリーへ移す（moveDrag.ts）
  */
-export function DragOriginal({
-  m,
-  multiSelected = false,
-}: {
-  m: Media;
-  multiSelected?: boolean;
-}) {
+export function DragOriginal({ m }: { m: Media }) {
   const [hovered, setHovered] = useState(false);
   // 元の画像を調べる仕組みは、カーソルを乗せた画像だけで動かす（何百枚もある一覧を、すぐ出し・すぐ閉じられるように）
   if (!hovered)
@@ -61,10 +52,10 @@ export function DragOriginal({
       // eslint-disable-next-line @next/next/no-img-element -- ブラウザ内の画像なので next/image は使えない
       <img alt="" aria-hidden data-drag-original onPointerEnter={() => setHovered(true)} className="absolute inset-0 h-full w-full opacity-0" />
     );
-  return <HoveredOriginal m={m} multiSelected={multiSelected} />;
+  return <HoveredOriginal m={m} />;
 }
 
-function HoveredOriginal({ m, multiSelected }: { m: Media; multiSelected: boolean }) {
+function HoveredOriginal({ m }: { m: Media }) {
   const src = useOriginalUrl(m);
   return (
     // eslint-disable-next-line @next/next/no-img-element -- ブラウザ内の画像なので next/image は使えない
@@ -73,17 +64,10 @@ function HoveredOriginal({ m, multiSelected }: { m: Media; multiSelected: boolea
       alt=""
       aria-hidden
       data-drag-original
+      // 元の画像を取ってくる間も、ライブラリーへ移せるようにドラッグできるようにしておく
+      draggable
       onDragStart={(e) => {
-        if (
-          startMediaDrag(e, m, e.currentTarget.parentElement) &&
-          multiSelected &&
-          !warnedMulti
-        ) {
-          warnedMulti = true;
-          toast(
-            "ドラッグで渡せるのは1枚だけです。複数枚は右クリックの「ダウンロード」を使ってください",
-          );
-        }
+        startMediaDrag(e, m, e.currentTarget.parentElement, true);
       }}
       className="absolute inset-0 h-full w-full opacity-0"
     />
@@ -140,6 +124,7 @@ export function Thumb({
   m,
   selected,
   order,
+  dimmed,
   onClick,
   onDoubleClick,
   onFav,
@@ -151,6 +136,8 @@ export function Thumb({
   selected: boolean;
   /** 複数選択時の何番目か */
   order?: number;
+  /** 切り取っている画像（薄く出す） */
+  dimmed?: boolean;
   onClick: (e: React.MouseEvent) => void;
   onDoubleClick?: () => void;
   onFav?: () => void;
@@ -162,7 +149,7 @@ export function Thumb({
   const { showExt, iconStyle, cardName } = useMediaPrefs();
   // Windows 風：エクスプローラーの画像表示のように、画像を切り抜かずに正方形の枠へ収め（下にそろえる）、名前を画像の下に出す
   const explorer = iconStyle === "explorer";
-  const drag = !renaming && <DragOriginal m={m} multiSelected={order !== undefined} />;
+  const drag = !renaming && <DragOriginal m={m} />;
   const nameField = (className: string) => (
     <NameField name={editableName(m)} onDone={(n) => onRenamed?.(n)} className={className} />
   );
@@ -221,13 +208,14 @@ export function Thumb({
         }
       }}
       className={
-        explorer
+        (dimmed ? "opacity-50 " : "") +
+        (explorer
           ? `group relative flex cursor-default flex-col items-center gap-1 rounded-[6px] border p-1.5 outline-none select-none ${
               selected ? "border-accent/50 bg-accent/15" : "border-transparent hover:bg-tint focus-visible:bg-tint"
             }`
           : `group relative aspect-square cursor-pointer overflow-hidden rounded-[12px] border border-line bg-card transition duration-300 select-none motion-safe:hover:-translate-y-[3px] active:scale-95 ${
               selected ? "outline-[3px] -outline-offset-1 outline-accent" : ""
-            }`
+            }`)
       }
     >
       {explorer ? (

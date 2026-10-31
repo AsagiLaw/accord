@@ -8,7 +8,7 @@ import { aspectRatio, formatSize } from "@/lib/media/image";
 import {
   arrange,
   childrenOf,
-  descendants,
+  deepMedia,
   editableName,
   libraryView,
   repOf,
@@ -23,12 +23,94 @@ import { useMediaState } from "./MediaContext";
 import { useMediaRouter } from "./MediaLink";
 import { libraryPaths } from "./PreviewPanel";
 import { rememberOpenedFrom } from "./Lightbox";
+import { useCutMedia } from "./flows";
+import { acceptsMoveDrag, beginMoveDrag, dropMoveDrag } from "./moveDrag";
 import { DragOriginal, NameField, Thumb, ThumbImage, UploadGauge } from "./Thumb";
 
 /** マウス操作の端末か（タッチ端末では、タップで開き「選択」モードで選ぶ） */
 export const isPointerFine = () =>
   typeof window !== "undefined" &&
   window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+
+/**
+ * 子ライブラリーのタイル。画像と同じ大きさで、代表の画像がのぞくフォルダの形。
+ * 1回のクリックで選んだ印を付け、ダブルクリックで開く（タッチの端末はタップで開く）。画像を落とすと、このライブラリーへ移す
+ */
+function FolderTile({ lib }: { lib: Library }) {
+  const { media, libs, base, boxId, setSelected } = useMediaState();
+  const { iconStyle } = useMediaPrefs();
+  const router = useMediaRouter();
+  const [over, setOver] = useState(false);
+  const explorer = iconStyle === "explorer";
+  const rep = repOf(media, libs, lib);
+  const count = deepMedia(media, libs, lib.id).length;
+  const go = () => router.push(`${base}/lib/${lib.id}`);
+  // 標準の見せ方は名前の札を下に重ねるので、札の分だけフォルダを上に寄せる
+  const bottom = explorer ? "6%" : "24%";
+  const art = (
+    <span className="absolute inset-0" aria-hidden>
+      <span className="absolute left-[8%] h-[12%] w-[34%] rounded-t-[6px] bg-accent/70" style={{ bottom: `calc(${bottom} + 62%)` }} />
+      <span className="absolute inset-x-[8%] rounded-[8px] rounded-tl-none bg-accent/70" style={{ bottom, height: "64%" }} />
+      <span className="absolute inset-x-[15%] overflow-hidden rounded-[4px] bg-card" style={{ bottom: `calc(${bottom} + 10%)`, height: "48%" }}>
+        {rep && <ThumbImage id={rep} alt="" />}
+      </span>
+      <span className="absolute inset-x-[8%] flex items-end justify-end rounded-[8px] bg-accent px-1.5 py-0.5 text-xs font-bold text-accent-ink" style={{ bottom, height: "28%" }}>
+        {count}
+      </span>
+    </span>
+  );
+  return (
+    <div
+      role="link"
+      tabIndex={0}
+      aria-label={`子ライブラリー「${lib.name}」 ${count}枚`}
+      title="ダブルクリックで開く"
+      data-name="子ライブラリー"
+      data-lib-card={lib.id}
+      onClick={() => (isPointerFine() ? setSelected([]) : go())}
+      onDoubleClick={go}
+      onKeyDown={(e) => e.key === "Enter" && go()}
+      onDragOver={(e) => {
+        if (!acceptsMoveDrag(e, boxId, lib.id)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setOver(true);
+      }}
+      onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setOver(false)}
+      onDrop={(e) => {
+        setOver(false);
+        if (!acceptsMoveDrag(e, boxId, lib.id)) return;
+        e.preventDefault();
+        dropMoveDrag(lib);
+      }}
+      className={
+        explorer
+          ? `group relative flex cursor-default flex-col items-center gap-1 rounded-[6px] border p-1.5 outline-none select-none focus:border-accent/50 focus:bg-accent/15 ${
+              over ? "border-accent bg-accent/15" : "border-transparent hover:bg-tint"
+            }`
+          : `group relative aspect-square cursor-default overflow-hidden rounded-[12px] border border-line bg-card transition duration-300 select-none focus:outline-[3px] focus:-outline-offset-1 focus:outline-accent motion-safe:hover:-translate-y-[3px] active:scale-95 ${
+              over ? "outline-[3px] -outline-offset-1 outline-accent" : ""
+            }`
+      }
+    >
+      {explorer ? (
+        <>
+          <span className="relative block aspect-square w-full">{art}</span>
+          <span title={lib.name} className="line-clamp-2 w-full text-center text-xs leading-4 [overflow-wrap:anywhere]">
+            {lib.name}
+          </span>
+        </>
+      ) : (
+        <>
+          {art}
+          <span className="pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-16px)] truncate rounded-[10px] bg-black/25 px-2.5 py-px text-xs font-bold text-white backdrop-blur-md [text-shadow:0_1px_3px_#000,0_0_8px_#000a]">
+            {lib.name}
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
 
 export function MediaGrid({
   list,
@@ -56,6 +138,8 @@ export function MediaGrid({
     members,
     viewing,
     base,
+    boxId,
+    byId,
     canEdit,
   } = useMediaState();
   // 拡大表示中の「名前を変更」は、上のバーの名前で書き換える。
@@ -88,6 +172,8 @@ export function MediaGrid({
       // 覚えられなくても、このページの間は効く
     }
   };
+  // リスト表示で、画像を落とそうとしている子ライブラリーの行
+  const [overRow, setOverRow] = useState<string | null>(null);
   const anchor = useRef<string | null>(null);
   const ids = list.map((m) => m.id);
   // 最初は画面に入るぶんだけ描く（リスト表示は1行 24px、並べる表示は1枚の大きさから数える）
@@ -99,24 +185,18 @@ export function MediaGrid({
         ? Math.ceil(window.innerHeight / 24) + 10
         : Math.floor((window.innerWidth + GAP) / (size + GAP)) * (Math.ceil(window.innerHeight / (size + GAP)) + 1),
   );
-  const childReps = lib
-    ? libs
-        .filter((l) => l.parentId === lib.id)
-        .map((k) => ({ lib: k, rep: repOf(media, k) }))
-    : [];
-  const parentRep = lib?.parentId ? repOf(media, lib) : undefined;
-  // フォルダの印を付ける子ライブラリーの名前：「全て表示」のときは、子ライブラリーに入っている画像すべて。それ以外は代表の画像だけ
-  const allMode = !!lib && prefs.libMode === "all";
-  const folderMark = (m: Media): string[] =>
-    allMode
-      ? childrenOf(libs, lib!.id)
-          .filter((k) =>
-            m.libIds.some((x) => descendants(libs, k.id).includes(x)),
-          )
-          .map((k) => k.name)
-      : childReps.filter((c) => c.rep === m.id).map((c) => c.lib.name);
-  const markTitle = (names: string[]) =>
-    `子ライブラリー「${names.join("」「")}」${allMode ? "の画像" : "の代表"}`;
+  // ライブラリーの中では、子ライブラリーを画像の前に並べる（検索の結果には出さない）
+  const folders = lib ? childrenOf(libs, lib.id) : [];
+  const parentRep = lib?.parentId ? repOf(media, libs, lib) : undefined;
+  // 切り取っている画像は、元のライブラリーの一覧で薄く出す
+  const cut = useCutMedia();
+  const isCut = (id: string) => !!lib && cut?.cutFrom === lib.id && cut.ids.includes(id);
+  // 画像のドラッグを始めたら、落とす先のライブラリーに渡す分を覚える。選んでいる画像なら、選んでいる画像すべて
+  const startDrag = (e: React.DragEvent) => {
+    const id = (e.target as Element).closest<HTMLElement>("[data-media]")?.dataset.media;
+    if (!id || !canEdit || byId.get(id)?.trashed) return;
+    beginMoveDrag({ boxId, ids: selected.includes(id) ? selected : [id], from: lib?.id ?? null });
+  };
 
   // サムネイルの位置を覚えてから開く（そこから拡大して出てくる）
   const openIn = (id: string, inList: string[]) => {
@@ -162,20 +242,13 @@ export function MediaGrid({
     else setSelected([id]);
   };
 
-  // リスト表示で子ライブラリーを行として出すときは、画像が無くても一覧を出す
-  const folderRows =
-    prefs.imageView === "list" &&
-    !!lib &&
-    prefs.libMode === "rep" &&
-    childReps.length > 0;
-  if (!list.length && !folderRows)
+  if (!list.length && !folders.length)
     return <p className="py-6 text-sm text-muted">{empty}</p>;
 
   // リスト表示：1行に1枚（Windows のファイル一覧のように、小さいアイコンと名前・サイズ・容量・日時）
   if (prefs.imageView === "list") {
-    // ライブラリーの中で「基本」の配置のときは、子ライブラリーの代表の画像の所に、その子ライブラリーの行を出す
-    // （画像の無い子ライブラリーは先頭に）。行はダブルクリックで開く
-    const asFolders = !!lib && prefs.libMode === "rep";
+    // ライブラリーの中では、子ライブラリーの行を先頭に出す。行はダブルクリックで開く
+    const asFolders = !!lib;
     // 名前の右に出す列（「並べ替えと表示」の詳細の表示/非表示で、出す・隠す・並べ替え）
     const cols = prefs.columns.filter((c) =>
       LIST_COLUMNS.some((x) => x.id === c),
@@ -233,12 +306,7 @@ export function MediaGrid({
     // 子ライブラリーの行：種類（形式か画像サイズの、先に出ている方）と枚数だけ
     const kindCol = cols.find((c) => c === "type" || c === "dims");
     // 画像の行。depth は子ライブラリーを開いた中の深さ（右にずらす）、inList は拡大したときに左右で送る並び
-    const imageRow = (
-      m: Media,
-      depth: number,
-      inList: string[],
-      usedBy: string[],
-    ) => {
+    const imageRow = (m: Media, depth: number, inList: string[]) => {
       const on = selected.includes(m.id);
       return (
         <div
@@ -257,11 +325,9 @@ export function MediaGrid({
           }}
           className={`relative grid h-6 cursor-default items-center gap-3 rounded-[4px] px-2 select-none ${
             on ? "bg-accent/15 text-ink" : "hover:bg-tint"
-          }`}
+          } ${isCut(m.id) ? "opacity-50" : ""}`}
         >
-          {renaming !== m.id && (
-            <DragOriginal m={m} multiSelected={on && selected.length > 1} />
-          )}
+          {renaming !== m.id && <DragOriginal m={m} />}
           <span
             className="flex min-w-0 items-center gap-2"
             style={{ paddingLeft: depth * 18 }}
@@ -287,11 +353,6 @@ export function MediaGrid({
                 className="shrink-0 text-yellow-500"
               />
             )}
-            {usedBy.length > 0 && (
-              <span title={markTitle(usedBy)} className="shrink-0 text-accent">
-                <Icon name="folder" size={12} />
-              </span>
-            )}
             <UploadGauge id={m.id} className="h-1.5 w-16 shrink-0 rounded-full bg-line" />
           </span>
           {cols.map((c) => cell(c, detail(c, m)))}
@@ -309,29 +370,19 @@ export function MediaGrid({
         );
       else setSelected([id]);
     };
-    // 開いた子ライブラリーの中身：そのライブラリーの「基本」の並び。孫ライブラリーは、その代表の画像の所に行として出す
+    // 開いた子ライブラリーの中身：孫ライブラリーの行のあとに、直接入っている画像
     const contents = (k: Library, depth: number): React.ReactNode => {
-      const inner = arrange(libraryView(media, libs, k.id, "rep"), prefs);
+      const inner = arrange(libraryView(media, k.id), prefs);
       const innerIds = inner.map((x) => x.id);
-      const kidReps = childrenOf(libs, k.id).map((c) => ({
-        lib: c,
-        rep: repOf(media, c),
-      }));
       return (
         <>
-          {kidReps.filter((c) => !c.rep).map((c) => folderRow(c.lib, depth))}
-          {inner.map((m) => {
-            const reps = kidReps.filter((c) => c.rep === m.id);
-            if (reps.length) return reps.map((c) => folderRow(c.lib, depth));
-            return imageRow(m, depth, innerIds, []);
-          })}
+          {childrenOf(libs, k.id).map((c) => folderRow(c, depth))}
+          {inner.map((m) => imageRow(m, depth, innerIds))}
         </>
       );
     };
     const folderRow = (k: Library, depth = 0): React.ReactNode => {
-      const n = media.filter(
-        (x) => !x.trashed && x.libIds.includes(k.id),
-      ).length;
+      const n = deepMedia(media, libs, k.id).length;
       const go = () => router.push(`${base}/lib/${k.id}`);
       const kids = childrenOf(libs, k.id);
       const expanded = openLibs.includes(k.id);
@@ -343,9 +394,24 @@ export function MediaGrid({
             aria-label={`子ライブラリー「${k.name}」`}
             title="ダブルクリックで開く"
             data-name="子ライブラリーの行"
+            data-lib-card={k.id}
+            onClick={() => (isPointerFine() ? setSelected([]) : go())}
             onDoubleClick={go}
             onKeyDown={(e) => e.key === "Enter" && go()}
-            className="grid h-6 cursor-default items-center gap-3 rounded-[4px] px-2 outline-none select-none hover:bg-tint focus:bg-tint"
+            onDragOver={(e) => {
+              if (!acceptsMoveDrag(e, boxId, k.id)) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              setOverRow(k.id);
+            }}
+            onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setOverRow(null)}
+            onDrop={(e) => {
+              setOverRow(null);
+              if (!acceptsMoveDrag(e, boxId, k.id)) return;
+              e.preventDefault();
+              dropMoveDrag(k);
+            }}
+            className={`grid h-6 cursor-default items-center gap-3 rounded-[4px] px-2 outline-none select-none hover:bg-tint focus:bg-tint ${overRow === k.id ? "bg-tint outline-2 -outline-offset-2 outline-accent" : ""}`}
             style={gridCols}
           >
             <span
@@ -358,7 +424,7 @@ export function MediaGrid({
                   <button
                     type="button"
                     aria-expanded={expanded}
-                    aria-label={`「${k.name}」の子ライブラリーを${expanded ? "閉じる" : "開く"}`}
+                    aria-label={`「${k.name}」の中を${expanded ? "閉じる" : "開く"}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       toggleLib(k.id);
@@ -392,6 +458,7 @@ export function MediaGrid({
         data-name="画像一覧"
         role="listbox"
         aria-multiselectable
+        onDragStartCapture={startDrag}
         className="overflow-x-auto rounded-[10px] border border-line bg-card p-1 text-sm"
         onClick={(e) => {
           if (e.target === e.currentTarget && isPointerFine()) setSelected([]);
@@ -411,14 +478,8 @@ export function MediaGrid({
               </span>
             ))}
           </div>
-          {asFolders &&
-            childReps.filter((c) => !c.rep).map((c) => folderRow(c.lib))}
-          {list.slice(0, shown).map((m) => {
-            const reps = childReps.filter((c) => c.rep === m.id);
-            if (asFolders && reps.length)
-              return reps.map((c) => folderRow(c.lib));
-            return imageRow(m, 0, ids, folderMark(m));
-          })}
+          {folders.map((k) => folderRow(k))}
+          {list.slice(0, shown).map((m) => imageRow(m, 0, ids))}
         </div>
       </div>
     );
@@ -428,71 +489,61 @@ export function MediaGrid({
     <div
       data-name="画像一覧"
       className="grid gap-2.5"
-      // 画像は決めた大きさちょうどで並べる（ライブラリーのカードの左の四角と同じ大きさにそろえる）
+      onDragStartCapture={startDrag}
+      // 画像は決めた大きさちょうどで並べる（子ライブラリーのタイルも同じ大きさ）
       style={{ gridTemplateColumns: `repeat(auto-fill, ${size}px)` }}
       onClick={(e) => {
         // 何もないところをクリックしたら選択を外す（マウス操作のとき）
         if (e.target === e.currentTarget && isPointerFine()) setSelected([]);
       }}
     >
-      {list.slice(0, shown).map((m) => {
-        const usedBy = folderMark(m);
-        return (
-          <Thumb
-            key={m.id}
-            m={m}
-            selected={selected.includes(m.id)}
-            order={
-              selected.length > 1 && selected.includes(m.id)
-                ? selected.indexOf(m.id) + 1
-                : undefined
-            }
-            onClick={(e) => click(e, m.id)}
-            onDoubleClick={() => open(m.id)}
-            onFav={canEdit ? () => setFav([m.id], !m.fav) : undefined}
-            renaming={renaming === m.id}
-            onRenamed={renamed(m.id)}
-            extra={
-              // フォルダの印と代表のボタンは左上に並べる（いつも出る印を角に。複数選んでいるときは、選んだ順の番号の右）
-              (lib?.parentId || usedBy.length > 0) && (
-                <span
-                  className={`absolute top-1 flex items-center gap-1 ${selected.length > 1 && selected.includes(m.id) ? "left-9" : "left-1"}`}
+      {folders.map((k) => (
+        <FolderTile key={k.id} lib={k} />
+      ))}
+      {list.slice(0, shown).map((m) => (
+        <Thumb
+          key={m.id}
+          m={m}
+          selected={selected.includes(m.id)}
+          order={
+            selected.length > 1 && selected.includes(m.id)
+              ? selected.indexOf(m.id) + 1
+              : undefined
+          }
+          dimmed={isCut(m.id)}
+          onClick={(e) => click(e, m.id)}
+          onDoubleClick={() => open(m.id)}
+          onFav={canEdit ? () => setFav([m.id], !m.fav) : undefined}
+          renaming={renaming === m.id}
+          onRenamed={renamed(m.id)}
+          extra={
+            // 代表のボタンは左上に置く（複数選んでいるときは、選んだ順の番号の右）
+            lib?.parentId && canEdit && (
+              <span
+                className={`absolute top-1 flex items-center gap-1 ${selected.length > 1 && selected.includes(m.id) ? "left-9" : "left-1"}`}
+              >
+                <button
+                  title="親ライブラリーで、この子ライブラリーの表紙にする"
+                  aria-label="代表の画像にする"
+                  aria-pressed={parentRep === m.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRepresentative(lib.id, m.id);
+                  }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  className={`grid h-8 w-8 place-items-center rounded-full bg-black/40 transition ${
+                    parentRep === m.id
+                      ? "text-accent opacity-100"
+                      : "text-white opacity-0 group-hover:opacity-100 focus:opacity-100"
+                  }`}
                 >
-                  {usedBy.length > 0 && (
-                    // 子ライブラリーの印はアイコンだけ（名前はカーソルを置くと出る）
-                    <span
-                      title={markTitle(usedBy)}
-                      aria-label={markTitle(usedBy)}
-                      className="grid h-6 w-6 place-items-center rounded-full bg-accent text-accent-ink"
-                    >
-                      <Icon name="folder" size={14} />
-                    </span>
-                  )}
-                  {lib?.parentId && canEdit && (
-                    <button
-                      title="親ライブラリーで、この子ライブラリーの代表として表示する画像にする"
-                      aria-label="代表の画像にする"
-                      aria-pressed={parentRep === m.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setRepresentative(lib.id, m.id);
-                      }}
-                      onDoubleClick={(e) => e.stopPropagation()}
-                      className={`grid h-8 w-8 place-items-center rounded-full bg-black/40 transition ${
-                        parentRep === m.id
-                          ? "text-accent opacity-100"
-                          : "text-white opacity-0 group-hover:opacity-100 focus:opacity-100"
-                      }`}
-                    >
-                      <Icon name="mark" size={16} />
-                    </button>
-                  )}
-                </span>
-              )
-            }
-          />
-        );
-      })}
+                  <Icon name="mark" size={16} />
+                </button>
+              </span>
+            )
+          }
+        />
+      ))}
     </div>
   );
 }

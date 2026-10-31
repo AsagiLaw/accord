@@ -9,12 +9,12 @@ import { isDefaultEdit, renderEdit, type ImageEdit } from "@/lib/media/edit";
 import type { ImportFile } from "@/lib/media/folders";
 import { decodeImage, isImageFile, makeThumb, readImage, readRecordedDate } from "@/lib/media/image";
 import { PSD_MIME } from "@/lib/media/psd";
-import { childrenOf, descendants, withAncestors } from "@/lib/media/logic";
+import { childrenOf, descendants, hasOldLibIds, withoutAncestors } from "@/lib/media/logic";
 import { loadBlobRow, loadShownBlob } from "@/lib/media/remote";
 import { boxAccess, uploadBoxForRoom } from "./boxes";
 import { speakerName } from "./chat";
 import { renumber, renumberBoxes } from "./renumber";
-import { fetchReferencedMedia } from "./rowSync";
+import { fetchReferencedMedia, writeMediaLocally } from "./rowSync";
 import { db, newId, type Library, type Media, type MediaBlob } from "./db";
 
 export type Undo = () => Promise<void>;
@@ -80,6 +80,7 @@ async function snapshot(boxId: string): Promise<Undo> {
   const media = (await db.media.where("boxId").equals(boxId).toArray()).map((m) => ({
     id: m.id,
     libIds: [...m.libIds],
+    libsDirect: m.libsDirect,
     trashed: m.trashed,
     fav: m.fav,
     name: m.name,
@@ -182,17 +183,16 @@ export async function setMadeAt(id: string, madeAt: number) {
 
 /**
  * フォルダごと入れた画像のための、フォルダと同じ並びのライブラリー（名前はフォルダ名のまま）。
- * 同じ所に同じ名前のライブラリーがあれば、それを使う。フォルダの並びごとに、上から順のライブラリーの ID を返す（画像はそのすべてに入れる）
+ * 同じ所に同じ名前のライブラリーがあれば、それを使う。フォルダの並びごとに、一番深いライブラリーの ID を返す（画像はそこに入れる）
  */
 async function folderLibraries(boxId: string, paths: string[][]) {
-  const chains = new Map<string, string[]>();
+  const leaves = new Map<string, string>();
   const tops: Library[] = [];
   await db.transaction("rw", db.libraries, async () => {
     const libs = await boxLibs(boxId);
     for (const path of paths) {
       const key = path.join("/");
-      if (chains.has(key)) continue;
-      const ids: string[] = [];
+      if (leaves.has(key)) continue;
       let parentId: string | null = null;
       for (const name of path) {
         let lib = libs.find((l) => l.parentId === parentId && l.name === name);
@@ -202,13 +202,12 @@ async function folderLibraries(boxId: string, paths: string[][]) {
           await db.libraries.add(lib);
         }
         if (parentId === null && !tops.includes(lib)) tops.push(lib);
-        ids.push(lib.id);
         parentId = lib.id;
       }
-      chains.set(key, ids);
+      if (parentId) leaves.set(key, parentId);
     }
   });
-  return { libIdsOf: (path: string[] | undefined) => (path?.length ? (chains.get(path.join("/")) ?? []) : []), tops };
+  return { libIdsOf: (path: string[] | undefined) => (path?.length && leaves.has(path.join("/")) ? [leaves.get(path.join("/"))!] : []), tops };
 }
 
 /**
@@ -550,6 +549,7 @@ export async function saveEditAsCopy(id: string, edit: ImageEdit, userId: string
     trashed: false,
     // 元の画像と同じライブラリーに入れる
     libIds: [...m.libIds],
+    ...(m.libsDirect && { libsDirect: true }),
     // 自動の名前の画像は、同じタイトルの最後の番号にする（振り直しで名前が決まる）
     ...(m.madeAt !== undefined && { madeAt: m.madeAt }),
     ...(m.title !== undefined && { title: m.title, seq: APPEND }),
@@ -705,17 +705,57 @@ export async function setRepresentative(libId: string, mediaId: string) {
   await db.libraries.update(libId, { repMediaId: mediaId });
 }
 
-/** ライブラリーと子ライブラリーを削除。画像は消さない */
+/**
+ * 前の形の画像（親と子の両方に入っている）を、子だけに入っている形に直す。編集できるボックスなら Supabase にも送る。
+ * 見るだけのボックスは送れないので、ブラウザの中だけ直す（編集できる人が開けば、Supabase の行も直る）
+ */
+export async function flattenOldLibIds(boxId: string, canEdit: boolean) {
+  const libs = await boxLibs(boxId);
+  const write = () =>
+    db.media
+      .where("boxId")
+      .equals(boxId)
+      .filter((m) => hasOldLibIds(libs, m))
+      .modify((m) => {
+        m.libIds = withoutAncestors(libs, m.libIds);
+      });
+  if (canEdit) await write();
+  else await writeMediaLocally(write);
+}
+
+/** 画像の入っている場所を書き換える。親と子の両方に入れたままにするときは、前の形と区別する印を付ける */
+function setLibIds(m: Media, libs: Library[], next: string[]) {
+  m.libIds = [...new Set(next)];
+  if (withoutAncestors(libs, m.libIds).length !== m.libIds.length) m.libsDirect = true;
+}
+
+/** ライブラリーの親子が変わったあと：親と子の両方に入ることになった画像に、印を付ける */
+async function markBothLevels(boxId: string, libs: Library[]) {
+  await db.media
+    .where("boxId")
+    .equals(boxId)
+    .filter((m) => !m.libsDirect && m.libIds.length > 1 && withoutAncestors(libs, m.libIds).length !== m.libIds.length)
+    .modify({ libsDirect: true });
+}
+
+/**
+ * ライブラリーと子ライブラリーを削除。画像は消さない。
+ * 中の画像は、消すライブラリーの親に移す（親が無ければ、ほかに入っている場所が無い画像は未整理になる）
+ */
 export async function deleteLibrary(boxId: string, id: string): Promise<Undo> {
   const undo = await snapshot(boxId);
-  const ids = descendants(await boxLibs(boxId), id);
+  const libs = await boxLibs(boxId);
+  const ids = descendants(libs, id);
+  const parentId = libs.find((l) => l.id === id)?.parentId ?? null;
   await db.transaction("rw", db.libraries, db.media, async () => {
     await db.libraries.bulkDelete(ids);
+    const rest = libs.filter((l) => !ids.includes(l.id));
     await db.media
       .where("boxId")
       .equals(boxId)
+      .filter((m) => m.libIds.some((x) => ids.includes(x)))
       .modify((m) => {
-        m.libIds = m.libIds.filter((x) => !ids.includes(x));
+        setLibIds(m, rest, [...m.libIds.filter((x) => !ids.includes(x)), ...(parentId ? [parentId] : [])]);
       });
   });
   return undo;
@@ -723,20 +763,17 @@ export async function deleteLibrary(boxId: string, id: string): Promise<Undo> {
 
 /**
  * 「整理」：選んだ画像を、選んだライブラリーに入れる。
- * もともと入っていて選択を外したライブラリーからは、その子ライブラリーごと外す。
+ * もともと入っていて選択を外したライブラリーからは外す（子ライブラリーからは外れない）。
  */
 export async function organize(boxId: string, mediaIds: string[], selected: string[], before: string[]): Promise<Undo> {
   const undo = await snapshot(boxId);
   const libs = await boxLibs(boxId);
-  const removed = [...new Set(before.filter((x) => !selected.includes(x)).flatMap((x) => descendants(libs, x)))].filter(
-    (x) => !selected.includes(x),
-  );
+  const removed = before.filter((x) => !selected.includes(x));
   await db.media
     .where("id")
     .anyOf(mediaIds)
     .modify((m) => {
-      const kept = m.libIds.filter((x) => !removed.includes(x));
-      m.libIds = withAncestors(libs, [...kept, ...selected]);
+      setLibIds(m, libs, [...m.libIds.filter((x) => !removed.includes(x)), ...selected]);
     });
   return undo;
 }
@@ -745,7 +782,6 @@ export async function organize(boxId: string, mediaIds: string[], selected: stri
 export async function setLibraryMembers(boxId: string, libId: string, selected: string[]): Promise<Undo> {
   const undo = await snapshot(boxId);
   const libs = await boxLibs(boxId);
-  const below = descendants(libs, libId);
   await db.media
     .where("boxId")
     .equals(boxId)
@@ -753,26 +789,63 @@ export async function setLibraryMembers(boxId: string, libId: string, selected: 
       if (m.trashed) return;
       const has = m.libIds.includes(libId);
       const want = selected.includes(m.id);
-      if (want && !has) m.libIds = withAncestors(libs, [...m.libIds, libId]);
-      if (!want && has) m.libIds = m.libIds.filter((x) => !below.includes(x));
+      if (want && !has) setLibIds(m, libs, [...m.libIds, libId]);
+      if (!want && has) m.libIds = m.libIds.filter((x) => x !== libId);
     });
   return undo;
 }
 
-/** ライブラリーから画像を出す（子ライブラリーからも外れる） */
+/** ライブラリーから画像を出す（子ライブラリーからは外れない） */
 export async function removeFromLibrary(boxId: string, libId: string, mediaIds: string[]): Promise<Undo> {
   const undo = await snapshot(boxId);
-  const below = descendants(await boxLibs(boxId), libId);
   await db.media
     .where("id")
     .anyOf(mediaIds)
     .modify((m) => {
-      m.libIds = m.libIds.filter((x) => !below.includes(x));
+      m.libIds = m.libIds.filter((x) => x !== libId);
     });
   return undo;
 }
 
-/** 選んだ画像で新しいライブラリーを作る */
+/** 画像をライブラリーに入れる。ほかに入っている場所はそのまま */
+export async function addToLibrary(boxId: string, libId: string, mediaIds: string[]): Promise<Undo> {
+  const undo = await snapshot(boxId);
+  const libs = await boxLibs(boxId);
+  await db.media
+    .where("id")
+    .anyOf(mediaIds)
+    .modify((m) => {
+      setLibIds(m, libs, [...m.libIds, libId]);
+    });
+  return undo;
+}
+
+/** 画像を別のライブラリーへ移す。from が無ければ（元のライブラリーが無い所から）入れるだけ */
+export async function moveToLibrary(boxId: string, mediaIds: string[], from: string | null, to: string): Promise<Undo> {
+  const undo = await snapshot(boxId);
+  const libs = await boxLibs(boxId);
+  await db.media
+    .where("id")
+    .anyOf(mediaIds)
+    .modify((m) => {
+      setLibIds(m, libs, [...m.libIds.filter((x) => x !== from), to]);
+    });
+  return undo;
+}
+
+/** 貼り付けられる画像（このボックスの、ゴミ箱に入っていない画像で、まだこのライブラリーに入っていないもの）の ID */
+export async function pastableMedia(boxId: string, libId: string, mediaIds: string[]) {
+  const rows = await db.media.bulkGet(mediaIds);
+  return rows.flatMap((m) => (m && m.boxId === boxId && !m.trashed && !m.libIds.includes(libId) ? [m.id] : []));
+}
+
+/** 移せる画像（このボックスの、ゴミ箱に入っていない画像）の ID */
+export async function movableMedia(boxId: string, mediaIds: string[]) {
+  const rows = await db.media.bulkGet(mediaIds);
+  return rows.flatMap((m) => (m && m.boxId === boxId && !m.trashed ? [m.id] : []));
+}
+
+/** 選んだ画像で新しいライブラリーを作る。ライブラリーの中で作ったら、そのライブラリーから新しい子ライブラリーへ移す */
 export async function groupIntoLibrary(boxId: string, mediaIds: string[], name: string, parentId: string | null) {
   const lib = await createLibrary(boxId, name, parentId);
   const libs = await boxLibs(boxId);
@@ -780,20 +853,16 @@ export async function groupIntoLibrary(boxId: string, mediaIds: string[], name: 
     .where("id")
     .anyOf(mediaIds)
     .modify((m) => {
-      m.libIds = withAncestors(libs, [...m.libIds, lib.id]);
+      setLibIds(m, libs, [...m.libIds.filter((x) => x !== parentId), lib.id]);
     });
   return lib;
 }
 
-/**
- * ライブラリーの場所を変える（別の親の子ライブラリーにする・最上位に出す）。
- * removeFromOldParent のとき、中の画像を元の親たちからも外す。
- */
+/** ライブラリーの場所を変える（別の親の子ライブラリーにする・最上位に出す）。中の画像の入っている場所は変わらない */
 export async function moveLibrary(
   boxId: string,
   id: string,
   newParentId: string | null,
-  removeFromOldParent: boolean,
   /** 並べる位置（あるライブラリーの前か後ろ）。無ければ最後 */
   place?: { targetId: string; after: boolean },
 ): Promise<Undo> {
@@ -801,21 +870,11 @@ export async function moveLibrary(
   const libs = await boxLibs(boxId);
   const lib = libs.find((l) => l.id === id);
   if (!lib || (newParentId && descendants(libs, id).includes(newParentId))) return undo;
-  const sub = descendants(libs, id);
-  const oldChain = lib.parentId ? chainIds(libs, lib.parentId) : [];
   const siblings = childrenOf(libs, newParentId);
   await db.transaction("rw", db.libraries, db.media, async () => {
     await db.libraries.update(id, { parentId: newParentId, order: (siblings.at(-1)?.order ?? 0) + 1 });
     const updated = await boxLibs(boxId);
-    await db.media
-      .where("boxId")
-      .equals(boxId)
-      .modify((m) => {
-        if (!m.libIds.some((x) => sub.includes(x))) return;
-        let ids = m.libIds;
-        if (removeFromOldParent) ids = ids.filter((x) => !oldChain.includes(x));
-        m.libIds = withAncestors(updated, ids);
-      });
+    await markBothLevels(boxId, updated);
     if (place) {
       const sibs = childrenOf(updated, newParentId).filter((l) => l.id !== id);
       const i = sibs.findIndex((l) => l.id === place.targetId);
@@ -825,16 +884,6 @@ export async function moveLibrary(
     }
   });
   return undo;
-}
-
-function chainIds(libs: Library[], id: string): string[] {
-  const out: string[] = [];
-  let cur = libs.find((l) => l.id === id);
-  while (cur) {
-    out.push(cur.id);
-    cur = cur.parentId ? libs.find((l) => l.id === cur!.parentId) : undefined;
-  }
-  return out;
 }
 
 /** 同じ親の中で並び順を入れ替える */
@@ -867,11 +916,9 @@ export async function mergeLibrary(boxId: string, id: string, intoId: string): P
       .where("libIds")
       .equals(id)
       .modify((m) => {
-        m.libIds = withAncestors(
-          updated,
-          m.libIds.filter((x) => x !== id).concat(intoId),
-        );
+        m.libIds = [...new Set(m.libIds.filter((x) => x !== id).concat(intoId))];
       });
+    await markBothLevels(boxId, updated);
   });
   return undo;
 }

@@ -13,10 +13,12 @@ import {
   LIBRARY_MENU,
   libraryAction,
   newLibraryFlow,
+  toggleInLibraryFlow,
   uploadFlow,
 } from "./flows";
-import { requestAddTo } from "./MediaContext";
+import { requestAddTo, useSharedSelection } from "./MediaContext";
 import { MediaLink, useMediaRouter } from "./MediaLink";
+import { acceptsMoveDrag, dropMoveDrag } from "./moveDrag";
 import {
   MenuDivider,
   MenuItem,
@@ -77,6 +79,11 @@ export function MediaNav({
   // ファイルを選ぶ画面が開いている間は「メディアを追加」に色を付けたままにする
   // ファイルを選ぶ画面を開いている間は、押したボタンを押した色のままにする
   const [picking, setPicking] = useState<"files" | "folder" | null>(null);
+  // 画像をドラッグして落とそうとしているライブラリー
+  const [dropLib, setDropLib] = useState<string | null>(null);
+  // メディア画面で選んでいる画像（ライブラリーの行に、入っているかの印を出す）
+  const selectedIds = useSharedSelection(boxId);
+  const selection = canEdit ? media.filter((m) => !m.trashed && selectedIds.includes(m.id)) : [];
 
   // ---- ライブラリーのドラッグ（試作と同じ：前・後ろに並べる／中に入れる／見出しで一番上へ） ----
   const drag = useRef<DragState | null>(null);
@@ -111,7 +118,6 @@ export function MediaNav({
         void dropLibraryFlow(
           boxId,
           latest.current.libs,
-          latest.current.media,
           d.id,
           z,
         );
@@ -215,27 +221,52 @@ export function MediaNav({
         ? zone.zone
         : null;
     const dragging = libId && ghost?.id === libId;
+    const target = libId ? libs.find((l) => l.id === libId) : undefined;
     return (
       <div
         data-lib={libId}
         onPointerDown={libId && canEdit ? (e) => startDrag(e, libId) : undefined}
         onContextMenu={canEdit ? onContextMenu : undefined}
-        className={`group flex min-h-[38px] items-center rounded-[10px] transition ${active ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"} ${
+        onDragOver={
+          target &&
+          ((e) => {
+            if (!acceptsMoveDrag(e, boxId, target.id)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            setDropLib(target.id);
+          })
+        }
+        onDragLeave={
+          target &&
+          ((e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropLib(null);
+          })
+        }
+        onDrop={
+          target &&
+          ((e) => {
+            setDropLib(null);
+            if (!acceptsMoveDrag(e, boxId, target.id)) return;
+            e.preventDefault();
+            dropMoveDrag(target);
+          })
+        }
+        className={`group flex min-h-[26px] items-center rounded-[6px] text-sm transition pointer-coarse:min-h-[38px] pointer-coarse:rounded-[10px] pointer-coarse:text-base ${active ? "bg-accent font-bold text-accent-ink" : "hover:bg-tint"} ${
           z === "before"
             ? "shadow-[inset_0_3px_0_var(--accent)]"
             : z === "after"
               ? "shadow-[inset_0_-3px_0_var(--accent)]"
-              : z === "inside"
+              : z === "inside" || dropLib === libId
                 ? "bg-tint outline-2 -outline-offset-2 outline-accent"
                 : ""
         } ${dragging ? "opacity-40" : ""}`}
         style={{ paddingLeft: 4 + depth * 14 }}
       >
-        <span className="grid w-7 shrink-0 place-items-center">{toggle}</span>
+        <span className="grid w-6 shrink-0 place-items-center pointer-coarse:w-7">{toggle}</span>
         <MediaLink
           href={href}
           draggable={false}
-          className="min-w-0 flex-1 truncate py-1.5"
+          className="min-w-0 flex-1 truncate py-0.5 pointer-coarse:py-1.5"
         >
           {label}
         </MediaLink>
@@ -252,6 +283,33 @@ export function MediaNav({
     </span>
   );
 
+  // 選んでいる画像が入っているかの印：全部（●）・一部（◐）・入っていない（○）。押すと、その場で入れる・出す
+  const memberMark = (l: Library, active: boolean) => {
+    if (!selection.length) return undefined;
+    const n = selection.filter((m) => m.libIds.includes(l.id)).length;
+    const all = n === selection.length;
+    return (
+      <button
+        data-name="入っているかの印"
+        aria-pressed={all ? true : n ? "mixed" : false}
+        aria-label={all ? `「${l.name}」から出す` : `「${l.name}」に入れる`}
+        title={all ? `「${l.name}」から出す` : `「${l.name}」に入れる`}
+        onClick={() =>
+          void toggleInLibraryFlow(
+            boxId,
+            selection.map((m) => m.id),
+            l,
+            all,
+          )
+        }
+        className={`mr-1.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border-2 border-current pointer-coarse:mr-2 pointer-coarse:h-5 pointer-coarse:w-5 ${active ? "" : "text-accent"}`}
+        style={n && !all ? { background: "linear-gradient(90deg, currentColor 50%, transparent 50%)" } : all ? { background: "currentColor" } : undefined}
+      >
+        {all && <Icon name="ok" size={10} className={active ? "text-accent" : "text-accent-ink"} />}
+      </button>
+    );
+  };
+
   const libNode = (l: Library, depth: number): React.ReactNode => {
     const kids = childrenOf(libs, l.id);
     const open = isOpen(l.id);
@@ -262,13 +320,13 @@ export function MediaNav({
           withIcon("folder", l.name),
           depth,
           // メニューは右クリックで出す。開け閉めのボタンは左に置く
-          undefined,
+          memberMark(l, pathname === `${base}/lib/${l.id}`),
           kids.length > 0 && (
             <button
               aria-label={open ? "たたむ" : "開く"}
               aria-expanded={open}
               onClick={() => setToggled({ ...toggled, [l.id]: !open })}
-              className="grid h-7 w-7 shrink-0 place-items-center rounded-full hover:bg-tint"
+              className="grid h-5 w-5 shrink-0 place-items-center rounded-full hover:bg-tint pointer-coarse:h-7 pointer-coarse:w-7"
             >
               <Icon name={open ? "dn" : "rt"} size={16} />
             </button>
@@ -364,7 +422,7 @@ export function MediaNav({
       </div>
       )}
 
-      <div data-name="メディアの一覧" className="space-y-0.5">
+      <div data-name="メディアの一覧" className="pointer-coarse:space-y-0.5">
         {row(
           base,
           withIcon("home", "ホーム"),
@@ -374,7 +432,7 @@ export function MediaNav({
             aria-label={homeShown ? "たたむ" : "開く"}
             aria-expanded={homeShown}
             onClick={toggleHome}
-            className="grid h-7 w-7 place-items-center rounded-full hover:bg-tint"
+            className="grid h-5 w-5 place-items-center rounded-full hover:bg-tint pointer-coarse:h-7 pointer-coarse:w-7"
           >
             <Icon name={homeShown ? "dn" : "rt"} size={16} />
           </button>,
@@ -401,24 +459,24 @@ export function MediaNav({
       <h6
         data-lib-root
         title={canEdit ? "右クリックでメニュー。ドラッグで並べ替え。行の真ん中に落とすと中に入れる・合体、ここ（見出し）に落とすと一番上の階層へ" : undefined}
-        className={`mx-1 mt-5 mb-1 flex items-center justify-between rounded-[8px] px-2 text-xs text-muted ${zone?.zone === "root" ? "text-accent outline-2 outline-accent outline-dashed" : ""}`}
+        className={`mx-1 mt-3 flex items-center justify-between rounded-[8px] px-2 text-xs text-muted ${zone?.zone === "root" ? "text-accent outline-2 outline-accent outline-dashed" : ""}`}
       >
         ライブラリー
         {canEdit ? (
           <button
             aria-label="ライブラリーを追加"
             onClick={() => newLibraryFlow(boxId, null)}
-            className="grid h-7 w-7 place-items-center rounded-full hover:bg-tint"
+            className="grid h-6 w-6 place-items-center rounded-full hover:bg-tint pointer-coarse:h-7 pointer-coarse:w-7"
           >
             <Icon name="add" />
           </button>
         ) : (
-          <span className="h-7" />
+          <span className="h-6 pointer-coarse:h-7" />
         )}
       </h6>
       <div
         data-name="ライブラリー一覧"
-        className="min-h-0 flex-1 space-y-0.5 overflow-y-auto"
+        className="min-h-0 flex-1 overflow-y-auto pointer-coarse:space-y-0.5"
       >
         {childrenOf(libs, null).map((l) => libNode(l, 0))}
         {!libs.length && (

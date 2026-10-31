@@ -8,7 +8,7 @@ import { ensureMyMedia, useBoxMembers, useMyBoxes, useRoomBox } from "@/lib/loca
 import type { Library, Media } from "@/lib/local/db";
 import { useLibraries, useMedia, uploadFiles } from "@/lib/local/media";
 import { IMAGE_ACCEPT } from "@/lib/media/image";
-import { arrange, chain, childrenOf, coverOf, isUnsorted, labelOf, libraryView, searchMedia, THUMB_SIZES } from "@/lib/media/logic";
+import { arrange, chain, childrenOf, coverOf, deepMedia, isUnsorted, labelOf, libraryView, searchMedia, THUMB_SIZES } from "@/lib/media/logic";
 import { MEDIA_DRAG_TYPE } from "@/lib/media/export";
 import { filesFromDrop, type ImportFile } from "@/lib/media/folders";
 import { useMediaPrefs } from "@/lib/media/prefs";
@@ -101,7 +101,7 @@ export function MediaPicker({
     let pool: Media[];
     if (place === "unsorted") pool = alive.filter(isUnsorted);
     else if (place === "fav") pool = alive.filter((m) => m.fav);
-    else if (lib) pool = q ? alive.filter((m) => m.libIds.includes(lib.id)) : libraryView(alive, allLibs, lib.id, prefs.libMode);
+    else if (lib) pool = q ? deepMedia(alive, allLibs, lib.id) : libraryView(alive, lib.id);
     else pool = alive;
     if (filter) pool = pool.filter(filter);
     const sorted = arrange(pool, prefs);
@@ -295,7 +295,7 @@ export function MediaPicker({
                   className="min-w-0 flex-1 bg-transparent outline-none"
                 />
               </label>
-              <SortMenu showLibMode={!!lib} iconOnly />
+              <SortMenu iconOnly />
             </div>
 
             {/* 選んでいる画像（ライブラリーやボックスを移っても、何を選んでいるかがわかるように）。左から選んだ順 */}
@@ -352,7 +352,7 @@ export function MediaPicker({
               {cards.length > 0 && (
                 <div className="mb-4 grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${Math.min(size * 1.5, 200)}px, 1fr))` }}>
                   {cards.map((l) => (
-                    <CoverCard key={l.id} name={l.name} covers={coverOf(alive, l)} count={alive.filter((m) => m.libIds.includes(l.id)).length} onClick={() => go(`lib:${l.id}`)} />
+                    <CoverCard key={l.id} name={l.name} covers={coverOf(alive, allLibs, l)} count={deepMedia(alive, allLibs, l.id).length} onClick={() => go(`lib:${l.id}`)} />
                   ))}
                 </div>
               )}

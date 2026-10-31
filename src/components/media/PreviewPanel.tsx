@@ -6,19 +6,14 @@ import { db, type Library, type Media } from "@/lib/local/db";
 import { renameMedia, setMadeAt } from "@/lib/local/media";
 import { splitDate } from "@/lib/media/autoname";
 import { aspectRatio, formatSize, readImageMeta, type ImageMeta } from "@/lib/media/image";
-import { chain, descendants, editableName, PREVIEW_FIELDS, shownName, typeName, type PreviewField } from "@/lib/media/logic";
+import { chain, editableName, PREVIEW_FIELDS, shownName, typeName, type PreviewField } from "@/lib/media/logic";
 import { useMediaPrefs } from "@/lib/media/prefs";
 import { useMediaState } from "./MediaContext";
 import { DragOriginal, ThumbImage } from "./Thumb";
 
-/** 画像が入っているライブラリーを「親 › 子」の形で、一番深いものだけ並べる */
+/** 画像が入っているライブラリーを「親 › 子」の形で並べる */
 export function libraryPaths(m: Media, libs: Library[]): string[] {
-  const inLibs = libs.filter((l) => m.libIds.includes(l.id));
-  const leaves = inLibs.filter(
-    (l) =>
-      !inLibs.some((o) => o !== l && descendants(libs, l.id).includes(o.id)),
-  );
-  return leaves.map((l) =>
+  return libs.filter((l) => m.libIds.includes(l.id)).map((l) =>
     chain(libs, l.id)
       .map((x) => x.name)
       .join(" › "),
@@ -289,7 +284,7 @@ function PreviewBody() {
               onClick={() => setViewing(m.id)}
             >
               <ThumbImage id={m.id} alt={m.name} className={square ? "object-contain" : ""} />
-              <DragOriginal m={m} multiSelected={selected.length > 1} />
+              <DragOriginal m={m} />
             </button>
           </div>
         )}

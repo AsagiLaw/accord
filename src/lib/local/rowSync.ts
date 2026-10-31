@@ -413,6 +413,14 @@ async function flushOnce() {
   }
 }
 
+/** 画像の情報を、ブラウザの中だけ書き換える（見るだけのボックスの画像は、送っても断られるので送らない） */
+export function writeMediaLocally(write: () => Promise<unknown>) {
+  return db.transaction("rw", db.media, async (tx) => {
+    (tx as unknown as Record<symbol, boolean>)[REMOTE] = true;
+    await write();
+  });
+}
+
 let hooked = false;
 
 /** ブラウザの中の書き込みを拾うフック（Supabase 版のときだけ、1回だけ付ける） */

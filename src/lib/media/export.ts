@@ -113,10 +113,11 @@ export function useOriginalState(m: Media | undefined): { url: string | undefine
  * 元の画像（img）をドラッグし始めたとき。ブラウザが画像そのものを、ファイルとして他のアプリ（Photoshop・デスクトップなど）に渡す。
  * ghost：ドラッグ中に見せる要素（透明な画像を重ねてドラッグさせるときに、下の見た目を使う）。渡せないときは false
  */
-export function startMediaDrag(e: React.DragEvent<HTMLImageElement>, m: Media, ghost?: Element | null): boolean {
+export function startMediaDrag(e: React.DragEvent<HTMLImageElement>, m: Media, ghost?: Element | null, evenIfLoading = false): boolean {
   const img = e.currentTarget;
-  // タッチ端末や、元の画像をまだ読み込めていないときは、ドラッグしない
-  if (!img.complete || !img.naturalWidth || !window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
+  // タッチ端末や、元の画像をまだ読み込めていないときは、ドラッグしない。
+  // evenIfLoading：読み込み中でも、アプリの中のライブラリーへ移すためにドラッグできるようにする（他のアプリには渡らない）
+  if ((!evenIfLoading && (!img.complete || !img.naturalWidth)) || !window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
     e.preventDefault();
     return false;
   }

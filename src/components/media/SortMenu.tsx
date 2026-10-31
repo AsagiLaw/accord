@@ -9,7 +9,6 @@ import { NavRow, ToggleRow } from "@/components/ui/SettingsMenu";
 import {
   LIST_COLUMNS,
   type ListColumn,
-  type LibMode,
   type SortKey,
 } from "@/lib/media/logic";
 import { updatePrefs, useMediaPrefs } from "@/lib/media/prefs";
@@ -50,18 +49,8 @@ const COLUMN_ICON: Record<ListColumn, IconName> = {
   libs: "folder",
 };
 
-const LIB_MODES: { v: LibMode; label: string; note: string }[] = [
-  { v: "rep", label: "基本", note: "子ライブラリーは代表の画像だけを出します" },
-  { v: "all", label: "全て表示", note: "子ライブラリーの画像もすべて出します" },
-  {
-    v: "single",
-    label: "シングル",
-    note: "子ライブラリーに入っていない画像だけを出します",
-  },
-];
-
 /** iconOnly：サムネイルを並べる見せ方しかない所（メディアから選ぶ画面）。「画像・ライブラリーの表示」を出さない */
-export function SortMenu({ showLibMode, iconOnly }: { showLibMode: boolean; iconOnly?: boolean }) {
+export function SortMenu({ iconOnly }: { iconOnly?: boolean }) {
   const prefs = useMediaPrefs();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -241,27 +230,6 @@ export function SortMenu({ showLibMode, iconOnly }: { showLibMode: boolean; icon
                   ))}
                 </div>
               </section>
-              {showLibMode && (
-                <section className="space-y-1">
-                  <h4 className="text-sm font-bold">ライブラリーの表示</h4>
-                  {LIB_MODES.map((o) => (
-                    <button
-                      key={o.v}
-                      aria-pressed={prefs.libMode === o.v}
-                      title={o.note}
-                      onClick={() => updatePrefs({ libMode: o.v })}
-                      className={`grid w-full justify-items-start rounded-[10px] px-3 py-1.5 text-left ${
-                        prefs.libMode === o.v ? "bg-tint" : "hover:bg-tint"
-                      }`}
-                    >
-                      <span className="flex items-center gap-1 text-sm font-bold">
-                        {prefs.libMode === o.v && <Icon name="ok" size={14} />}
-                        {o.label}
-                      </span>
-                    </button>
-                  ))}
-                </section>
-              )}
             </>
           )}
         </div>

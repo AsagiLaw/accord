@@ -7,9 +7,6 @@ import { PSD_MIME } from "./psd";
 /** 並べる基準：追加日時・制作日・名前・容量 */
 export type SortKey = "new" | "made" | "name" | "size";
 export type SortDir = "asc" | "desc";
-/** ライブラリーの配置：基本（子ライブラリーは印の画像だけ）／全て表示／シングル（子ライブラリーの画像を出さない） */
-export type LibMode = "rep" | "all" | "single";
-
 /** リスト表示で名前の右に並べる列（プレビューの詳細と同じ項目） */
 export type ListColumn =
   | "fileName"
@@ -77,7 +74,6 @@ export type MediaPrefs = {
   dirs: Record<SortKey, SortDir>;
   /** 画像のサイズ 1〜4（極小・小・中・大） */
   level: number;
-  libMode: LibMode;
   /** 画像とライブラリーの見せ方：アイコン（サムネイル・カードを並べる）／リスト（1行に1つ、名前やサイズを並べる） */
   imageView: "icon" | "list";
   /**
@@ -103,7 +99,6 @@ export const DEFAULT_PREFS: MediaPrefs = {
   sort: "new",
   dirs: { new: "desc", made: "desc", name: "asc", size: "desc" },
   level: 3,
-  libMode: "rep",
   imageView: "icon",
   iconStyle: "card",
   cardName: true,
@@ -146,37 +141,42 @@ export function childrenOf(
     .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
 }
 
-/** 子ライブラリーに入れた画像は、その親たちにも入っている状態にそろえる */
-export function withAncestors(libs: Library[], libIds: string[]): string[] {
-  const out = new Set<string>();
-  for (const id of libIds) chain(libs, id).forEach((l) => out.add(l.id));
-  return [...out];
+/** 親と子の両方が入っているとき、親を除く（子だけにする） */
+export function withoutAncestors(libs: Library[], libIds: string[]): string[] {
+  return libIds.filter(
+    (id) => !libIds.some((o) => o !== id && chain(libs, o).some((l) => l.id === id)),
+  );
+}
+
+/**
+ * 前の形の画像か（前は、子ライブラリーに入れると親たちにも入る形だった）。親と子の両方に入っていて、印（libsDirect）が無い画像がそう。
+ * 入っているライブラリーがまだ届いていないときは、親子が分からないので見分けない
+ */
+export function hasOldLibIds(libs: Library[], m: Media): boolean {
+  if (m.libsDirect || m.libIds.length < 2) return false;
+  if (m.libIds.some((id) => !libs.some((l) => l.id === id))) return false;
+  return withoutAncestors(libs, m.libIds).length !== m.libIds.length;
 }
 
 export const isUnsorted = (m: Media) => !m.trashed && m.libIds.length === 0;
 
-/** 子ライブラリーの代表画像。指定が無い・外れているなら最初の画像 */
-export function repOf(media: Media[], lib: Library): string | undefined {
-  const list = media.filter((m) => !m.trashed && m.libIds.includes(lib.id));
-  if (lib.repMediaId && list.some((m) => m.id === lib.repMediaId))
-    return lib.repMediaId;
-  return list[0]?.id;
+/** ライブラリーの中（子ライブラリーの中も）の画像。ゴミ箱の画像は除く */
+export function deepMedia(media: Media[], libs: Library[], libId: string): Media[] {
+  const ids = new Set(descendants(libs, libId));
+  return media.filter((m) => !m.trashed && m.libIds.some((id) => ids.has(id)));
 }
 
-/** ライブラリーを開いたときに並べる画像 */
-export function libraryView(
-  media: Media[],
-  libs: Library[],
-  libId: string,
-  mode: LibMode,
-): Media[] {
-  const inLib = media.filter((m) => !m.trashed && m.libIds.includes(libId));
-  if (mode === "all") return inLib;
-  const below = descendants(libs, libId).filter((id) => id !== libId);
-  const inChild = (m: Media) => m.libIds.some((id) => below.includes(id));
-  if (mode === "single") return inLib.filter((m) => !inChild(m));
-  const reps = childrenOf(libs, libId).map((k) => repOf(media, k));
-  return inLib.filter((m) => !inChild(m) || reps.includes(m.id));
+/** ライブラリーの代表画像。指定が無い・外れているなら、直接入っている最初の画像。無ければ子ライブラリーの最初の画像 */
+export function repOf(media: Media[], libs: Library[], lib: Library): string | undefined {
+  const list = deepMedia(media, libs, lib.id);
+  if (lib.repMediaId && list.some((m) => m.id === lib.repMediaId))
+    return lib.repMediaId;
+  return (list.find((m) => m.libIds.includes(lib.id)) ?? list[0])?.id;
+}
+
+/** ライブラリーを開いたときに並べる画像（直接入っている画像だけ。子ライブラリーの画像は出さない） */
+export function libraryView(media: Media[], libId: string): Media[] {
+  return media.filter((m) => !m.trashed && m.libIds.includes(libId));
 }
 
 /** 画像の名前に拡張子を付けて出す（「並べ替えと表示」のファイル名拡張子） */
@@ -244,12 +244,13 @@ export function arrange(list: Media[], prefs: MediaPrefs): Media[] {
   return [...list].sort((a, b) => (cmp[prefs.sort] ?? cmp.new)(a, b) * dir);
 }
 
-/** カードの表紙に出す画像3枚。代表の画像（repOf）があれば、それを先頭（左の大きい四角）にする */
-export function coverOf(media: Media[], lib: Library): Media[] {
-  const list = media.filter((m) => !m.trashed && m.libIds.includes(lib.id));
-  const rep = repOf(media, lib);
+/** カードの表紙に出す画像3枚。代表の画像（repOf）があれば、それを先頭（左の大きい四角）にする。直接入っている画像を先に使う */
+export function coverOf(media: Media[], libs: Library[], lib: Library): Media[] {
+  const list = deepMedia(media, libs, lib.id);
+  const rep = repOf(media, libs, lib);
   return [
     ...list.filter((m) => m.id === rep),
-    ...list.filter((m) => m.id !== rep),
+    ...list.filter((m) => m.id !== rep && m.libIds.includes(lib.id)),
+    ...list.filter((m) => m.id !== rep && !m.libIds.includes(lib.id)),
   ].slice(0, 3);
 }

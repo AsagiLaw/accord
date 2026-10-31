@@ -1,8 +1,9 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { Library, Media, Profile } from "@/lib/local/db";
-import { useLibraries, useMedia } from "@/lib/local/media";
+import { flattenOldLibIds, useLibraries, useMedia } from "@/lib/local/media";
+import { hasOldLibIds } from "@/lib/media/logic";
 import type { MemberWithProfile } from "@/lib/local/rooms";
 
 export type MediaState = {
@@ -54,6 +55,28 @@ export function requestAddTo(boxId: string, libId: string) {
   window.dispatchEvent(new CustomEvent(ADD_TO_EVENT, { detail: { boxId, libId } }));
 }
 
+// サイドバーは MediaProvider の外にあるので、選んでいる画像をここから知らせる
+const NO_SELECTION: string[] = [];
+let shared: { boxId: string; ids: string[] } = { boxId: "", ids: NO_SELECTION };
+const selectionListeners = new Set<() => void>();
+function shareSelection(boxId: string, ids: string[]) {
+  shared = { boxId, ids };
+  selectionListeners.forEach((fn) => fn());
+}
+
+/** このボックスで選んでいる画像（メディア画面の外から読むとき） */
+export function useSharedSelection(boxId: string) {
+  const read = () => (shared.boxId === boxId ? shared.ids : NO_SELECTION);
+  return useSyncExternalStore(
+    (fn) => {
+      selectionListeners.add(fn);
+      return () => selectionListeners.delete(fn);
+    },
+    read,
+    () => NO_SELECTION,
+  );
+}
+
 export function MediaProvider({
   boxId,
   base,
@@ -91,6 +114,16 @@ export function MediaProvider({
     window.addEventListener(ADD_TO_EVENT, onAdd);
     return () => window.removeEventListener(ADD_TO_EVENT, onAdd);
   }, [boxId, canEdit]);
+
+  useEffect(() => {
+    shareSelection(boxId, selected);
+    return () => shareSelection("", NO_SELECTION);
+  }, [boxId, selected]);
+
+  // 前の形（親と子の両方に入っている）の画像が届いたら、子だけに入っている形に直す
+  useEffect(() => {
+    if (media && libs && media.some((m) => hasOldLibIds(libs, m))) void flattenOldLibIds(boxId, canEdit);
+  }, [boxId, canEdit, media, libs]);
 
   const value = useMemo<MediaState | null>(() => {
     if (!media || !libs) return null;

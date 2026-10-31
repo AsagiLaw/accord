@@ -2,10 +2,9 @@
 
 import { useCallback, useState } from "react";
 import { MediaPicker } from "@/components/MediaPicker";
-import { choose, toast } from "@/components/ui/overlay";
+import { toast } from "@/components/ui/overlay";
 import type { Media } from "@/lib/local/db";
 import { setLibraryMembers } from "@/lib/local/media";
-import { descendants } from "@/lib/media/logic";
 import { useMediaState } from "./MediaContext";
 
 type Filter = "all" | "hideIn" | "onlyIn";
@@ -28,25 +27,9 @@ export function AddToLibraryDialog({ libId }: { libId: string }) {
   const close = () => setAddingTo(null);
 
   const done = async (chosen: string[]) => {
-    const below = descendants(libs, libId).filter((x) => x !== libId);
     const leaving = media.filter(
       (m) => before.includes(m.id) && !chosen.includes(m.id),
     );
-    const alsoFrom = [
-      ...new Set(
-        leaving.flatMap((m) => m.libIds.filter((x) => below.includes(x))),
-      ),
-    ]
-      .map((x) => libs.find((l) => l.id === x)?.name)
-      .filter(Boolean);
-    if (alsoFrom.length) {
-      const i = await choose(
-        `「${lib.name}」から外します`,
-        [{ label: "外す", danger: true }],
-        `「${alsoFrom.join("」「")}」からも外れますが、よろしいですか？`,
-      );
-      if (i !== 0) return;
-    }
     const added = chosen.filter((x) => !before.includes(x)).length;
     const removed = leaving.length;
     const undo = await setLibraryMembers(boxId, libId, chosen);

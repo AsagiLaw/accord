@@ -20,6 +20,7 @@ import {
   chain,
   childrenOf,
   coverOf,
+  deepMedia,
   editableName,
   extOf,
   labelOf,
@@ -31,11 +32,16 @@ import {
 import { useMediaPrefs } from "@/lib/media/prefs";
 import {
   autoNameFlow,
+  cancelCut,
   copyImageFlow,
+  copyMediaFlow,
+  cutMediaFlow,
   deleteForeverFlow,
+  deleteKeyFlow,
   duplicateFlow,
   downloadFlow,
   groupFlow,
+  pasteMediaFlow,
   removeFromLibraryFlow,
   restoreFlow,
   retitleFlow,
@@ -105,25 +111,6 @@ export function MediaView({ view }: { view: MediaViewKind }) {
     setReserveState(px);
   }, []);
   const ctx = usePopover();
-  // 子ライブラリーの並びを閉じているか。端末ごとに覚える（どのライブラリーでも同じ）
-  const [kidsClosed, setKidsClosed] = useState(() => {
-    try {
-      return localStorage.getItem("irai-note:media-kids-closed") === "1";
-    } catch {
-      return false;
-    }
-  });
-  const toggleKids = () => {
-    setKidsClosed(!kidsClosed);
-    try {
-      localStorage.setItem(
-        "irai-note:media-kids-closed",
-        kidsClosed ? "0" : "1",
-      );
-    } catch {
-      // 覚えられなくても、このページの間は効く
-    }
-  };
   const [ctxKind, setCtxKind] = useState<"media" | "viewing" | "empty" | "card">(
     "media",
   );
@@ -154,10 +141,10 @@ export function MediaView({ view }: { view: MediaViewKind }) {
         );
       case "lib":
         return lib
-          ? arrange(libraryView(media, libs, lib.id, prefs.libMode), prefs)
+          ? arrange(libraryView(media, lib.id), prefs)
           : [];
     }
-  }, [view, media, libs, lib, prefs]);
+  }, [view, media, lib, prefs]);
 
   // 画面を移ったら選択を外す
   const viewKey = view.kind === "lib" ? `lib:${view.id}` : view.kind;
@@ -184,10 +171,16 @@ export function MediaView({ view }: { view: MediaViewKind }) {
       view.kind === "home"
         ? arrange(media.filter((m) => !m.trashed), prefs)
         : view.kind === "lib" && lib
-          ? arrange(media.filter((m) => !m.trashed && m.libIds.includes(lib.id)), prefs)
+          ? arrange(deepMedia(media, libs, lib.id), prefs)
           : list;
     return searchMedia(pool, query, uploader);
-  }, [searching, list, query, view.kind, media, lib, prefs, s.members]);
+  }, [searching, list, query, view.kind, media, libs, lib, prefs, s.members]);
+
+  // 移した・出した画像など、見えなくなった画像を選んだままにしない（Delete でゴミ箱へ送ってしまわないように）
+  useEffect(() => {
+    const shown = selected.filter((id) => found.some((m) => m.id === id));
+    if (shown.length !== selected.length) setSelected(shown);
+  }, [found, selected, setSelected]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -196,6 +189,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
         document.querySelector('[role="dialog"]')
       )
         return;
+      if (e.key === "Escape") cancelCut();
       if (e.key === "Escape" && selected.length) setSelected([]);
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
@@ -204,14 +198,24 @@ export function MediaView({ view }: { view: MediaViewKind }) {
         view.kind !== "trash"
       ) {
         e.preventDefault();
-        trashFlow(boxId, selected);
-        setSelected([]);
+        void deleteKeyFlow(boxId, selected.flatMap((id) => s.byId.get(id) ?? []), searching ? undefined : lib).then((done) => done && setSelected([]));
       }
-      // Ctrl+C：選んだ画像をコピー（Discord などに Ctrl+V で貼れる）
-      if ((e.ctrlKey || e.metaKey) && e.key === "c" && selected.length) {
+      // Ctrl+C：選んだ画像を覚える（Ctrl+V でライブラリーに貼り付ける。1枚なら Discord などにも貼れる）
+      if ((e.ctrlKey || e.metaKey) && e.key === "c" && selected.length && !s.viewing) {
         if (window.getSelection()?.toString()) return;
         e.preventDefault();
-        copyImageFlow(selected.flatMap((id) => s.byId.get(id) ?? []));
+        void copyMediaFlow(boxId, selected.flatMap((id) => s.byId.get(id) ?? []));
+      }
+      // Ctrl+X：選んだ画像を切り取る（Ctrl+V で移す）
+      if ((e.ctrlKey || e.metaKey) && e.key === "x" && selected.length && canEdit && !s.viewing && view.kind !== "trash") {
+        if (window.getSelection()?.toString()) return;
+        e.preventDefault();
+        void cutMediaFlow(boxId, selected.flatMap((id) => s.byId.get(id) ?? []), searching ? null : (lib?.id ?? null));
+      }
+      // Ctrl+V：コピーした画像は今開いているライブラリーにも入れ（データは増えない）、切り取った画像は移す
+      if ((e.ctrlKey || e.metaKey) && e.key === "v" && canEdit && !s.viewing) {
+        e.preventDefault();
+        void pasteMediaFlow(boxId, lib);
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "a" && (view.kind !== "home" || searching)) {
         e.preventDefault();
@@ -220,7 +224,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selected, setSelected, view.kind, searching, boxId, found, s.byId, canEdit]);
+  }, [selected, setSelected, view.kind, searching, boxId, found, s.byId, s.viewing, lib, canEdit]);
 
   // 右クリック：大きく表示している画像・一覧の画像・ライブラリーの何もない所で、それぞれのメニューを出す
   const openCtx = ctx.openAt;
@@ -635,7 +639,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
                   {n}枚選択中
                 </span>
               )}
-              <SortMenu showLibMode={view.kind === "lib"} />
+              <SortMenu />
               {/* タッチの端末だけ：複数の画像を選ぶための切り替え */}
               {!isPointerFine() && (
                 <button
@@ -678,57 +682,6 @@ export function MediaView({ view }: { view: MediaViewKind }) {
           ) : view.kind === "home" ? (
             <MediaHome selectMode={selectMode} size={cardSize} />
           ) : (
-            <>
-              {/* リスト表示で「基本」の配置のときは、子ライブラリーは画像の一覧の中に行として出すので、ここには出さない */}
-              {lib &&
-                childrenOf(libs, lib.id).length > 0 &&
-                !(prefs.imageView === "list" && prefs.libMode === "rep") && (
-                  <>
-                    {/* 見出しを押すと、子ライブラリーの並びを閉じる・開く */}
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <h3 className="font-bold">
-                        <button
-                          type="button"
-                          aria-expanded={!kidsClosed}
-                          onClick={toggleKids}
-                          className="-ml-1 flex items-center gap-1 rounded-[8px] px-1 hover:bg-tint"
-                        >
-                          <Icon name={kidsClosed ? "rt" : "dn"} size={16} />
-                          子ライブラリー
-                          {kidsClosed && (
-                            <span className="text-sm font-normal text-muted">
-                              {childrenOf(libs, lib.id).length}
-                            </span>
-                          )}
-                        </button>
-                      </h3>
-                    </div>
-                    {!kidsClosed &&
-                      (prefs.imageView === "list" ? (
-                        <div className="mb-5">
-                          <LibraryList parentId={lib.id} />
-                        </div>
-                      ) : (
-                        <div
-                          data-name="子ライブラリーの並び"
-                          className="mb-5 flex flex-wrap gap-2.5"
-                        >
-                          {childrenOf(libs, lib.id).map((k) => (
-                            <CoverCard
-                              size={cardSize}
-                              key={k.id}
-                              href={`${base}/lib/${k.id}`}
-                              openOnDoubleClick
-                              libId={k.id}
-                              name={k.name}
-                              covers={coverOf(media, k)}
-                            />
-                          ))}
-                        </div>
-                      ))}
-                    <h3 className="mb-2 font-bold">画像</h3>
-                  </>
-                )}
               <MediaGrid
                 size={cardSize}
                 list={list}
@@ -742,7 +695,6 @@ export function MediaView({ view }: { view: MediaViewKind }) {
                       : "画像がありません"
                 }
               />
-            </>
           )}
         </div>
         <PreviewPanel
@@ -926,7 +878,7 @@ function LibraryRows({ size }: { size: number }) {
           openOnDoubleClick
           libId={l.id}
           name={l.name}
-          covers={coverOf(media, l)}
+          covers={coverOf(media, libs, l)}
         >
           {/* 「整理」の画面と同じ：右下のボタンで子ライブラリーを開く（閉じているときは右向き、開くと下向き。下の段に並ぶ） */}
           {kids > 0 && (
@@ -1072,14 +1024,13 @@ function LibraryList({ parentId }: { parentId: string | null }) {
       // 覚えられなくても、このページの間は効く
     }
   };
-  const count = (l: Library) =>
-    media.filter((m) => !m.trashed && m.libIds.includes(l.id)).length;
+  const count = (l: Library) => deepMedia(media, libs, l.id).length;
 
   const rows = (pid: string | null, depth: number): React.ReactNode =>
     childrenOf(libs, pid).map((l) => {
       const kids = childrenOf(libs, l.id).length;
       const open = openIds.includes(l.id);
-      const cover = coverOf(media, l)[0];
+      const cover = coverOf(media, libs, l)[0];
       return (
         <li key={l.id}>
           <div
