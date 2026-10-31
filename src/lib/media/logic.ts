@@ -185,11 +185,11 @@ export function shownName(m: Media, showExt: boolean): string {
 }
 
 /**
- * アイコン表示の画像の上や、上のバーに出す名前。自動で名前を付けた画像はタイトルだけ（拡張子も付けない。
- * 「誕生日.jpeg」だと実際のファイル名と違って見えるため）。タイトルが空・自動の名前でない画像は、今までどおりの名前
+ * アイコン表示の画像の上や、上のバーに出す名前。自動で名前を付けた画像はタイトルだけ。
+ * 拡張子を出す設定のときは、全部の名前と拡張子（20250101_誕生日.png。「誕生日.png」だと実際のファイル名と違って見えるため）
  */
 export function labelOf(m: Media, showExt: boolean): string {
-  return m.title || shownName(m, showExt);
+  return showExt ? shownName(m, true) : m.title || m.name;
 }
 
 /** 名前を変えるときに書き換える所：自動で名前を付けた画像はタイトル、それ以外は名前 */

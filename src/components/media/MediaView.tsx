@@ -544,9 +544,9 @@ export function MediaView({ view }: { view: MediaViewKind }) {
       });
   });
   const curLib = !viewingMedia ? crumbs.at(-1) : undefined;
-  // 大きく表示している画像は、自動の名前ならタイトルだけ
+  // 大きく表示している画像は、自動の名前ならタイトルだけ（拡張子を出す設定なら、全部の名前と拡張子）
   const currentLabel =
-    (viewingMedia && labelOf(viewingMedia, false)) ??
+    (viewingMedia && labelOf(viewingMedia, prefs.showExt)) ??
     curLib?.name ??
     (view.kind === "lib" ? "" : view.kind === "home" ? s.title : TITLES[view.kind]);
   const currentCrumb = !canEdit ? (
@@ -555,9 +555,9 @@ export function MediaView({ view }: { view: MediaViewKind }) {
   ) : viewingMedia ? (
     <InlineName
       key={`${viewingMedia.id}${s.renaming === viewingMedia.id ? ":edit" : ""}`}
-      name={labelOf(viewingMedia, false)}
+      name={prefs.showExt ? viewingMedia.name : labelOf(viewingMedia, false)}
       editValue={editableName(viewingMedia)}
-      suffix={prefs.showExt && !viewingMedia.title ? `.${extOf(viewingMedia)}` : undefined}
+      suffix={prefs.showExt ? `.${extOf(viewingMedia)}` : undefined}
       startEditing={s.renaming === viewingMedia.id}
       onEditEnd={() => s.setRenaming(null)}
       onRename={(name) => renameMedia(viewingMedia.id, name)}
