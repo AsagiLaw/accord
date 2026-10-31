@@ -146,7 +146,7 @@ export function Thumb({
   renaming?: boolean;
   onRenamed?: (name: string | null) => void;
 }) {
-  const { showExt, iconStyle, cardName } = useMediaPrefs();
+  const { showExt, showMadeNumber, iconStyle, cardName } = useMediaPrefs();
   // Windows 風：エクスプローラーの画像表示のように、画像を切り抜かずに正方形の枠へ収め（下にそろえる）、名前を画像の下に出す
   const explorer = iconStyle === "explorer";
   const drag = !renaming && <DragOriginal m={m} />;
@@ -237,10 +237,10 @@ export function Thumb({
           ) : (
             // 長い名前は2行まで（全部はカーソルを合わせると出る）
             <span
-              title={labelOf(m, showExt)}
+              title={labelOf(m, showExt, showMadeNumber)}
               className="line-clamp-2 w-full text-center text-xs leading-4 [overflow-wrap:anywhere]"
             >
-              {labelOf(m, showExt)}
+              {labelOf(m, showExt, showMadeNumber)}
             </span>
           )}
         </>
@@ -254,7 +254,7 @@ export function Thumb({
             nameField("absolute right-2 bottom-2 left-2 h-6 text-xs font-bold")
           ) : (
             cardName && <span className="pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-16px)] truncate rounded-[10px] bg-black/25 px-2.5 py-px text-xs font-bold text-white backdrop-blur-md [text-shadow:0_1px_3px_#000,0_0_8px_#000a]">
-              {labelOf(m, showExt)}
+              {labelOf(m, showExt, showMadeNumber)}
             </span>
           )}
           {marks}

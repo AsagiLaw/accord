@@ -544,9 +544,9 @@ export function MediaView({ view }: { view: MediaViewKind }) {
       });
   });
   const curLib = !viewingMedia ? crumbs.at(-1) : undefined;
-  // 大きく表示している画像は、自動の名前ならタイトルだけ（拡張子を出す設定なら、全部の名前と拡張子）
+  // 大きく表示している画像の名前（一覧と同じ設定に従う）
   const currentLabel =
-    (viewingMedia && labelOf(viewingMedia, prefs.showExt)) ??
+    (viewingMedia && labelOf(viewingMedia, prefs.showExt, prefs.showMadeNumber)) ??
     curLib?.name ??
     (view.kind === "lib" ? "" : view.kind === "home" ? s.title : TITLES[view.kind]);
   const currentCrumb = !canEdit ? (
@@ -555,7 +555,7 @@ export function MediaView({ view }: { view: MediaViewKind }) {
   ) : viewingMedia ? (
     <InlineName
       key={`${viewingMedia.id}${s.renaming === viewingMedia.id ? ":edit" : ""}`}
-      name={prefs.showExt ? viewingMedia.name : labelOf(viewingMedia, false)}
+      name={labelOf(viewingMedia, false, prefs.showMadeNumber)}
       editValue={editableName(viewingMedia)}
       suffix={prefs.showExt ? `.${extOf(viewingMedia)}` : undefined}
       startEditing={s.renaming === viewingMedia.id}

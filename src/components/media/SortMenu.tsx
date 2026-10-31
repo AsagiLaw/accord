@@ -189,6 +189,13 @@ export function SortMenu({ iconOnly }: { iconOnly?: boolean }) {
                     on={prefs.showExt}
                     onChange={(showExt) => updatePrefs({ showExt })}
                   />
+                  <ToggleRow
+                    icon="calendar"
+                    label="制作日とナンバリング"
+                    note="名前を自動で付けた画像の名前に、制作日と番号も付けて出します"
+                    on={prefs.showMadeNumber}
+                    onChange={(showMadeNumber) => updatePrefs({ showMadeNumber })}
+                  />
                 </div>
                 {/* リストで名前の右に出す列：データベースのプロパティの表示/非表示と同じ画面で選ぶ（「詳細の表示/非表示」） */}
                 {prefs.imageView === "list" && (

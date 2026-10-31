@@ -385,7 +385,7 @@ export function MediaPicker({
                           )}
                           {m.fav && <Icon name="star" size={14} className="absolute right-1.5 bottom-1.5 text-yellow-300 drop-shadow" />}
                         </span>
-                        <span className={`mt-1 block truncate px-0.5 text-xs ${i >= 0 ? "font-bold text-ink" : "text-muted"}`}>{labelOf(m, prefs.showExt)}</span>
+                        <span className={`mt-1 block truncate px-0.5 text-xs ${i >= 0 ? "font-bold text-ink" : "text-muted"}`}>{labelOf(m, prefs.showExt, prefs.showMadeNumber)}</span>
                       </button>
                     );
                   })}

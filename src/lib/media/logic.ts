@@ -87,6 +87,8 @@ export type MediaPrefs = {
   columns: ListColumn[];
   /** 画像の名前の後ろに拡張子を付けて出す（Windows のエクスプローラーの「ファイル名拡張子」） */
   showExt: boolean;
+  /** 自動で名前を付けた画像の名前に、制作日と番号も出す（20250101_誕生日_01）。切ると、タイトルだけ */
+  showMadeNumber: boolean;
   /** プレビュー欄の画像の枠：元の画像と同じ縦横比／正方形（1:1。画像は枠に収める） */
   previewRatio: "original" | "square";
   /** プレビュー欄の詳細に出す項目（並べた順） */
@@ -104,6 +106,7 @@ export const DEFAULT_PREFS: MediaPrefs = {
   cardName: true,
   columns: ["dims", "size", "date"],
   showExt: false,
+  showMadeNumber: false,
   previewRatio: "original",
   previewFields: PREVIEW_FIELDS.map((f) => f.id),
   v: 2,
@@ -185,11 +188,12 @@ export function shownName(m: Media, showExt: boolean): string {
 }
 
 /**
- * アイコン表示の画像の上や、上のバーに出す名前。自動で名前を付けた画像はタイトルだけ。
- * 拡張子を出す設定のときは、全部の名前と拡張子（20250101_誕生日.png。「誕生日.png」だと実際のファイル名と違って見えるため）
+ * アイコン表示の画像の上や、上のバーに出す名前。自動で名前を付けた画像はタイトルだけで、
+ * 「制作日とナンバリング」の設定のときは全部の名前（20250101_誕生日_01）。拡張子は「ファイル名拡張子」の設定で付ける
  */
-export function labelOf(m: Media, showExt: boolean): string {
-  return showExt ? shownName(m, true) : m.title || m.name;
+export function labelOf(m: Media, showExt: boolean, showMadeNumber: boolean): string {
+  const name = showMadeNumber ? m.name : m.title || m.name;
+  return showExt ? `${name}.${extOf(m)}` : name;
 }
 
 /** 名前を変えるときに書き換える所：自動で名前を付けた画像はタイトル、それ以外は名前 */
